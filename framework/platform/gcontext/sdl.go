@@ -36,6 +36,15 @@ var (
 	fullscreen     bool
 )
 
+// SDLWindow exposes the raw SDL window handle backing the shared GL context,
+// or nil when no window has been created yet (for example in offscreen mode).
+// Consumers like native file dialogs use it as a parent handle so popups layer
+// and focus correctly; passing nil is always safe - the platform then creates
+// an unparented window.
+func SDLWindow() *sdl.Window {
+	return sdlWindow
+}
+
 func Initialize(offscreen bool) error {
 	libPath := filepath.Join(env.LibDir(), "SDL3.dll")
 	if runtime.GOOS != "windows" {

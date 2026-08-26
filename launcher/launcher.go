@@ -24,7 +24,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
-	"github.com/sqweek/dialog"
 	"github.com/wieku/rplpa"
 
 	"github.com/wieku/danser-go/app/beatmap"
@@ -902,10 +901,11 @@ func (l *launcher) selectReplay() {
 			dir = env.DataDir()
 		}
 
-		p, err := dialog.File().Filter("osu! replay file (*.osr)", "osr").Title("Select replay file").SetStartDir(dir).Load()
-		if err == nil {
-			l.trySelectReplayFromPath(p)
-		}
+		showFilePicker("Select replay file", []string{"osr"}, dir, false, false, func(paths []string, err error) {
+			if err == nil {
+				l.trySelectReplayFromPath(paths[0])
+			}
+		})
 	}
 
 	imgui.PopFont()
@@ -1030,13 +1030,14 @@ func (l *launcher) newKnockout() {
 			kPath = env.DataDir()
 		}
 
-		p, err := dialog.File().Filter("osu! replay file (*.osr)", "osr").Title("Select replay files").SetStartDir(kPath).LoadMultiple()
-		if err == nil {
-			launcherConfig.LastKnockoutPath = getRelativeOrABSPath(filepath.Dir(p[0]))
-			saveLauncherConfig()
+		showFilePicker("Select replay files", []string{"osr"}, kPath, true, false, func(p []string, err error) {
+			if err == nil {
+				launcherConfig.LastKnockoutPath = getRelativeOrABSPath(filepath.Dir(p[0]))
+				saveLauncherConfig()
 
-			l.trySelectReplaysFromPaths(p)
-		}
+				l.trySelectReplaysFromPaths(p)
+			}
+		})
 	}
 
 	imgui.PopFont()

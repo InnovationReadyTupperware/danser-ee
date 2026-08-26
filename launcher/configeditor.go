@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/AllenDang/cimgui-go/imgui"
-	"github.com/sqweek/dialog"
 
 	"github.com/wieku/danser-go/app/osuapi"
 	"github.com/wieku/danser-go/app/settings"
@@ -1084,23 +1083,26 @@ func (editor *settingsEditor) buildString(jsonPath string, f reflect.Value, d re
 						dir = env.DataDir()
 					}
 
-					var p string
-					var err error
+					onPick := func(paths []string, err error) {
+						if err != nil {
+							return
+						}
 
-					if okP {
-						p, err = dialog.Directory().Title(pDesc).SetStartDir(dir).Browse()
-					} else {
-						spl := strings.Split(d.Tag.Get("filter"), "|")
-						p, err = dialog.File().Title(fDesc).Filter(spl[0], strings.Split(spl[1], ",")...).SetStartDir(dir).Load()
-					}
+						p := paths[0]
 
-					if err == nil {
 						oD := strings.TrimSuffix(strings.ReplaceAll(base, "\\", "/"), "/")
 						nD := strings.TrimSuffix(strings.ReplaceAll(p, "\\", "/"), "/")
 
 						if nD != oD {
 							f.SetString(getRelativeOrABSPath(p))
 						}
+					}
+
+					if okP {
+						showFilePicker(pDesc, nil, dir, false, true, onPick)
+					} else {
+						spl := strings.Split(d.Tag.Get("filter"), "|")
+						showFilePicker(fDesc, strings.Split(spl[1], ","), dir, false, false, onPick)
 					}
 				}
 

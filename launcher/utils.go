@@ -2,15 +2,17 @@ package launcher
 
 import (
 	"fmt"
-	"github.com/AllenDang/cimgui-go/imgui"
-	"github.com/sqweek/dialog"
-	"github.com/wieku/danser-go/app/utils"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/platform"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/AllenDang/cimgui-go/imgui"
+	"github.com/Zyko0/go-sdl3/sdl"
+
+	"github.com/wieku/danser-go/app/utils"
+	"github.com/wieku/danser-go/framework/env"
+	"github.com/wieku/danser-go/framework/platform"
 )
 
 type messageType int
@@ -26,19 +28,19 @@ func showMessage(typ messageType, format string, args ...any) bool {
 
 	switch typ {
 	case mInfo:
-		dialog.Message(message).Info()
+		showMessageBox(sdl.MESSAGEBOX_INFORMATION, message, okButtons())
 	case mError:
 		if urlIndex := strings.Index(message, "http"); urlIndex > -1 {
-			if dialog.Message(message + "\n\nDo you want to go there?").ErrorYesNo() {
+			if showMessageBox(sdl.MESSAGEBOX_ERROR, message+"\n\nDo you want to go there?", yesNoButtons()) == msgButtonYes {
 				url := message[urlIndex:]
 				platform.OpenURL(url)
 				return true
 			}
 		} else {
-			dialog.Message(message).Error()
+			showMessageBox(sdl.MESSAGEBOX_ERROR, message, okButtons())
 		}
 	case mQuestion:
-		return dialog.Message(message).YesNo()
+		return showMessageBox(sdl.MESSAGEBOX_INFORMATION, message, yesNoButtons()) == msgButtonYes
 	}
 
 	return false

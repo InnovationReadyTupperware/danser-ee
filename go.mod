@@ -17,7 +17,6 @@ require (
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/shirou/gopsutil/v4 v4.26.7
 	github.com/spf13/cast v1.10.0
-	github.com/sqweek/dialog v0.0.0-20220504154117-be45b268883a
 	github.com/wieku/rplpa v1.0.2
 	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa
 	golang.org/x/image v0.45.0
@@ -27,7 +26,6 @@ require (
 )
 
 require (
-	github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf // indirect
 	github.com/Zyko0/purego-gen v0.0.1 // indirect
 	github.com/ananagame/rich-go v0.0.0-20210525072106-9d45f0e06959 // indirect
 	github.com/bnch/uleb128 v0.0.0-20160221084957-fac1fe18ad59 // indirect
@@ -49,11 +47,8 @@ require (
 	github.com/olekukonko/ll v0.1.8 // indirect
 	github.com/oliamb/cutter v0.2.2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
-	github.com/rodrigocfd/windigo v0.0.0-20221212040622-0d5f23c1b18a // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 )
-
-replace github.com/sqweek/dialog => github.com/wieku/dialog v1.0.0
