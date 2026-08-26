@@ -58,7 +58,12 @@ func Init(offscreen bool) {
 	C.BASS_SetConfig(C.DWORD(68), C.DWORD(1))
 
 	deviceId := -1 //default audio device
-	mixerFlags := C.BASS_MIXER_NONSTOP
+
+	// Float output gives the mix sum headroom: stacked hitsounds over loud
+	// music stay clean until the single graceful clamp inside the Windows
+	// audio engine, instead of hard-clipping against a 16-bit mixing chain.
+	// Sources remain 16-bit; BASSmix converts them losslessly at mix-in.
+	mixerFlags := C.BASS_MIXER_NONSTOP | C.BASS_SAMPLE_FLOAT
 
 	if offscreen {
 		sampleRate = 48000
