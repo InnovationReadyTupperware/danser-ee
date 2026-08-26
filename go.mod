@@ -11,9 +11,9 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276
 	github.com/go-gl/mathgl v1.2.0
+	github.com/hugolgst/rich-go v0.0.0-20240715122152-74618cc1ace2
 	github.com/itchio/lzma v0.0.0-20190703113020-d3e24e3e3d49
 	github.com/mattn/go-sqlite3 v1.14.50
-	github.com/nattawitc/rich-go v0.0.0-20200402133947-4fcadd738f5b
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/shirou/gopsutil/v4 v4.26.7
 	github.com/spf13/cast v1.10.0
@@ -27,7 +27,6 @@ require (
 
 require (
 	github.com/Zyko0/purego-gen v0.0.1 // indirect
-	github.com/ananagame/rich-go v0.0.0-20210525072106-9d45f0e06959 // indirect
 	github.com/bnch/uleb128 v0.0.0-20160221084957-fac1fe18ad59 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect

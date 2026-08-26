@@ -2,7 +2,7 @@ package discord
 
 import (
 	"fmt"
-	"github.com/nattawitc/rich-go/client"
+	"github.com/hugolgst/rich-go/client"
 	"github.com/wieku/danser-go/app/graphics"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/build"
@@ -137,7 +137,10 @@ func ClearActivity() {
 	queue <- func() {
 		lastSentActivity = "Idle"
 
-		err := client.ClearActivity()
+		// Upstream rich-go has no dedicated clear call; sending an activity
+		// with every field empty makes Discord drop the presence display,
+		// matching the null payload the old fork sent.
+		err := client.SetActivity(client.Activity{})
 		if err != nil {
 			log.Println("Can't clear activity")
 		}
@@ -155,7 +158,7 @@ func Disconnect() {
 
 	endSync.Wait()
 
-	err := client.ClearActivity()
+	err := client.SetActivity(client.Activity{})
 	if err != nil {
 		log.Println("Can't clear activity")
 	}
