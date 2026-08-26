@@ -62,6 +62,11 @@ type Player struct {
 	rawPositionF    float64
 	progressMs      int64
 
+	// mixerAtMusicStart latches the master mixer's output position at the
+	// moment music starts playing. Offline rendering derives gameplay time
+	// from delivered mixer bytes relative to this anchor; see Update.
+	mixerAtMusicStart float64
+
 	batch       *batch2.QuadBatch
 	controller  dance.Controller
 	background  *common.Background
@@ -643,26 +648,38 @@ func (player *Player) trySetupFail() {
 }
 
 func (player *Player) Update(delta float64) bool {
-	// Due to no device/system delays etc during recording, music is late compared to hitobjects, so we need to delay it a bit.
-	// 50ms seems good enuf from limited testing.
-	const recordingDelay = 50
-
 	speed := 1.0
 
-	if player.musicPlayer.GetState() == bass.MusicPlaying {
-		speed = player.musicPlayer.GetSpeed()
-	} else if !(player.progressMsF < player.startPointE || player.start) {
-		speed = settings.SPEED * player.bMap.Diff.GetSpeed()
-	}
+	_, virtualMusic := player.musicPlayer.(*bass.TrackVirtual)
 
-	player.rawPositionF += delta * speed
+	if player.start && !virtualMusic {
+		// Once music is running during a render, drive time from the
+		// samples actually handed to ffmpeg instead of accumulating
+		// wall-clock deltas. Wall time drifts against the tempo engine's
+		// window-refill latency (starting or seeking emits a brief silent
+		// stretch), which previously forced a hand-tuned 50 ms
+		// recordingDelay fudge onto every render. The mixer output
+		// position freezes automatically on pauses and stalls, keeping
+		// audio and frames locked together. Virtual tracks never touch
+		// the mixer, so they keep the wall-clock path.
+		speed = player.musicPlayer.GetSpeed()
+		player.rawPositionF = player.startPoint + (bass.MixerPosition()-player.mixerAtMusicStart)*1000*speed
+	} else {
+		if player.musicPlayer.GetState() == bass.MusicPlaying {
+			speed = player.musicPlayer.GetSpeed()
+		} else if !(player.progressMsF < player.startPointE || player.start) {
+			speed = settings.SPEED * player.bMap.Diff.GetSpeed()
+		}
+
+		player.rawPositionF += delta * speed
+	}
 
 	oldOffset := 0.0
 	if player.bMap.Version < 5 {
 		oldOffset = 24
 	}
 
-	player.progressMsF = player.rawPositionF - oldOffset - float64(settings.LOCALOFFSET) - player.onlineOffset - recordingDelay
+	player.progressMsF = player.rawPositionF - oldOffset - float64(settings.LOCALOFFSET) - player.onlineOffset
 
 	player.updateMain(delta)
 
@@ -695,6 +712,13 @@ func (player *Player) updateMain(delta float64) {
 		}
 
 		player.musicPlayer.SetPosition(player.startPoint / 1000)
+
+		// Anchor the output-domain clock to the first sample of actual
+		// music: everything the mixer emitted before this point was
+		// lead-in silence.
+		if _, virtual := player.musicPlayer.(*bass.TrackVirtual); !virtual {
+			player.mixerAtMusicStart = bass.MixerPosition()
+		}
 
 		discord.SetDuration(int64((player.mapEndL-player.musicPlayer.GetPosition()*1000)/(settings.SPEED*player.bMap.Diff.GetSpeed()) + (player.MapEnd - player.mapEndL)))
 
