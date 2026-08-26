@@ -3,7 +3,7 @@ module github.com/wieku/danser-go
 go 1.27.0
 
 require (
-	github.com/AllenDang/cimgui-go v1.4.0
+	github.com/AllenDang/cimgui-go v1.6.0
 	github.com/EdlinOrg/prominentcolor v1.0.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/Zyko0/go-sdl3 v0.1.1
@@ -57,5 +57,3 @@ require (
 )
 
 replace github.com/sqweek/dialog => github.com/wieku/dialog v1.0.0
-
-replace github.com/AllenDang/cimgui-go => github.com/Wieku/cimgui-go v1.0.1

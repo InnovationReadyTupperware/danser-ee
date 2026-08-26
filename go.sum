@@ -1,11 +1,11 @@
+github.com/AllenDang/cimgui-go v1.6.0 h1:fv1M00FcNz3OMK1q0nOt208DxItmRGipSKcKitED4js=
+github.com/AllenDang/cimgui-go v1.6.0/go.mod h1:gz4dVFwmfoyUkBgVzBhiCJj1JXXWISQa8SQ190MlouY=
 github.com/EdlinOrg/prominentcolor v1.0.0 h1:sQNY8Dtsv3PK3J1LbmrDmtlZm9Y9U8Loi1iZIl4YN3Y=
 github.com/EdlinOrg/prominentcolor v1.0.0/go.mod h1:mYmDsxfcmBz6izH/SqtSzfsUiZdPNPpPgUPKCZq70KQ=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf h1:FPsprx82rdrX2jiKyS17BH6IrTmUBYqZa/CXT4uvb+I=
 github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf/go.mod h1:peYoMncQljjNS6tZwI9WVyQB3qZS6u79/N3mBOcnd3I=
-github.com/Wieku/cimgui-go v1.0.1 h1:Zra6n/mkS109S6ZixKp9iMxtEj8xhZ3SXaE4kHN/ld4=
-github.com/Wieku/cimgui-go v1.0.1/go.mod h1:TEI5GPLJ7THdcXOR3H+P3bCSrgL//yUgKdJfAG+HoQw=
 github.com/Zyko0/go-sdl3 v0.1.1 h1:tXlnEcEJa9eqyzaBpCktOGteJGbUfnvG6ocURdsspHw=
 github.com/Zyko0/go-sdl3 v0.1.1/go.mod h1:LOqUd6DUUkCO/8quWPfovV1Ep/nr/aw0uBT5vdlAIQY=
 github.com/Zyko0/purego-gen v0.0.1 h1:EGQJc4OWZIOlGxXAm862mUBxk84GwagaehP8bp07k28=

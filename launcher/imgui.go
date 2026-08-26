@@ -499,11 +499,32 @@ func DrawImgui() {
 
 	rShader.SetUniform("proj", mgl32.Ortho(0, float32(w), float32(h), 0, -1, 1))
 
-	imTextures := drawData.Textures()
-	if imTextures.Size() > 0 {
-		for _, tex := range imTextures.Slice() {
+	// cimgui-go v1.6.0 marshals multi-element ImVectors incorrectly:
+	// Vector.Slice() reinterprets heap memory past its single wrapped element,
+	// so neither DrawData.Textures() nor this list can be iterated via Slice()
+	// without crashing on garbage wrappers (hit in practice once the atlas
+	// split into two textures on the settings screen). The PlatformIO accessor
+	// happens to wrap the raw C pointer table itself as "element zero", so we
+	// walk that table manually and rewrap each entry through the generic
+	// NewTextureDataFromC constructor instead. Pinned to v1.6.0 codegen
+	// behavior - recheck on binding upgrades.
+	pio := context.PlatformIO()
+	texList := pio.Textures()
+
+	if n := texList.Size; n > 0 {
+		h, fin := texList.Data.Handle()
+		defer fin() // no-op finalizer today; kept so upgrades stay safe
+
+		slots := unsafe.Slice((*unsafe.Pointer)(unsafe.Pointer(h)), n)
+
+		for _, slot := range slots {
+			if slot == nil {
+				continue
+			}
+
+			tex := imgui.NewTextureDataFromC(slot)
 			if tex.Status() != imgui.TextureStatusOK {
-				handleTexture(tex)
+				handleTexture(*tex)
 			}
 		}
 	}
@@ -608,14 +629,20 @@ func handleTexture(tex imgui.TextureData) {
 			panic("invalid texture state: missing gl texture")
 		}
 
-		for _, rc := range tex.Updates().Slice() {
-			uW := int(rc.W())
-			uH := int(rc.H())
+		// Dear ImGui reports partial update rects here, but reading them goes
+		// through the same broken value-type vector marshalling described in
+		// DrawImgui (crashes on multi-rect batches). Backends are explicitly
+		// allowed to ignore the rects and re-upload the whole texture, which
+		// also keeps this code independent of upstream fixing their generator.
+		// Update batches only occur when new glyphs are rasterized, so the
+		// extra bandwidth is negligible for this UI.
+		tW := int(tex.Width())
+		tH := int(tex.Height())
 
-			rPtr := tex.PixelsAt(int32(rc.X()), int32(rc.Y()))
+		// go vet workaround
+		data := unsafe.Slice(*(**byte)(unsafe.Pointer(new(tex.Pixels()))), 4*tW*tH)
 
-			gTex.SetDataBuf(int(rc.X()), int(rc.Y()), uW, uH, int(tex.Width()), rPtr)
-		}
+		gTex.SetData(0, 0, tW, tH, data)
 
 		tex.SetStatus(imgui.TextureStatusOK)
 	} else if tex.Status() == imgui.TextureStatusWantDestroy {
