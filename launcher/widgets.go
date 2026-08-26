@@ -124,6 +124,13 @@ func popupInter(name string, opened *bool, size imgui.Vec2, ignoreFlags, additio
 	if *opened {
 		if !imgui.IsPopupOpenStr("##" + name) {
 			imgui.OpenPopupStr("##" + name)
+
+			// Force the freshly opened popup to the top of ImGui's window
+			// stack. Without this, the first appearance can render beneath
+			// already-open windows until the user clicks it, which regressed
+			// when moving from the Wieku cimgui fork to upstream v1.6.0
+			// (newer bundled Dear ImGui).
+			imgui.SetNextWindowFocus()
 		}
 
 		imgui.SetNextWindowSize(size)
