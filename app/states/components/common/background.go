@@ -219,7 +219,7 @@ func (bg *Background) Draw(time float64, batch *batch.QuadBatch, blurVal, bgAlph
 
 		opacity := 1.0
 		if bg.storyboard != nil {
-			opacity *= 1.0 - bg.storyboard.GetVideoAlpha()
+			opacity *= 1.0 - bg.storyboard.VideoAlpha()
 		}
 
 		if bg.blurActive {

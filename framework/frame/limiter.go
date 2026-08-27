@@ -1,137 +1,166 @@
 package frame
 
 import (
-	"github.com/wieku/danser-go/framework/qpc"
 	"runtime"
+	"sync/atomic"
 	"time"
-)
 
-// Full credits: LWJGL Team
-// Ported from Java
-// Original source: https://github.com/LWJGL/lwjgl/blob/master/src/java/org/lwjgl/opengl/Sync.java
+	"github.com/wieku/danser-go/framework/qpc"
+)
 
 const (
-	nanosInSecond        = 1e9
-	dampenThresholdSleep = 1.5e6 // 1.5ms
-	dampenThresholdYield = 5e4   // 50us
-
-	rFactorSleep = 30
-	rFactorYield = 10
-
-	dampenFactor = 0.9 // don't change: 0.9f is exactly right!
+	nanosPerSecond = int64(time.Second)
+	maximumFPS     = nanosPerSecond
+	yieldTail      = 100 * time.Microsecond
+	maxInt64       = int64(1<<63 - 1)
 )
 
+type limiterClock struct {
+	now   func() int64
+	sleep func(time.Duration)
+	yield func()
+}
+
+// Limiter spaces calls to Sync so a loop does not run faster than the
+// configured frame rate.
+//
+// SetFPS and FPS are safe to use while another goroutine is reading the
+// configuration. Sync itself owns the deadline state and must not be called
+// concurrently. A positive FPS update is observed by the next Sync call; a
+// Sync call already sleeping cannot be cancelled by a configuration update.
+// The zero value is disabled until a positive rate is supplied with SetFPS.
 type Limiter struct {
-	FPS         int
+	fps atomic.Int64
+
+	// nextFrame and initialized belong to the goroutine that calls Sync. The
+	// public FPS configuration is separate so it can be changed safely by a
+	// settings or UI goroutine.
 	nextFrame   int64
-	initialised bool
-
-	sleepDurations *runningAvg
-	yieldDurations *runningAvg
+	initialized bool
+	clock       limiterClock
 }
 
+// NewLimiter creates a limiter configured for fps frames per second. Zero or
+// negative values disable limiting, and positive values above one billion are
+// clamped to the smallest representable one-nanosecond frame period.
 func NewLimiter(fps int) *Limiter {
-	return &Limiter{
-		FPS:            fps,
-		sleepDurations: newRunningAvg(10, dampenThresholdSleep, rFactorSleep),
-		yieldDurations: newRunningAvg(10, dampenThresholdYield, rFactorYield),
-	}
+	return newLimiter(fps, limiterClock{
+		now:   qpc.GetNanoTime,
+		sleep: time.Sleep,
+		yield: runtime.Gosched,
+	})
 }
 
-func (limiter *Limiter) Sync() {
-	fps := limiter.FPS
+// SetFPS changes the target frame rate. Values at or below zero disable the
+// limiter. The method is safe to call concurrently with FPS and Sync.
+func (limiter *Limiter) SetFPS(fps int) {
+	if fps <= 0 {
+		limiter.fps.Store(0)
+		return
+	}
 
+	rate := int64(fps)
+	if rate > maximumFPS {
+		rate = maximumFPS
+	}
+
+	limiter.fps.Store(rate)
+}
+
+// FPS returns the normalized target frame rate. It returns zero when limiting
+// is disabled.
+func (limiter *Limiter) FPS() int {
+	return int(limiter.fps.Load())
+}
+
+// Sync waits until the next frame deadline and then advances that deadline.
+// Most of the wait uses one coarse sleep; only the final 100 microseconds use
+// scheduler yielding. This avoids the repeated one-millisecond polling loop
+// that can consume a full CPU core at high frame rates while retaining a
+// short, responsive timing tail.
+func (limiter *Limiter) Sync() {
+	fps := limiter.FPS()
 	if fps <= 0 {
 		return
 	}
 
-	if !limiter.initialised {
-		limiter.initialised = true
-
-		limiter.sleepDurations.init(1000 * 1000)
-		limiter.yieldDurations.init(12_000) //int64(-float64(qpc.GetNanoTime()-qpc.GetNanoTime()) * 1.333))
-
-		limiter.nextFrame = qpc.GetNanoTime()
+	clock := limiter.clock
+	if clock.now == nil {
+		clock = defaultLimiterClock()
 	}
 
-	for t0, t1 := qpc.GetNanoTime(), int64(0); (limiter.nextFrame - t0) > limiter.sleepDurations.avg(); t0 = t1 {
-		time.Sleep(time.Millisecond)
-
-		t1 = qpc.GetNanoTime()
-
-		limiter.sleepDurations.add(t1 - t0)
+	period := nanosPerSecond / int64(fps)
+	if period < 1 {
+		period = 1
 	}
 
-	limiter.sleepDurations.dampenForLowResTicker()
-
-	for t0, t1 := qpc.GetNanoTime(), int64(0); (limiter.nextFrame - t0) > limiter.yieldDurations.avg(); t0 = t1 {
-		runtime.Gosched()
-
-		t1 = qpc.GetNanoTime()
-
-		limiter.yieldDurations.add(t1 - t0)
+	now := clock.now()
+	if !limiter.initialized {
+		// The first Sync establishes the phase without delaying the work that
+		// caused the limiter to be created. The next call observes one full
+		// frame period from this point.
+		limiter.initialized = true
+		limiter.nextFrame = now
+	} else {
+		now = waitForDeadline(limiter.nextFrame, clock)
 	}
 
-	limiter.yieldDurations.dampenForLowResTicker()
-
-	limiter.nextFrame = max(limiter.nextFrame+nanosInSecond/int64(fps), qpc.GetNanoTime())
+	limiter.nextFrame = nextDeadline(limiter.nextFrame, period, now)
 }
 
-type runningAvg struct {
-	slots  []int64
-	offset int
+func newLimiter(fps int, clock limiterClock) *Limiter {
+	if clock.now == nil {
+		clock = defaultLimiterClock()
+	}
 
-	dampenThreshold int64
-	anomalyRatio    int64
-	average         int64
+	limiter := &Limiter{clock: clock}
+	limiter.SetFPS(fps)
+	return limiter
 }
 
-func newRunningAvg(slotCount int, dampenThreshold, anomalyRatio int64) *runningAvg {
-	return &runningAvg{
-		slots:           make([]int64, slotCount),
-		offset:          0,
-		dampenThreshold: dampenThreshold,
-		anomalyRatio:    anomalyRatio,
+func defaultLimiterClock() limiterClock {
+	return limiterClock{
+		now:   qpc.GetNanoTime,
+		sleep: time.Sleep,
+		yield: runtime.Gosched,
 	}
 }
 
-func (ra *runningAvg) init(value int64) {
-	for i := 0; i < len(ra.slots); i++ {
-		ra.slots[i] = value
+func waitForDeadline(deadline int64, clock limiterClock) int64 {
+	now := clock.now()
+	if deadline <= now {
+		return now
 	}
 
-	ra.cAvg()
-}
-
-func (ra *runningAvg) add(value int64) {
-	if value <= ra.anomalyRatio*ra.average {
-		ra.slots[ra.offset] = value
-		ra.offset = (ra.offset + 1) % len(ra.slots)
-
-		ra.cAvg()
-	}
-}
-
-func (ra *runningAvg) cAvg() {
-	var sum int64
-
-	for i := 0; i < len(ra.slots); i++ {
-		sum += ra.slots[i]
+	remaining := deadline - now
+	if remaining > int64(yieldTail) && clock.sleep != nil {
+		clock.sleep(time.Duration(remaining - int64(yieldTail)))
 	}
 
-	ra.average = sum / int64(len(ra.slots))
-}
-
-func (ra *runningAvg) avg() int64 {
-	return ra.average
-}
-
-func (ra *runningAvg) dampenForLowResTicker() {
-	if ra.average > ra.dampenThreshold {
-		for i := 0; i < len(ra.slots); i++ {
-			ra.slots[i] = int64(float64(ra.slots[i]) * dampenFactor)
+	for {
+		now = clock.now()
+		if deadline <= now {
+			return now
 		}
 
-		ra.cAvg()
+		if clock.yield == nil {
+			return now
+		}
+		clock.yield()
 	}
+}
+
+func nextDeadline(previous, period, now int64) int64 {
+	var deadline int64
+	if previous > maxInt64-period {
+		deadline = maxInt64
+	} else {
+		deadline = previous + period
+	}
+
+	if deadline < now {
+		return now
+	}
+
+	return deadline
 }

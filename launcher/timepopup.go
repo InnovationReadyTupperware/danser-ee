@@ -52,8 +52,8 @@ func newTimePopup(bld *builder) *timePopup {
 	settings.Gameplay.StrainGraph.YPosition = 0
 	settings.Gameplay.StrainGraph.Align = "TopLeft"
 
-	settings.Gameplay.StrainGraph.FgColor = &settings.HSV{1, 0, 1}
-	settings.Gameplay.StrainGraph.BgColor = &settings.HSV{1, 0, 0.5}
+	settings.Gameplay.StrainGraph.FgColor = &settings.HSV{Hue: 1, Saturation: 0, Value: 1}
+	settings.Gameplay.StrainGraph.BgColor = &settings.HSV{Hue: 1, Saturation: 0, Value: 0.5}
 
 	settings.Gameplay.StrainGraph.Outline.Show = true
 	settings.Gameplay.StrainGraph.Outline.Width = 3

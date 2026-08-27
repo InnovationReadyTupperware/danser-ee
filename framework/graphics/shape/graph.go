@@ -1,7 +1,9 @@
 package shape
 
 import (
+	"math"
 	"strconv"
+	"time"
 
 	"github.com/go-gl/mathgl/mgl32"
 
@@ -59,7 +61,7 @@ void main() {
 type label struct {
 	name   string
 	color2 color.Color
-	ctr    *frame.Counter
+	ema    *frame.ExponentialMovingAverage
 }
 
 type SteppingGraph struct {
@@ -145,7 +147,7 @@ func NewSteppingGraph(x, y, width, height, layers int, maxVal float32, unit stri
 		graph.labels[i] = &label{
 			name:   "Unknown",
 			color2: color.NewL(1),
-			ctr:    frame.NewCounter(),
+			ema:    frame.NewExponentialMovingAverage(300 * time.Millisecond),
 		}
 	}
 
@@ -239,7 +241,7 @@ func (graph *SteppingGraph) Draw() {
 
 		graph.fontRenderer.SetColorM(lb.color2)
 
-		font.GetFont("Quicksand Bold").DrawOrigin(graph.fontRenderer, 5+float64(pX), 5+float64(graph.height)/20*float64(i)+float64(pY), vector.TopLeft, float64(graph.height)/20, true, lb.name+" "+strconv.FormatFloat(lb.ctr.GetAverage(), 'f', 5, 64)+"ms")
+		font.GetFont("Quicksand Bold").DrawOrigin(graph.fontRenderer, 5+float64(pX), 5+float64(graph.height)/20*float64(i)+float64(pY), vector.TopLeft, float64(graph.height)/20, true, lb.name+" "+strconv.FormatFloat(lb.ema.Average(), 'f', 5, 64)+"ms")
 	}
 
 	font.GetFont("Quicksand Bold").DrawBg(false)
@@ -247,7 +249,11 @@ func (graph *SteppingGraph) Draw() {
 	graph.fontRenderer.End()
 }
 
-func (graph *SteppingGraph) Advance(data ...float64) {
+// Advance adds one column to the graph. elapsed controls the smoothing of
+// each label and must be positive for the smoothed values to change; invalid
+// or negative layer values are rendered as zero to keep the stacked geometry
+// finite.
+func (graph *SteppingGraph) Advance(elapsed time.Duration, data ...float64) {
 	if len(data) != graph.layers {
 		panic("wrong number of layers given")
 	}
@@ -257,11 +263,18 @@ func (graph *SteppingGraph) Advance(data ...float64) {
 	graph.idx = graph.idx % graph.width
 
 	for i := 0; i < graph.layers; i++ {
-		graph.labels[i].ctr.PutSample(data[i])
+		value := data[i]
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+			value = 0
+		} else if value > float64(math.MaxFloat32) {
+			value = float64(math.MaxFloat32)
+		}
+
+		graph.labels[i].ema.Add(value, elapsed)
 
 		graph.buf[i*2] = startPos
-		graph.buf[i*2+1] = float32(data[i])
-		startPos += float32(data[i])
+		graph.buf[i*2+1] = float32(value)
+		startPos += float32(value)
 	}
 
 	graph.vao.SetData("steps", graph.idx*2*graph.layers, graph.buf)

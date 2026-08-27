@@ -791,7 +791,7 @@ func mainLoopNormal() {
 				fCap = -fCap * monitorHz
 			}
 
-			limiter.FPS = fCap
+			limiter.SetFPS(fCap)
 			limiter.Sync()
 		}
 		profiler.EndGroup()

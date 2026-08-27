@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Zyko0/go-sdl3/sdl"
@@ -55,12 +56,13 @@ type Player struct {
 	bMap        *beatmap.BeatMap
 	bloomEffect *effects.BloomEffect
 
-	lastTime        int64
-	lastMusicPos    float64
-	lastProgressMsF float64
-	progressMsF     float64
-	rawPositionF    float64
-	progressMs      int64
+	lastTime         int64
+	lastDrawDuration time.Duration
+	lastMusicPos     float64
+	lastProgressMsF  float64
+	progressMsF      float64
+	rawPositionF     float64
+	progressMs       int64
 
 	// mixerAtMusicStart latches the master mixer's output position at the
 	// moment music starts playing. Offline rendering derives gameplay time
@@ -77,8 +79,8 @@ type Player struct {
 	fadeIn      float64
 	start       bool
 	musicPlayer bass.ITrack
-	profiler    *frame.Counter
-	profilerU   *frame.Counter
+	drawStats   *frame.FrameStats
+	updateStats *frame.FrameStats
 
 	onlineOffset float64
 
@@ -139,19 +141,29 @@ type Player struct {
 	failAt  float64
 	failed  bool
 
-	mProfiler *frame.Counter
-	mStats1   *runtime.MemStats
-	mStats2   *runtime.MemStats
-	mBuffer   []byte
-	memTicker *time.Ticker
-	ftGraph   *shape.SteppingGraph
+	heapGrowthRate *frame.ExponentialMovingAverage
+
+	// memoryStatsMu protects the latest snapshot published by the memory
+	// profiler. The worker owns its temporary MemStats values and never swaps
+	// pointers that the render thread may be reading.
+	memoryStatsMu sync.RWMutex
+	memoryStats   runtime.MemStats
+
+	// memoryMu serializes memory-profiler startup and shutdown. The wait group
+	// makes Dispose and a debug setting toggle join the worker before its
+	// ticker and stop channel are replaced.
+	memoryMu     sync.Mutex
+	memoryTicker *time.Ticker
+	memoryStop   chan struct{}
+	memoryWG     sync.WaitGroup
+
+	mBuffer []byte
+	ftGraph *shape.SteppingGraph
 }
 
 func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 	player := new(Player)
-	player.mProfiler = frame.NewCounter()
-	player.mStats1 = new(runtime.MemStats)
-	player.mStats2 = new(runtime.MemStats)
+	player.heapGrowthRate = frame.NewExponentialMovingAverage(300 * time.Millisecond)
 	player.mBuffer = make([]byte, 0, 256)
 
 	player.ftGraph = shape.NewSteppingGraph(1920-600-20, 1080-300-40, 600, 250, 6, 16.667, "ms")
@@ -506,14 +518,14 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 
 	player.coin.SetScale(0.25 * min(settings.Graphics.GetWidthF(), settings.Graphics.GetHeightF()))
 
-	player.profiler = frame.NewCounter()
+	player.drawStats = frame.NewFrameStats()
 
 	player.bloomEffect = effects.NewBloomEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
 	player.blur = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
 
 	player.background.Update(player.progressMsF, settings.Graphics.GetWidthF()/2, settings.Graphics.GetHeightF()/2)
 
-	player.profilerU = frame.NewCounter()
+	player.updateStats = frame.NewFrameStats()
 
 	player.baseLimit = 1000
 
@@ -544,9 +556,14 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 		for !gcontext.ShouldClose() {
 			currentTimeNano := qpc.GetNanoTime()
 
-			delta := float64(currentTimeNano-lastTimeNano) / 1000000.0
+			elapsedNanos := currentTimeNano - lastTimeNano
+			if elapsedNanos < 0 {
+				elapsedNanos = 0
+			}
 
-			player.profilerU.PutSample(delta)
+			delta := float64(elapsedNanos) / float64(time.Millisecond)
+
+			player.updateStats.Add(time.Duration(elapsedNanos))
 
 			musicState := player.musicPlayer.GetState()
 
@@ -854,23 +871,31 @@ func (player *Player) DrawMain(float64) {
 	}
 
 	tim := qpc.GetNanoTime()
-	timMs := float64(tim-player.lastTime) / 1000000.0
-
-	fps := player.profiler.GetFPS()
-
-	player.updateLimiter.FPS = mutils.Clamp(int(fps*1.2), player.baseLimit, 10000)
-
-	if player.background.GetStoryboard() != nil {
-		player.background.GetStoryboard().SetFPS(mutils.Clamp(int(fps*1.2), player.baseLimit, 10000))
+	elapsedNanos := tim - player.lastTime
+	if elapsedNanos < 0 {
+		elapsedNanos = 0
 	}
 
-	if fps > 58 && timMs > 18 && !settings.RECORD {
-		log.Println(fmt.Sprintf("Slow frame detected! Frame time: %.3fms | Av. frame time: %.3fms", timMs, 1000.0/fps))
+	frameDuration := time.Duration(elapsedNanos)
+	timMs := float64(frameDuration) / float64(time.Millisecond)
+	player.lastDrawDuration = frameDuration
+	player.drawStats.Add(frameDuration)
+
+	fps := player.drawStats.FPS()
+
+	player.updateLimiter.SetFPS(mutils.Clamp(int(fps*1.2), player.baseLimit, 10000))
+
+	if storyboard := player.background.GetStoryboard(); storyboard != nil {
+		storyboard.SetFPS(mutils.Clamp(int(fps*1.2), player.baseLimit, 10000))
+	}
+
+	if fps > 58 && frameDuration > 18*time.Millisecond && !settings.RECORD {
+		averageFrameTime := float64(player.drawStats.AverageFrameTime()) / float64(time.Millisecond)
+		log.Println(fmt.Sprintf("Slow frame detected! Frame time: %.3fms | Av. frame time: %.3fms", timMs, averageFrameTime))
 	}
 
 	player.progressMs = int64(player.progressMsF)
 
-	player.profiler.PutSample(timMs)
 	player.lastTime = tim
 
 	objectCameras := player.objectCamera.GenRotated(settings.DIVIDES, -2*math.Pi/float64(settings.DIVIDES))
@@ -1051,34 +1076,122 @@ func (player *Player) drawOverlayPart(drawFunc func(*batch2.QuadBatch, []color2.
 	player.batch.SetColor(1, 1, 1, 1)
 }
 
+func (player *Player) startMemoryProfiler() {
+	player.memoryMu.Lock()
+	defer player.memoryMu.Unlock()
+
+	if player.memoryTicker != nil {
+		return
+	}
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	stop := make(chan struct{})
+	player.memoryTicker = ticker
+	player.memoryStop = stop
+	player.memoryWG.Add(1)
+
+	// The worker keeps its previous sample locally. Only complete snapshots
+	// cross into the render thread, which prevents readers from observing a
+	// partially updated runtime.MemStats value.
+	goroutines.Run(func() {
+		defer player.memoryWG.Done()
+
+		previous := runtime.MemStats{}
+		runtime.ReadMemStats(&previous)
+		player.publishMemoryStats(previous)
+		previousTime := time.Now()
+
+		for {
+			select {
+			case tick := <-ticker.C:
+				current := runtime.MemStats{}
+				runtime.ReadMemStats(&current)
+				player.publishMemoryStats(current)
+
+				elapsed := tick.Sub(previousTime)
+				if elapsed > 0 && current.Alloc > previous.Alloc {
+					rate := float64(current.Alloc-previous.Alloc) / elapsed.Seconds()
+					player.heapGrowthRate.Add(rate, elapsed)
+				}
+
+				previous = current
+				previousTime = tick
+			case <-stop:
+				return
+			}
+		}
+	})
+}
+
+func (player *Player) stopMemoryProfiler() {
+	player.memoryMu.Lock()
+	defer player.memoryMu.Unlock()
+
+	if player.memoryTicker == nil {
+		return
+	}
+
+	ticker := player.memoryTicker
+	stop := player.memoryStop
+	player.memoryTicker = nil
+	player.memoryStop = nil
+
+	ticker.Stop()
+	close(stop)
+	player.memoryWG.Wait()
+}
+
+func (player *Player) publishMemoryStats(stats runtime.MemStats) {
+	player.memoryStatsMu.Lock()
+	player.memoryStats = stats
+	player.memoryStatsMu.Unlock()
+}
+
+func (player *Player) memoryStatsSnapshot() runtime.MemStats {
+	player.memoryStatsMu.RLock()
+	defer player.memoryStatsMu.RUnlock()
+
+	return player.memoryStats
+}
+
+func formatFPS(stats *frame.FrameStats) string {
+	if stats == nil {
+		return "n/a"
+	}
+
+	return formatFPSValues(stats.FPS(), stats.AverageFrameTime())
+}
+
+func formatFPSValues(fps float64, average time.Duration) string {
+	if fps <= 0 || math.IsNaN(fps) || math.IsInf(fps, 0) || average <= 0 {
+		return "n/a"
+	}
+
+	return fmt.Sprintf("%0.0ffps (%0.2fms)", fps, float64(average)/float64(time.Millisecond))
+}
+
+func allocationBytes(rate float64) uint64 {
+	const maxUint64 = ^uint64(0)
+
+	if rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return 0
+	}
+	if rate >= float64(maxUint64) {
+		return maxUint64
+	}
+
+	return uint64(rate)
+}
+
 func (player *Player) drawDebug() {
 	profiler.StartGroup("Player.DrawDebug", profiler.PDraw)
-	if settings.DEBUG && player.memTicker == nil {
-		player.memTicker = time.NewTicker(100 * time.Millisecond)
-
-		goroutines.RunOS(func() {
-			prevT := time.Now()
-			runtime.ReadMemStats(player.mStats2)
-
-			for t := range player.memTicker.C {
-				diff := t.Sub(prevT)
-				prevT = t
-
-				player.mStats1, player.mStats2 = player.mStats2, player.mStats1
-				runtime.ReadMemStats(player.mStats2)
-
-				mDelta := float64(int64(player.mStats2.Alloc)-int64(player.mStats1.Alloc)) * (1000 / float64(diff.Milliseconds()))
-				if mDelta > 0 {
-					player.mProfiler.PutSample(mDelta)
-				}
-
-				if !settings.DEBUG && player.memTicker != nil {
-					player.memTicker.Stop()
-					player.memTicker = nil
-				}
-			}
-		})
+	if settings.DEBUG {
+		player.startMemoryProfiler()
+	} else {
+		player.stopMemoryProfiler()
 	}
+
+	memoryStats := player.memoryStatsSnapshot()
 
 	var profRes *profiler.PNode
 
@@ -1163,11 +1276,11 @@ func (player *Player) drawDebug() {
 			pos++
 			drawWithBackground("Memory:")
 
-			drawWithBackground("Allocated: %s", humanize.Bytes(player.mStats2.Alloc))
-			drawWithBackground("Allocs/s: %s", humanize.Bytes(uint64(player.mProfiler.GetAverage())))
-			drawWithBackground("System: %s", humanize.Bytes(player.mStats2.Sys))
-			drawWithBackground("GC Runs: %d", player.mStats2.NumGC)
-			drawWithBackground("GC Time: %.3fms", float64(player.mStats2.PauseTotalNs)/1000000)
+			drawWithBackground("Allocated: %s", humanize.Bytes(memoryStats.Alloc))
+			drawWithBackground("Heap growth/s: %s", humanize.Bytes(allocationBytes(player.heapGrowthRate.Average())))
+			drawWithBackground("System: %s", humanize.Bytes(memoryStats.Sys))
+			drawWithBackground("GC Runs: %d", memoryStats.NumGC)
+			drawWithBackground("GC Time: %.3fms", float64(memoryStats.PauseTotalNs)/float64(time.Millisecond))
 
 			if profRes != nil && settings.CallGraph {
 				pos++
@@ -1203,7 +1316,7 @@ func (player *Player) drawDebug() {
 					slp := profRes.Nodes[4].TimeTotal
 					root += -input - draw - swp - slp - sched
 
-					player.ftGraph.Advance(sched, input, draw, swp, slp, root)
+					player.ftGraph.Advance(player.lastDrawDuration, sched, input, draw, swp, slp, root)
 				}
 
 				player.batch.Flush()
@@ -1213,13 +1326,11 @@ func (player *Player) drawDebug() {
 				player.ftGraph.Draw()
 			}
 
-			fpsC := player.profiler.GetFPS()
-			fpsU := player.profilerU.GetFPS()
+			drawFPS := formatFPS(player.drawStats)
+			updateFPS := formatFPS(player.updateStats)
 
 			sbThread := player.background.GetStoryboard() != nil && player.background.GetStoryboard().HasVisuals()
 
-			drawFPS := fmt.Sprintf("%0.0ffps (%0.2fms)", fpsC, 1000/fpsC)
-			updateFPS := fmt.Sprintf("%0.0ffps (%0.2fms)", fpsU, 1000/fpsU)
 			sbFPS := ""
 
 			off := 0.0
@@ -1227,8 +1338,8 @@ func (player *Player) drawDebug() {
 			if sbThread {
 				off = 1.0
 
-				fpsS := player.background.GetStoryboard().GetFPS()
-				sbFPS = fmt.Sprintf("%0.0ffps (%0.2fms)", fpsS, 1000/fpsS)
+				storyboard := player.background.GetStoryboard()
+				sbFPS = formatFPSValues(storyboard.FPS(), storyboard.AverageFrameTime())
 			}
 
 			shift := strconv.Itoa(max(len(drawFPS), max(len(updateFPS), len(sbFPS))))
@@ -1258,4 +1369,11 @@ func (player *Player) Show() {}
 
 func (player *Player) Hide() {}
 
-func (player *Player) Dispose() {}
+func (player *Player) Dispose() {
+	player.stopMemoryProfiler()
+	if player.background != nil {
+		if storyboard := player.background.GetStoryboard(); storyboard != nil {
+			storyboard.StopThread()
+		}
+	}
+}

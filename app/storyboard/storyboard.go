@@ -2,6 +2,16 @@ package storyboard
 
 import (
 	"fmt"
+	"log"
+	"math"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/wieku/danser-go/app/beatmap"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/app/skin"
@@ -18,11 +28,6 @@ import (
 	"github.com/wieku/danser-go/framework/math/vector"
 	"github.com/wieku/danser-go/framework/profiler"
 	"github.com/wieku/danser-go/framework/qpc"
-	"log"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 )
 
 type Storyboard struct {
@@ -33,22 +38,38 @@ type Storyboard struct {
 
 	samples map[string]*bass.Sample
 
-	background  *sprite.Manager
-	pass        *sprite.Manager
-	foreground  *sprite.Manager
-	overlay     *sprite.Manager
-	zIndex      int64
-	bgFileUsed  bool
-	widescreen  bool
-	shouldRun   bool
-	currentTime float64
-	limiter     *frame.Limiter
-	counter     *frame.Counter
-	numSprites  int
-	hasVisuals  bool
+	background *sprite.Manager
+	pass       *sprite.Manager
+	foreground *sprite.Manager
+	overlay    *sprite.Manager
+	zIndex     int64
+	bgFileUsed bool
+	widescreen bool
+
+	// threadMu serializes lifecycle changes. StopThread holds it while joining
+	// the worker so a new worker cannot overlap the one being stopped.
+	threadMu sync.Mutex
+	threadWG sync.WaitGroup
+
+	// renderMu protects the sprite graph while the storyboard worker updates
+	// it and the render thread draws it. The lock intentionally covers the
+	// complete Update or Draw call because sprite implementations keep their
+	// animated fields in place rather than publishing immutable snapshots.
+	renderMu sync.Mutex
+
+	// These atomics carry state between the gameplay/update owner and the
+	// storyboard worker or render owner. Float64 values are stored as bits to
+	// avoid unsynchronized reads of a multiword value.
+	shouldRun   atomic.Bool
+	currentTime atomic.Uint64
+
+	limiter    *frame.Limiter
+	counter    *frame.FrameStats
+	numSprites int
+	hasVisuals bool
 
 	videos     []sprite.ISprite
-	videoAlpha float64
+	videoAlpha atomic.Uint64
 }
 
 func getSection(line string) string {
@@ -227,9 +248,9 @@ func NewStoryboard(beatMap *beatmap.BeatMap) *Storyboard {
 
 	log.Println("Storyboard loaded")
 
-	storyboard.currentTime = -1000000
+	storyboard.currentTime.Store(math.Float64bits(-1000000))
 	storyboard.limiter = frame.NewLimiter(1000)
-	storyboard.counter = frame.NewCounter()
+	storyboard.counter = frame.NewFrameStats()
 
 	return storyboard
 }
@@ -365,49 +386,85 @@ func (storyboard *Storyboard) getSample(sample string) (bassSample *bass.Sample)
 	return
 }
 
+// StartThread starts the storyboard update worker if it is not already
+// running. The worker is joined by StopThread before this method can start a
+// replacement.
 func (storyboard *Storyboard) StartThread() {
-	if storyboard.shouldRun {
+	storyboard.threadMu.Lock()
+	defer storyboard.threadMu.Unlock()
+
+	if storyboard.shouldRun.Load() {
 		return
 	}
+	// A worker that finished unexpectedly may still be completing its deferred
+	// WaitGroup call. Waiting here keeps Add and Wait from overlapping when the
+	// storyboard is restarted.
+	storyboard.threadWG.Wait()
+
+	storyboard.shouldRun.Store(true)
+	storyboard.threadWG.Add(1)
 
 	goroutines.RunOS(func() {
-		lastTime := qpc.GetMilliTimeF()
+		defer storyboard.threadWG.Done()
+		defer storyboard.shouldRun.Store(false)
 
-		for storyboard.shouldRun {
-			time := qpc.GetMilliTimeF()
-			storyboard.counter.PutSample(time - lastTime)
-			lastTime = time
+		lastTime := qpc.GetNanoTime()
 
-			storyboard.Update(storyboard.currentTime)
+		for storyboard.shouldRun.Load() {
+			now := qpc.GetNanoTime()
+			storyboard.counter.Add(time.Duration(now - lastTime))
+			lastTime = now
+
+			storyboard.Update(math.Float64frombits(storyboard.currentTime.Load()))
 
 			storyboard.limiter.Sync()
 		}
 	})
-
-	storyboard.shouldRun = true
 }
 
+// StopThread requests storyboard worker shutdown and waits for the worker to
+// finish. It may wait for the limiter's current timing interval to complete.
 func (storyboard *Storyboard) StopThread() {
-	storyboard.shouldRun = false
+	storyboard.threadMu.Lock()
+	defer storyboard.threadMu.Unlock()
+
+	storyboard.shouldRun.Store(false)
+	storyboard.threadWG.Wait()
 }
 
+// IsThreadRunning reports whether the storyboard worker has been requested to
+// run. It is safe to call from the render or gameplay thread.
 func (storyboard *Storyboard) IsThreadRunning() bool {
-	return storyboard.shouldRun
+	return storyboard.shouldRun.Load()
 }
 
+// UpdateTime publishes the current gameplay time to the storyboard worker.
 func (storyboard *Storyboard) UpdateTime(time float64) {
-	storyboard.currentTime = time
+	storyboard.currentTime.Store(math.Float64bits(time))
 }
 
-func (storyboard *Storyboard) GetFPS() float64 {
-	return storyboard.counter.GetFPS()
+// FPS returns the storyboard worker's smoothed frames-per-second estimate.
+func (storyboard *Storyboard) FPS() float64 {
+	return storyboard.counter.FPS()
 }
 
-func (storyboard *Storyboard) SetFPS(i int) {
-	storyboard.limiter.FPS = i
+// AverageFrameTime returns the storyboard worker's smoothed frame interval.
+func (storyboard *Storyboard) AverageFrameTime() time.Duration {
+	return storyboard.counter.AverageFrameTime()
 }
 
+// SetFPS changes the storyboard worker's target update rate.
+func (storyboard *Storyboard) SetFPS(fps int) {
+	storyboard.limiter.SetFPS(fps)
+}
+
+// Update advances the storyboard's sprite and audio state. The update and
+// draw paths are serialized because sprite implementations update their state
+// in place.
 func (storyboard *Storyboard) Update(time float64) {
+	storyboard.renderMu.Lock()
+	defer storyboard.renderMu.Unlock()
+
 	storyboard.background.Update(time)
 	storyboard.pass.Update(time)
 	storyboard.foreground.Update(time)
@@ -421,10 +478,14 @@ func (storyboard *Storyboard) Update(time float64) {
 		}
 	}
 
-	storyboard.videoAlpha = alpha
+	storyboard.videoAlpha.Store(math.Float64bits(alpha))
 }
 
+// Draw renders the storyboard's non-overlay layers.
 func (storyboard *Storyboard) Draw(time float64, batch *batch.QuadBatch) {
+	storyboard.renderMu.Lock()
+	defer storyboard.renderMu.Unlock()
+
 	profiler.StartGroup("Storyboard.Draw", profiler.PDraw)
 	batch.SetTranslation(vector.NewVec2d(-64, -48))
 	storyboard.background.Draw(time, batch)
@@ -434,7 +495,11 @@ func (storyboard *Storyboard) Draw(time float64, batch *batch.QuadBatch) {
 	profiler.EndGroup()
 }
 
+// DrawOverlay renders the storyboard's overlay layer.
 func (storyboard *Storyboard) DrawOverlay(time float64, batch *batch.QuadBatch) {
+	storyboard.renderMu.Lock()
+	defer storyboard.renderMu.Unlock()
+
 	profiler.StartGroup("Storyboard.Draw", profiler.PDraw)
 	batch.SetTranslation(vector.NewVec2d(-64, -48))
 	storyboard.overlay.Draw(time, batch)
@@ -442,15 +507,29 @@ func (storyboard *Storyboard) DrawOverlay(time float64, batch *batch.QuadBatch) 
 	profiler.EndGroup()
 }
 
+// GetRenderedSprites returns the number of currently visible storyboard
+// sprites. It can be called while the storyboard worker is running.
 func (storyboard *Storyboard) GetRenderedSprites() int {
+	storyboard.renderMu.Lock()
+	defer storyboard.renderMu.Unlock()
+
 	return storyboard.background.GetNumRendered() + storyboard.pass.GetNumRendered() + storyboard.foreground.GetNumRendered() + storyboard.overlay.GetNumRendered()
 }
 
+// GetProcessedSprites returns the number of storyboard sprites currently in
+// the processed set.
 func (storyboard *Storyboard) GetProcessedSprites() int {
+	storyboard.renderMu.Lock()
+	defer storyboard.renderMu.Unlock()
+
 	return storyboard.background.GetNumProcessed() + storyboard.pass.GetNumProcessed() + storyboard.foreground.GetNumProcessed() + storyboard.overlay.GetNumProcessed()
 }
 
+// GetQueueSprites returns the number of storyboard sprites waiting to start.
 func (storyboard *Storyboard) GetQueueSprites() int {
+	storyboard.renderMu.Lock()
+	defer storyboard.renderMu.Unlock()
+
 	return storyboard.background.GetNumInQueue() + storyboard.pass.GetNumInQueue() + storyboard.foreground.GetNumInQueue() + storyboard.overlay.GetNumInQueue()
 }
 
@@ -470,6 +549,8 @@ func (storyboard *Storyboard) IsWideScreen() bool {
 	return storyboard.widescreen
 }
 
-func (storyboard *Storyboard) GetVideoAlpha() float64 {
-	return storyboard.videoAlpha
+// VideoAlpha returns the alpha currently contributed by an active storyboard
+// video. The value is safe to read while the storyboard worker updates it.
+func (storyboard *Storyboard) VideoAlpha() float64 {
+	return math.Float64frombits(storyboard.videoAlpha.Load())
 }
