@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	HitFadeIn      = 400.0
-	HitFadeOut     = 240.0
-	HittableRange  = 400.0
-	ResultFadeIn   = 120.0
-	ResultFadeOut  = 600.0
-	PostEmpt       = 500.0
-	LzSpinBonusGap = 2
+	HitFadeIn         = 400.0
+	HitFadeOut        = 240.0
+	HittableRange     = 400.0
+	ResultFadeIn      = 120.0
+	ResultFadeOut     = 600.0
+	PostEmpt          = 500.0
+	LazerSpinBonusGap = 2
 )
 
 type Difficulty struct {
@@ -47,6 +47,8 @@ type Difficulty struct {
 
 	Mods Modifier
 
+	gameplayMode GameplayMode
+
 	Hit50U  float64
 	Hit100U float64
 	Hit300U float64
@@ -55,11 +57,11 @@ type Difficulty struct {
 	Hit100 int64
 	Hit300 int64
 
-	HPMod           float64
-	SpinnerRatio    float64
-	LzSpinnerMinRPS float64
-	LzSpinnerMaxRPS float64
-	Speed           float64
+	HPMod              float64
+	SpinnerRatio       float64
+	LazerSpinnerMinRPS float64
+	LazerSpinnerMaxRPS float64
+	Speed              float64
 
 	ARReal float64
 	ODReal float64
@@ -146,8 +148,8 @@ func (diff *Difficulty) calculate() {
 	diff.Hit300 = int64(DifficultyRate(od, 80, 50, 20))
 
 	diff.SpinnerRatio = DifficultyRate(od, 3, 5, 7.5)
-	diff.LzSpinnerMinRPS = DifficultyRate(od, 90, 150, 225) / 60
-	diff.LzSpinnerMaxRPS = DifficultyRate(od, 250, 380, 430) / 60
+	diff.LazerSpinnerMinRPS = DifficultyRate(od, 90, 150, 225) / 60
+	diff.LazerSpinnerMaxRPS = DifficultyRate(od, 250, 380, 430) / 60
 
 	if diff.Mods&DoubleTime > 0 {
 		diff.BaseModSpeed = 1.5
@@ -188,6 +190,7 @@ func (diff *Difficulty) SetMods(mods Modifier) {
 }
 
 func (diff *Difficulty) AddMod(mods Modifier) {
+	mods &^= reservedLazerModifier
 	diff.Mods |= mods
 
 	if mods.Active(HalfTime | Daycore) {
@@ -220,6 +223,8 @@ func (diff *Difficulty) AddMod(mods Modifier) {
 }
 
 func (diff *Difficulty) RemoveMod(mods Modifier) {
+	mods &^= reservedLazerModifier
+
 	if mods.Active(Nightcore) {
 		mods |= DoubleTime
 	}
@@ -318,7 +323,7 @@ func (diff *Difficulty) SetMods2(mods []rplpa.ModInfo) {
 }
 
 func (diff *Difficulty) ExportMods2() (mods []rplpa.ModInfo) {
-	mComp := diff.Mods
+	mComp := diff.Mods &^ reservedLazerModifier
 
 	if mComp.Active(Nightcore) {
 		mComp &= ^DoubleTime
@@ -332,10 +337,10 @@ func (diff *Difficulty) ExportMods2() (mods []rplpa.ModInfo) {
 		mComp &= ^SuddenDeath
 	}
 
-	for i := 0; i <= 62; i++ {
+	for i := range modsString {
 		mTest := Modifier(1 << i)
 
-		if mComp.Active(mTest) {
+		if mComp.Active(mTest) && modsString[i] != "" {
 			var modSettings map[string]any
 
 			if cType, ok := modConfigs[mTest]; ok {
@@ -379,7 +384,7 @@ func (diff *Difficulty) GetPitch() float64 {
 }
 
 func (diff *Difficulty) GetRadius() float32 {
-	if diff.Mods&Lazer > 0 {
+	if diff.IsLazer() {
 		return float32(diff.CircleRadiusL)
 	}
 
@@ -391,9 +396,18 @@ func (diff *Difficulty) GetRadius() float32 {
 }
 
 func (diff *Difficulty) GetScoreMultiplier() float64 {
-	baseMultiplier := (diff.Mods & (^(HalfTime | Daycore | DoubleTime | Nightcore | Flashlight))).GetScoreMultiplier()
+	scoreMods := diff.Mods &^ (HalfTime | Daycore | DoubleTime | Nightcore | Flashlight | Relax | Relax2)
+	baseMultiplier := scoreMods.GetScoreMultiplier()
 
-	if diff.Mods.Active(Lazer) {
+	if diff.Mods.Active(Relax | Relax2) {
+		if diff.IsLazer() {
+			baseMultiplier *= 0.1
+		} else {
+			baseMultiplier = 0
+		}
+	}
+
+	if diff.IsLazer() {
 		value := math.Floor(diff.Speed*10)/10 - 1
 
 		if diff.Speed >= 1 {

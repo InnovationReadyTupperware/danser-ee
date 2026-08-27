@@ -100,6 +100,7 @@ func (b *builder) setMap(bMap *beatmap.BeatMap) {
 	b.sourceDiff.SetCS(bMap.Diff.GetBaseCS())
 	b.sourceDiff.SetHP(bMap.Diff.GetBaseHP())
 	b.sourceDiff.SetMods(difficulty.None)
+	b.sourceDiff.SetGameplayMode(difficulty.GameplayLazer)
 
 	b.diff.SetAR(bMap.Diff.GetBaseAR())
 	b.diff.SetOD(bMap.Diff.GetBaseOD())
@@ -111,10 +112,16 @@ func (b *builder) setMap(bMap *beatmap.BeatMap) {
 	b.baseDiff.SetCS(bMap.Diff.GetBaseCS())
 	b.baseDiff.SetHP(bMap.Diff.GetBaseHP())
 	b.baseDiff.SetMods(b.diff.Mods)
+	b.baseDiff.SetGameplayMode(difficulty.GameplayLazer)
+	b.diff.SetGameplayMode(difficulty.GameplayLazer)
 }
 
 func (b *builder) setReplay(replay *rplpa.Replay) {
 	b.currentReplay = replay
+	gameplayMode := difficulty.GameplayModeFromReplayVersion(int(replay.OsuVersion))
+	b.sourceDiff.SetGameplayMode(gameplayMode)
+	b.baseDiff.SetGameplayMode(gameplayMode)
+	b.diff.SetGameplayMode(gameplayMode)
 	b.diff.RemoveMod(^difficulty.None)
 
 	if replay.ScoreInfo != nil && replay.ScoreInfo.Mods != nil && len(replay.ScoreInfo.Mods) > 0 {
@@ -133,16 +140,14 @@ func (b *builder) setReplay(replay *rplpa.Replay) {
 		b.diff.SetMods(difficulty.Modifier(replay.Mods))
 	}
 
-	if replay.OsuVersion >= 30000000 { // Lazer is 1000 years in the future
-		b.sourceDiff.AddMod(difficulty.Lazer)
-		b.baseDiff.AddMod(difficulty.Lazer)
-		b.diff.AddMod(difficulty.Lazer)
-	}
 }
 
 func (b *builder) removeReplay() {
 	b.currentReplay = nil
 	b.sourceDiff.RemoveMod(^difficulty.None)
+	b.sourceDiff.SetGameplayMode(difficulty.GameplayLazer)
+	b.baseDiff.SetGameplayMode(difficulty.GameplayLazer)
+	b.diff.SetGameplayMode(difficulty.GameplayLazer)
 }
 
 func (b *builder) numKnockoutReplays() (ret int) {

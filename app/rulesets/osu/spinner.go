@@ -79,9 +79,9 @@ func (spinner *Spinner) Init(ruleSet *OsuRuleSet, object objects.IHitObject, pla
 		spinner.fadeStartRelative = min(spinner.fadeStartRelative, player.diff.Preempt)
 		spinner.state[player].frameVariance = FrameTime
 
-		if player.diff.CheckModActive(difficulty.Lazer) {
-			spinner.state[player].requirement = int64(player.diff.LzSpinnerMinRPS*float64(spinnerTime)/1000 + 0.0001)
-			spinner.state[player].maximumBonusSpins = max(0, int64(player.diff.LzSpinnerMaxRPS*float64(spinnerTime)/1000+0.0001)-spinner.state[player].requirement-difficulty.LzSpinBonusGap)
+		if player.diff.IsLazer() {
+			spinner.state[player].requirement = int64(player.diff.LazerSpinnerMinRPS*float64(spinnerTime)/1000 + 0.0001)
+			spinner.state[player].maximumBonusSpins = max(0, int64(player.diff.LazerSpinnerMaxRPS*float64(spinnerTime)/1000+0.0001)-spinner.state[player].requirement-difficulty.LazerSpinBonusGap)
 		} else {
 			spinner.state[player].requirement = int64(float64(spinnerTime) / 1000 * player.diff.SpinnerRatio)
 		}
@@ -98,7 +98,7 @@ func (spinner *Spinner) UpdateFor(player *difficultyPlayer, time int64, _ bool) 
 	state := spinner.state[player]
 
 	if !state.finished {
-		if player.diff.CheckModActive(difficulty.Lazer) {
+		if player.diff.IsLazer() {
 			spinner.processLazer(player, time)
 		} else {
 			spinner.processStable(player, time)
@@ -273,13 +273,13 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 
 			delta = float32(timeDiff) * rotationSpeed * 360
 
-			spinner.lzReportDelta(state, delta)
+			spinner.lazerReportDelta(state, delta)
 
 			deltaRPM = delta
 		} else if player.gameDownState || player.diff.CheckModActive(difficulty.Relax) {
 			delta *= float32(player.diff.GetSpeed())
 
-			spinner.lzReportDelta(state, delta)
+			spinner.lazerReportDelta(state, delta)
 
 			deltaRPM = delta
 		}
@@ -310,7 +310,7 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 			spinner.hitSpinner.UpdateCompletion(float64(state.getCompletion()))
 		}
 
-		totalSpins := state.maximumBonusSpins + state.requirement + difficulty.LzSpinBonusGap
+		totalSpins := state.maximumBonusSpins + state.requirement + difficulty.LazerSpinBonusGap
 
 		for i := state.lastRotationCount; i < state.rotationCount; i++ {
 			if i == state.requirement && len(spinner.players) == 1 {
@@ -318,11 +318,11 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 			}
 
 			if i < totalSpins {
-				if i < state.requirement+difficulty.LzSpinBonusGap {
+				if i < state.requirement+difficulty.LazerSpinBonusGap {
 					spinner.ruleSet.SendResult(player.cursor, createJudgementResult(SpinnerPoints, SpinnerPoints, Hold, time, spinnerPosition, spinner))
 				} else {
 					if len(spinner.players) == 1 {
-						spinner.hitSpinner.Bonus(int(SpinnerBonus.ScoreValueMod(player.diff.Mods)), time)
+						spinner.hitSpinner.Bonus(int(SpinnerBonus.ScoreValueFor(player.diff.GetGameplayMode(), player.diff.Mods)), time)
 					}
 
 					spinner.ruleSet.SendResult(player.cursor, createJudgementResult(SpinnerBonus, SpinnerBonus, Hold, time, spinnerPosition, spinner))
@@ -338,7 +338,7 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 	}
 }
 
-func (spinner *Spinner) lzReportDelta(state *spinnerstate, delta float32) {
+func (spinner *Spinner) lazerReportDelta(state *spinnerstate, delta float32) {
 	if delta != 0 {
 		state.totalAccumulatedRotation += delta
 
@@ -372,7 +372,7 @@ func (spinner *Spinner) UpdatePostFor(player *difficultyPlayer, time int64, _ bo
 		hit := Miss
 		combo := Reset
 
-		if player.diff.CheckModActive(difficulty.Lazer) {
+		if player.diff.IsLazer() {
 			if spinner.state[player].requirement == 0 || state.getCompletion() >= 1.0 {
 				hit = Hit300
 			} else if state.getCompletion() >= 0.9 {

@@ -221,7 +221,7 @@ func ModifyPosition(hitObject *HitObject, basePosition vector.Vector2f, diff *di
 	stackIndex := hitObject.GetStackIndexMod(diff)
 
 	stackOffset := float32(stackIndex) * float32(diff.CircleRadius) / 10
-	if diff.CheckModActive(difficulty.Lazer) || diff.DiffCalcMode {
+	if diff.IsLazer() || diff.DiffCalcMode {
 		stackOffset = float32(stackIndex) * diff.CircleScaleL * 6.4
 	}
 

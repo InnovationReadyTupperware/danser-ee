@@ -1,7 +1,6 @@
 package input
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/graphics"
 	"github.com/wieku/danser-go/app/rulesets/osu"
 )
@@ -29,7 +28,7 @@ func (processor *RelaxInputProcessor) Update(time float64) {
 	click := false
 
 	currDiff := processor.ruleset.GetPlayerDifficulty(processor.cursor)
-	isLazer := currDiff.CheckModActive(difficulty.Lazer)
+	isLazer := currDiff.IsLazer()
 
 	for _, o := range processed {
 		circle, c1 := o.(*osu.Circle)

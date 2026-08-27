@@ -1,6 +1,10 @@
 package difficulty
 
-import "github.com/wieku/rplpa"
+import (
+	"log"
+
+	"github.com/wieku/rplpa"
+)
 
 type Modifier int64
 
@@ -38,7 +42,10 @@ const (
 	ScoreV2
 	LastMod
 	Daycore
-	Lazer
+	// Keep the former Lazer bit occupied. Modifier values are persisted in
+	// replay and command data, so shifting later bits would reinterpret
+	// Classic, DifficultyAdjust, Mirror, and Traceable in old data.
+	reservedLazerModifier
 	Classic
 	DifficultyAdjust
 	Mirror
@@ -102,7 +109,7 @@ var modsString = [...]string{
 	"V2",
 	"LM",
 	"DC",
-	"LZ",
+	"",
 	"CL",
 	"DA",
 	"MR",
@@ -142,7 +149,7 @@ var modsStringFull = [...]string{
 	"ScoreV2",
 	"LastMod",
 	"Daycore",
-	"Lazer",
+	"",
 	"Classic",
 	"DifficultyAdjust",
 	"Mirror",
@@ -189,11 +196,10 @@ func (mods Modifier) GetScoreMultiplier() float64 {
 	}
 
 	if (mods&Relax | mods&Relax2) > 0 {
-		if mods&Lazer > 0 {
-			multiplier *= 0.1
-		} else {
-			multiplier = 0
-		}
+		// Relax and Autopilot have different multipliers in the two
+		// gameplay implementations. Difficulty.GetScoreMultiplier owns
+		// that decision because Modifier does not carry gameplay provenance.
+		multiplier = 0
 	}
 
 	if mods&SpunOut > 0 {
@@ -212,6 +218,8 @@ func (mods Modifier) GetScoreMultiplier() float64 {
 }
 
 func (mods Modifier) String() (s string) {
+	mods &^= reservedLazerModifier
+
 	if mods.Active(Nightcore) {
 		mods &= ^DoubleTime
 	}
@@ -237,6 +245,8 @@ func (mods Modifier) String() (s string) {
 }
 
 func (mods Modifier) StringFull() (s []string) {
+	mods &^= reservedLazerModifier
+
 	if mods.Active(Nightcore) {
 		mods &= ^DoubleTime
 	}
@@ -253,9 +263,11 @@ func (mods Modifier) StringFull() (s []string) {
 }
 
 func (mods Modifier) StringFull2() (s []string) {
+	mods &^= reservedLazerModifier
+
 	for i := range len(modsString) {
 		activated := mods&1 == 1
-		if activated {
+		if activated && modsStringFull[i] != "" {
 			s = append(s, modsStringFull[i])
 		}
 
@@ -267,16 +279,22 @@ func (mods Modifier) StringFull2() (s []string) {
 
 func ParseFromAcronym(mod string) (m Modifier) {
 	for index, availableMod := range modsString {
-		if availableMod == mod {
+		if availableMod != "" && availableMod == mod {
 			m = 1 << uint(index)
 			break
 		}
+	}
+
+	if m == None && mod != "" {
+		log.Printf("Ignoring unknown mod acronym %q", mod)
 	}
 
 	return
 }
 
 func (mods Modifier) ConvertToModInfoList() (mi []rplpa.ModInfo) {
+	mods &^= reservedLazerModifier
+
 	if mods.Active(Nightcore) {
 		mods &= ^DoubleTime
 	}
@@ -290,7 +308,7 @@ func (mods Modifier) ConvertToModInfoList() (mi []rplpa.ModInfo) {
 	}
 
 	for i := range len(modsString) {
-		if mods&1 == 1 {
+		if mods&1 == 1 && modsString[i] != "" {
 			mi = append(mi, rplpa.ModInfo{
 				Acronym:  modsString[i],
 				Settings: make(map[string]any),
@@ -340,7 +358,6 @@ func (mods Modifier) Compatible() bool {
 	if mods.Active(Target) ||
 		(mods.Active(HardRock) && mods.Active(Easy)) ||
 		(mods.Active(HardRock) && mods.Active(Mirror)) ||
-		(mods.Active(Lazer) && mods.Active(ScoreV2)) ||
 		((mods.Active(Nightcore) || mods.Active(DoubleTime)) && (mods.Active(HalfTime) || mods.Active(Daycore))) ||
 		((mods.Active(Perfect) || mods.Active(SuddenDeath)) && mods.Active(NoFail)) ||
 		(mods.Active(Relax) && mods.Active(Relax2)) ||

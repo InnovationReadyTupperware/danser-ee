@@ -1,10 +1,10 @@
 package osu
 
 import (
+	"math"
+
 	"github.com/wieku/danser-go/app/beatmap"
 	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/settings"
-	"math"
 )
 
 type scoreV3Processor struct {
@@ -48,7 +48,7 @@ func (s *scoreV3Processor) Init(beatMap *beatmap.BeatMap, player *difficultyPlay
 		if o.GetType() == objects.SPINNER {
 			s.AddResult(createJudgementResult(Hit300, Hit300, Increase, int64(o.GetEndTime()), o.GetStartPosition(), nil))
 		} else if slider, ok := o.(*objects.Slider); ok {
-			if player.lzNoSliderAcc {
+			if player.classicNoSliderHeadAccuracy {
 				s.AddResult(createJudgementResult(SliderStart, SliderStart, Increase, int64(o.GetStartTime()), o.GetStartPosition(), nil))
 			} else {
 				s.AddResult(createJudgementResult(Hit300, Hit300, Increase, int64(o.GetStartTime()), o.GetStartPosition(), nil))
@@ -56,7 +56,7 @@ func (s *scoreV3Processor) Init(beatMap *beatmap.BeatMap, player *difficultyPlay
 
 			for i, p := range slider.ScorePointsLazer {
 				if i == len(slider.ScorePoints)-1 {
-					if player.lzNoSliderAcc {
+					if player.classicNoSliderHeadAccuracy {
 						s.AddResult(createJudgementResult(LegacySliderEnd, LegacySliderEnd, Hold, int64(p.Time), p.Pos, nil))
 					} else {
 						s.AddResult(createJudgementResult(SliderEnd, SliderEnd, Increase, int64(p.Time), p.Pos, nil))
@@ -68,7 +68,7 @@ func (s *scoreV3Processor) Init(beatMap *beatmap.BeatMap, player *difficultyPlay
 				}
 			}
 
-			if player.lzNoSliderAcc {
+			if player.classicNoSliderHeadAccuracy {
 				s.AddResult(createJudgementResult(Hit300, Hit300, Increase, int64(o.GetEndTime()), o.GetStartPosition(), nil))
 			}
 		} else {
@@ -98,7 +98,7 @@ func (s *scoreV3Processor) AddResult(result JudgementResult) {
 
 	if result.HitResult.IsBonus() {
 		s.bonus += result.HitResult.ScoreValueLazer()
-	} else if result.HitResult.AffectsAccLZ() {
+	} else if result.HitResult.AffectsAccLazer() {
 		s.accPart += result.HitResult.ScoreValueLazer()
 		s.accPartMax += result.MaxResult.ScoreValueLazer()
 
@@ -110,7 +110,7 @@ func (s *scoreV3Processor) AddResult(result JudgementResult) {
 	}
 
 	// slider end misses (not classic mod!) don't propagate combo score
-	if result.HitResult.AffectsAccLZ() && !(result.HitResult == SliderMiss && result.MaxResult == SliderEnd) {
+	if result.HitResult.AffectsAccLazer() && !(result.HitResult == SliderMiss && result.MaxResult == SliderEnd) {
 		s.comboPart += float64(result.MaxResult.ScoreValueLazer()) * math.Pow(float64(s.combo), 0.5)
 	}
 
@@ -136,7 +136,7 @@ func (s *scoreV3Processor) ModifyResult(result HitResult, src HitObject) HitResu
 }
 
 func (s *scoreV3Processor) GetScore() int64 {
-	if settings.Gameplay.LazerClassicScore || s.forceClassic {
+	if s.forceClassic {
 		return int64(math.Round((math.Pow(float64(s.basicHitCount), 2)*32.57 + 100000) * float64(s.score) / 1000000))
 	}
 

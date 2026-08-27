@@ -132,7 +132,7 @@ type ScoreOverlay struct {
 
 	customStats *cstats.StatDisplay
 
-	lazerScore bool
+	isLazer bool
 
 	skipped bool
 }
@@ -200,16 +200,20 @@ func NewScoreOverlay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor) *ScoreOve
 
 	overlay.initUnderlay()
 
-	overlay.results = play.NewHitResults(ruleset.GetBeatMap().Diff)
 	overlay.ruleset = ruleset
 	overlay.cursor = cursor
+
+	// A knockout can contain both replay generations. HUD geometry and score
+	// presentation therefore follow the current player's difficulty rather
+	// than the shared beatmap difficulty.
+	playerDiff := ruleset.GetPlayerDifficulty(cursor)
+	overlay.results = play.NewHitResults(playerDiff)
+	overlay.isLazer = playerDiff.IsLazer()
 
 	overlay.scoreGlider = animation.NewTargetGlider(0, 0)
 	overlay.accuracyGlider = animation.NewTargetGlider(100, 2)
 
-	overlay.ppDisplay = play.NewPPDisplay(ruleset.GetBeatMap().Diff.Mods)
-
-	overlay.lazerScore = ruleset.GetBeatMap().Diff.CheckModActive(difficulty.Lazer)
+	overlay.ppDisplay = play.NewPPDisplay(playerDiff.Mods)
 
 	overlay.strainGraph = play.NewStrainGraph(ruleset.GetBeatMap(), performance.GetDifficultyCalculator().CalculateStrainPeaks(ruleset.GetBeatMap(), ruleset.GetBeatMap().Diff), false, true)
 
@@ -260,7 +264,7 @@ func NewScoreOverlay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor) *ScoreOve
 	overlay.keyOverlay.Add(keyBg)
 
 	var keyNames []string
-	if overlay.lazerScore {
+	if overlay.isLazer {
 		keyNames = []string{"B1", "B2", "B3"}
 	} else {
 		keyNames = []string{"K1", "K2", "M1", "M2"}
@@ -290,9 +294,9 @@ func NewScoreOverlay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor) *ScoreOve
 		overlay.keyInfos = append(overlay.keyInfos, kInfo)
 	}
 
-	overlay.hitErrorMeter = play.NewHitErrorMeter(overlay.ScaledWidth, overlay.ScaledHeight, ruleset.GetBeatMap().Diff)
+	overlay.hitErrorMeter = play.NewHitErrorMeter(overlay.ScaledWidth, overlay.ScaledHeight, playerDiff)
 
-	overlay.aimErrorMeter = play.NewAimErrorMeter(ruleset.GetBeatMap().Diff)
+	overlay.aimErrorMeter = play.NewAimErrorMeter(playerDiff)
 
 	showAfterSkip := 2000.0
 
@@ -332,14 +336,12 @@ func NewScoreOverlay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor) *ScoreOve
 		overlay.flashlight = common.NewFlashlight(overlay.ruleset.GetBeatMap())
 	}
 
-	overlay.entry = play.NewScoreboard(overlay.ruleset.GetBeatMap(), ruleset.GetPlayerDifficulty(overlay.cursor).CheckModActive(difficulty.Lazer), overlay.cursor.ScoreID)
+	overlay.entry = play.NewScoreboard(overlay.ruleset.GetBeatMap(), playerDiff.IsLazer(), overlay.cursor.ScoreID)
 	overlay.entry.AddPlayer(overlay.cursor.Name, overlay.cursor.IsAutoplay)
 
 	overlay.initArrows()
 
-	pDiff := overlay.ruleset.GetPlayerDifficulty(overlay.cursor)
-
-	overlay.customStats = cstats.NewStatDisplay(ruleset.GetBeatMap(), pDiff)
+	overlay.customStats = cstats.NewStatDisplay(ruleset.GetBeatMap(), playerDiff)
 
 	currentStars := overlay.ruleset.GetCurrentDiffAttribs(overlay.cursor)
 	endStars := overlay.ruleset.GetFinalDiffAttribs(overlay.cursor)
@@ -392,7 +394,7 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 
 	playerDiff := overlay.ruleset.GetPlayerDifficulty(c)
 
-	if playerDiff.CheckModActive(difficulty.Lazer) {
+	if playerDiff.IsLazer() {
 		classicConf, confFound := difficulty.GetModConfig[difficulty.ClassicSettings](playerDiff)
 
 		if !playerDiff.CheckModActive(difficulty.Classic) || !confFound || !classicConf.NoSliderHeadAccuracy {
@@ -412,11 +414,11 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 
 		var startPos *vector.Vector2f
 		if judgementResult.Number > 0 {
-			pos := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number-1].GetStackedEndPositionMod(overlay.ruleset.GetBeatMap().Diff)
+			pos := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number-1].GetStackedEndPositionMod(playerDiff)
 			startPos = &pos
 		}
 
-		endPos := object.GetStackedStartPositionMod(overlay.ruleset.GetBeatMap().Diff)
+		endPos := object.GetStackedStartPositionMod(playerDiff)
 
 		overlay.aimErrorMeter.Add(float64(judgementResult.Time), c.Position, startPos, &endPos)
 	}
@@ -477,7 +479,7 @@ func (overlay *ScoreOverlay) clickReceived(c *graphics.Cursor, leftMouse, rightM
 		overlay.customStats.GetStatHolder().AddClick(overlay.audioTime)
 	}
 
-	if overlay.lazerScore {
+	if overlay.isLazer {
 		overlay.processKey(overlay.keyInfos[0], leftMouse|leftKb)
 		overlay.processKey(overlay.keyInfos[1], rightMouse|rightKb)
 		overlay.processKey(overlay.keyInfos[2], smoke)
@@ -867,7 +869,7 @@ func (overlay *ScoreOverlay) drawScore(batch *batch.QuadBatch, alpha float64) {
 	scoreFormat := "%08d"
 
 	playerDiff := overlay.ruleset.GetPlayerDifficulty(overlay.cursor)
-	if playerDiff.CheckModActive(difficulty.Lazer) && !settings.Gameplay.LazerClassicScore {
+	if playerDiff.IsLazer() {
 		scoreFormat = "%06d"
 	}
 
@@ -1025,10 +1027,6 @@ func (overlay *ScoreOverlay) initMods() {
 
 	for i, s := range mods {
 		nameSplit := strings.Split(s, ":")
-
-		if !settings.Gameplay.Mods.ShowLazerMod && nameSplit[0] == "Lazer" {
-			continue
-		}
 
 		modSpriteName := "selection-mod-" + strings.ToLower(nameSplit[0])
 

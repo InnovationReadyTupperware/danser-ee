@@ -71,11 +71,9 @@ func (m *modPopup) drawModMenu() {
 		})
 
 		m.drawRow("Conversion:", func() {
-			m.modCheckbox(difficulty.ScoreV2, difficulty.Lazer|difficulty.Classic, difficulty.None)
+			m.modCheckbox(difficulty.ScoreV2, difficulty.Classic, difficulty.None)
 
-			m.modCheckbox(difficulty.Lazer, difficulty.ScoreV2, difficulty.None)
-
-			m.modCheckbox(difficulty.Classic, difficulty.ScoreV2, difficulty.Lazer)
+			m.modCheckbox(difficulty.Classic, difficulty.ScoreV2, difficulty.None)
 		})
 
 		m.drawRow("Fun:", func() {
@@ -155,6 +153,7 @@ func (m *modPopup) tryDrawClassicSettings() {
 		checkboxOption("No slider head accuracy requirement", &conf.NoSliderHeadAccuracy)
 		checkboxOption("Apply classic note lock", &conf.ClassicNoteLock)
 		checkboxOption("Always play a slider's tail sample", &conf.AlwaysPlayTailSample)
+		checkboxOption("Fade hit circles early", &conf.FadeHitCircleEarly)
 		checkboxOption("Classic health", &conf.ClassicHealth)
 
 		difficulty.SetModConfig(m.bld.diff, conf)

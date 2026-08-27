@@ -54,7 +54,7 @@ func (r HitResult) AffectsAccV1() bool {
 	return v&(BaseHitsM) != 0
 }
 
-func (r HitResult) AffectsAccLZ() bool {
+func (r HitResult) AffectsAccLazer() bool {
 	v := r & (^Additions)
 
 	return v&(BaseHitsM|SliderHits|SliderMiss) != 0
@@ -110,8 +110,8 @@ func (r HitResult) ScoreValueLazer() int64 {
 	return 0
 }
 
-func (r HitResult) ScoreValueMod(mod difficulty.Modifier) int64 {
-	if mod.Active(difficulty.Lazer) {
+func (r HitResult) ScoreValueFor(mode difficulty.GameplayMode, mod difficulty.Modifier) int64 {
+	if mode.IsLazer() {
 		return r.ScoreValueLazer()
 	} else if mod.Active(difficulty.ScoreV2) {
 		return r.ScoreValueV2()

@@ -8,7 +8,7 @@ import (
 )
 
 func CalculateMissCount(score api.PerfScore, attributes api.Attributes, diff *difficulty.Difficulty) float64 {
-	if attributes.MaxCombo == 0 || diff.CheckModActive(difficulty.Lazer) {
+	if attributes.MaxCombo == 0 || diff.IsLazer() {
 		return 0
 	}
 

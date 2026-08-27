@@ -154,7 +154,7 @@ func run() {
 		flag.Parse()
 
 		if *mods != "" && *mods2 != "" {
-			panic("You can't specify classic and lazer mods at the same time")
+			panic("You can't specify legacy and structured mods at the same time")
 		}
 
 		var knockoutReplays []string
@@ -227,14 +227,6 @@ func run() {
 
 				for _, mod := range rp.ScoreInfo.Mods {
 					modsNew = append(modsNew, *mod)
-				}
-			}
-
-			if rp.OsuVersion >= 30000000 { // Lazer is 1000 years in the future
-				modsParsed |= difficulty2.Lazer
-
-				if modsNew != nil {
-					modsNew = append(modsNew, rplpa.ModInfo{Acronym: "LZ"})
 				}
 			}
 

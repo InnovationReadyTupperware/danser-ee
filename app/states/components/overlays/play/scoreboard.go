@@ -40,15 +40,15 @@ type ScoreBoard struct {
 
 	width float64
 
-	lazerScore bool
+	isLazer bool
 }
 
-func NewScoreboard(beatMap *beatmap.BeatMap, lazerScore bool, omitID int64) *ScoreBoard {
+func NewScoreboard(beatMap *beatmap.BeatMap, isLazer bool, omitID int64) *ScoreBoard {
 	board := &ScoreBoard{
 		first:            true,
 		explosionManager: sprite.NewManager(),
 		width:            768 * settings.Graphics.GetAspectRatio(),
-		lazerScore:       lazerScore,
+		isLazer:          isLazer,
 	}
 
 	skin.GetTextureSource("scoreboard-explosion-1", skin.LOCAL)
@@ -77,13 +77,11 @@ func NewScoreboard(beatMap *beatmap.BeatMap, lazerScore bool, omitID int64) *Sco
 
 	if settings.Gameplay.ScoreBoard.ModsOnly {
 		for _, mInfo := range beatMap.Diff.ExportMods2() {
-			if mInfo.Acronym != "LZ" {
-				mods = append(mods, mInfo.Acronym)
-			}
+			mods = append(mods, mInfo.Acronym)
 		}
 	}
 
-	scores, err := osuapi.GetScoresCheksum(beatMap.MD5, !lazerScore, mode, 51, mods...)
+	scores, err := osuapi.GetScoresCheksum(beatMap.MD5, !isLazer, mode, 51, mods...)
 
 	if err != nil {
 		log.Println("Error connecting to osu!api:", err)
@@ -107,7 +105,7 @@ func NewScoreboard(beatMap *beatmap.BeatMap, lazerScore bool, omitID int64) *Sco
 		for i := 0; i < min(len(scores), 50); i++ {
 			s := scores[i]
 
-			entry := NewScoreboardEntry(s.User.Username, s, lazerScore, i+1, false)
+			entry := NewScoreboardEntry(s.User.Username, s, isLazer, i+1, false)
 
 			if settings.Gameplay.ScoreBoard.ShowAvatars {
 				entry.LoadAvatarURL(s.User.AvatarURL)
@@ -124,7 +122,7 @@ func NewScoreboard(beatMap *beatmap.BeatMap, lazerScore bool, omitID int64) *Sco
 }
 
 func (board *ScoreBoard) AddPlayer(name string, autoPlay bool) {
-	board.playerEntry = NewScoreboardEntry(name, osuapi.Score{}, board.lazerScore, len(board.scores)+1, true)
+	board.playerEntry = NewScoreboardEntry(name, osuapi.Score{}, board.isLazer, len(board.scores)+1, true)
 	board.playerIndex = len(board.scores)
 	board.lastPlayerIndex = board.playerIndex
 

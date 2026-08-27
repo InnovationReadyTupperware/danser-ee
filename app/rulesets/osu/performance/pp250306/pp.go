@@ -59,9 +59,9 @@ func (pp *PPv2) Calculate(attribs api.Attributes, score api.PerfScore, diff *dif
 		score.SliderEnd = attribs.Sliders
 	}
 
-	pp.usingClassicSliderAccuracy = !diff.CheckModActive(difficulty.Lazer)
+	pp.usingClassicSliderAccuracy = !diff.IsLazer()
 
-	if diff.CheckModActive(difficulty.Lazer) && diff.CheckModActive(difficulty.Classic) {
+	if diff.IsLazer() && diff.CheckModActive(difficulty.Classic) {
 		if conf, ok := difficulty.GetModConfig[difficulty.ClassicSettings](diff); ok {
 			pp.usingClassicSliderAccuracy = conf.NoSliderHeadAccuracy
 		}

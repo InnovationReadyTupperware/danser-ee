@@ -182,14 +182,14 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 
 			hp.Increase(-decr, false)
 
-			lzSkipScore := false
+			lazerSkipScore := false
 
 			if s, ok := o.(*objects.Slider); ok {
 				repeats := len(s.TickReverse) + 1
 
-				if hp.player.diff.CheckModActive(difficulty.Lazer) && !hp.player.lzNoSliderAcc {
+				if hp.player.diff.IsLazer() && !hp.player.classicNoSliderHeadAccuracy {
 					repeats -= 1
-					lzSkipScore = true
+					lazerSkipScore = true
 					hp.addResultInternal(Hit300)
 				}
 
@@ -204,8 +204,8 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 				spinnerTime := (s.GetEndTime() - s.GetStartTime()) / 1000
 
 				requirement := int(spinnerTime * hp.player.diff.SpinnerRatio)
-				if hp.player.diff.CheckModActive(difficulty.Lazer) {
-					requirement = int(hp.player.diff.LzSpinnerMinRPS*spinnerTime/1000 + 0.0001)
+				if hp.player.diff.IsLazer() {
+					requirement = int(hp.player.diff.LazerSpinnerMinRPS*spinnerTime/1000 + 0.0001)
 				}
 
 				for j := 0; j < requirement; j++ {
@@ -221,7 +221,7 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 				break
 			}
 
-			if !hp.player.diff.CheckModActive(difficulty.Lazer) && (i == len(hp.beatMap.HitObjects)-1 || hp.beatMap.HitObjects[i+1].IsNewCombo()) {
+			if !hp.player.diff.IsLazer() && (i == len(hp.beatMap.HitObjects)-1 || hp.beatMap.HitObjects[i+1].IsNewCombo()) {
 				hp.addResultInternal(Hit300g)
 
 				if hp.health < lowestHpComboEnd {
@@ -234,7 +234,7 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 						break
 					}
 				}
-			} else if !lzSkipScore {
+			} else if !lazerSkipScore {
 				hp.addResultInternal(Hit300)
 			}
 		}
@@ -295,7 +295,7 @@ func (hp *HealthProcessor) addResultInternal(result HitResult) {
 		hpAdd += hp.HpMultiplierNormal * HpSpinnerBonus
 	}
 
-	if !hp.player.diff.CheckModActive(difficulty.Lazer) {
+	if !hp.player.diff.IsLazer() {
 		switch addition {
 		case MuAddition:
 			hpAdd += hp.HpMultiplierComboEnd * HpMu
@@ -327,7 +327,7 @@ func (hp *HealthProcessor) IncreaseRelative(amount float64, fromHitObject bool) 
 func (hp *HealthProcessor) reducePassive(amount int64) {
 	scale := 1.0
 
-	if !hp.player.diff.CheckModActive(difficulty.Lazer) {
+	if !hp.player.diff.IsLazer() {
 		if hp.spinnerActive && hp.lowerSpinnerDrain {
 			scale = 0.25
 		}

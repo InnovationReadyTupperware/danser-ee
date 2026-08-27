@@ -78,11 +78,20 @@ type difficultyPlayer struct {
 	lastKbState    buttonState
 	lastSmokeState bool
 
-	maskedModString string
+	difficultyCacheKey difficultyCacheKey
 
-	lzLegacyNotelock bool
-	lzNoSliderAcc    bool
-	lzLegacySound    bool
+	classicNoteLock             bool
+	classicNoSliderHeadAccuracy bool
+	classicAlwaysPlayTailSample bool
+	classicHealth               bool
+}
+
+// difficultyCacheKey keeps Lazer and Stable difficulty attributes separate.
+// Their masked modifiers can be identical even though circle radius and
+// other mode-dependent calculations are intentionally different.
+type difficultyCacheKey struct {
+	mode difficulty.GameplayMode
+	mods string
 }
 
 type subSet struct {
@@ -119,7 +128,7 @@ type OsuRuleSet struct {
 
 	ended bool
 
-	oppDiffs map[string][]api.Attributes
+	oppDiffs map[difficultyCacheKey][]api.Attributes
 
 	queue         []HitObject
 	processed     []HitObject
@@ -134,7 +143,7 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 
 	ruleset := new(OsuRuleSet)
 	ruleset.beatMap = beatMap
-	ruleset.oppDiffs = make(map[string][]api.Attributes)
+	ruleset.oppDiffs = make(map[difficultyCacheKey][]api.Attributes)
 
 	log.Println("Using pp calc version", performance.GetDifficultyCalculator().GetVersionMessage())
 
@@ -142,7 +151,7 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 
 	diffPlayers := make([]*difficultyPlayer, 0, len(cursors))
 
-	nonLazerReplays := false
+	hasStablePlayers := false
 
 	for i := range cursors {
 		diff := diffs[i]
@@ -150,10 +159,9 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 		beatMap.CalculateStackLeniency(diff) // Calculate additional stack indexes for DA/EZ/HR/whatever that changes Preempt
 
 		diff.Mods = diff.Mods | (beatMap.Diff.Mods & difficulty.ScoreV2) // if beatmap has ScoreV2 mod, force it for all players
-		diff.Mods = diff.Mods | (beatMap.Diff.Mods & difficulty.Lazer)   // same for Lazer
 
-		if !diff.CheckModActive(difficulty.Lazer) {
-			nonLazerReplays = true
+		if !diff.IsLazer() {
+			hasStablePlayers = true
 		}
 	}
 
@@ -162,28 +170,33 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 	for i, cursor := range cursors {
 		diff := diffs[i]
 
-		player := &difficultyPlayer{cursor: cursor, diff: diff, maskedModString: diff.GetModStringMasked()}
+		player := &difficultyPlayer{
+			cursor:             cursor,
+			diff:               diff,
+			difficultyCacheKey: difficultyCacheKey{mode: diff.GetGameplayMode(), mods: diff.GetModStringMasked()},
+		}
 		diffPlayers = append(diffPlayers, player)
 
-		lzLegacyHP := false
-
-		if diff.CheckModActive(difficulty.Classic) {
+		if diff.IsLazer() && diff.CheckModActive(difficulty.Classic) {
 			if s, ok := difficulty.GetModConfig[difficulty.ClassicSettings](diff); ok {
-				player.lzLegacyNotelock = s.ClassicNoteLock
-				player.lzNoSliderAcc = s.NoSliderHeadAccuracy
-				player.lzLegacySound = s.AlwaysPlayTailSample
-				lzLegacyHP = s.ClassicHealth
+				player.classicNoteLock = s.ClassicNoteLock
+				player.classicNoSliderHeadAccuracy = s.NoSliderHeadAccuracy
+				player.classicAlwaysPlayTailSample = s.AlwaysPlayTailSample
+				player.classicHealth = s.ClassicHealth
 			}
 		}
 
-		if ruleset.oppDiffs[player.maskedModString] == nil {
-			player.diff.DiffCalcMode = true // To use lazer's stack offset for stable plays without having to put LZ mod
+		if ruleset.oppDiffs[player.difficultyCacheKey] == nil {
+			// Performance calculation uses Lazer's stack geometry for both
+			// gameplay modes. DiffCalcMode is scoped to this calculation and is
+			// cleared before runtime object positioning begins.
+			player.diff.DiffCalcMode = true
 
-			ruleset.oppDiffs[player.maskedModString] = diffCalc.CalculateStep(ruleset.beatMap, player.diff)
+			ruleset.oppDiffs[player.difficultyCacheKey] = diffCalc.CalculateStep(ruleset.beatMap, player.diff)
 
 			player.diff.DiffCalcMode = false
 
-			star := ruleset.oppDiffs[player.maskedModString][len(ruleset.oppDiffs[player.maskedModString])-1]
+			star := ruleset.oppDiffs[player.difficultyCacheKey][len(ruleset.oppDiffs[player.difficultyCacheKey])-1]
 
 			log.Println("Stars:")
 			log.Println("\tAim:    ", star.Aim)
@@ -216,7 +229,7 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 
 		var hp IHealthProcessor
 
-		if diff.CheckModActive(difficulty.Lazer) && !lzLegacyHP {
+		if diff.IsLazer() && !player.classicHealth {
 			hp = NewHealthProcessorV2(beatMap, player)
 		} else {
 			hp = NewHealthProcessor(beatMap, player, !cursor.OldSpinnerScoring)
@@ -247,8 +260,8 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 
 		var sc scoreProcessor
 
-		if diff.CheckModActive(difficulty.Lazer) {
-			sc = newScoreV3Processor(nonLazerReplays)
+		if diff.IsLazer() {
+			sc = newScoreV3Processor(hasStablePlayers)
 		} else if diff.CheckModActive(difficulty.ScoreV2) {
 			sc = newScoreV2Processor()
 		} else {
@@ -531,7 +544,7 @@ func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult Judge
 	subSet.score.Combo = max(subSet.score.CurrentCombo, subSet.score.Combo)
 	subSet.score.Accuracy = subSet.scoreProcessor.GetAccuracy()
 
-	subSet.score.CalculateGrade(subSet.player.diff.Mods)
+	subSet.score.CalculateGrade(subSet.player.diff.GetGameplayMode(), subSet.player.diff.Mods)
 
 	diff := set.GetCurrentDiffAttribs(cursor)
 
@@ -554,7 +567,7 @@ func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult Judge
 	if len(set.cursors) == 1 && judgementResult.HitResult != SliderFinish && !settings.RECORD {
 		log.Println(fmt.Sprintf(
 			"Got: %3d, Combo: %4d, Max Combo: %4d, Score: %9d, Acc: %6.2f%%, 300: %4d, 100: %3d, 50: %2d, miss: %2d, from: %d, at: %d, pos: %.0fx%.0f, pp: %.2f",
-			judgementResult.HitResult.ScoreValueMod(subSet.player.diff.Mods),
+			judgementResult.HitResult.ScoreValueFor(subSet.player.diff.GetGameplayMode(), subSet.player.diff.Mods),
 			subSet.scoreProcessor.GetCombo(),
 			subSet.score.Combo,
 			subSet.scoreProcessor.GetScore(),
@@ -621,7 +634,7 @@ func (set *OsuRuleSet) processGekiKatu(sSet *subSet, judgementResult *JudgementR
 func (set *OsuRuleSet) CanBeHit(time int64, object HitObject, player *difficultyPlayer) ClickAction {
 	var clickAction ClickAction
 
-	if player.cursor.IsAutoplay || (player.diff.CheckModActive(difficulty.Lazer) && !player.lzLegacyNotelock) {
+	if player.cursor.IsAutoplay || (player.diff.IsLazer() && !player.classicNoteLock) {
 		clickAction = set.CanBeHitLazer(time, object, player)
 	} else {
 		clickAction = set.CanBeHitStable(time, object, player)
@@ -701,7 +714,7 @@ func (set *OsuRuleSet) CanBeHitLazer(time int64, object HitObject, player *diffi
 }
 
 func (set *OsuRuleSet) GetResultForDelta(player *difficultyPlayer, delta float64) HitResult {
-	if player.diff.CheckModActive(difficulty.Lazer) {
+	if player.diff.IsLazer() {
 		if delta <= player.diff.Hit300U {
 			return Hit300
 		} else if delta <= player.diff.Hit100U {
@@ -723,7 +736,7 @@ func (set *OsuRuleSet) GetResultForDelta(player *difficultyPlayer, delta float64
 }
 
 func (set *OsuRuleSet) PostHit(time int64, object HitObject, player *difficultyPlayer) {
-	if (!player.cursor.IsAutoplay && !player.diff.CheckModActive(difficulty.Lazer)) || (object.GetObject().GetType()&(objects.CIRCLE|objects.SLIDER)) == 0 {
+	if (!player.cursor.IsAutoplay && !player.diff.IsLazer()) || (object.GetObject().GetType()&(objects.CIRCLE|objects.SLIDER)) == 0 {
 		return
 	}
 
@@ -802,7 +815,7 @@ func (set *OsuRuleSet) GetFCPP(cursor *graphics.Cursor) api.PPv2Results {
 
 	index := max(1, subSet.score.scoredObjects) - 1
 
-	diff := set.oppDiffs[subSet.player.maskedModString][index]
+	diff := set.oppDiffs[subSet.player.difficultyCacheKey][index]
 
 	apiScore := subSet.score.ToPerfScore()
 	apiScore.MaxCombo = subSet.potentialCombo
@@ -814,11 +827,11 @@ func (set *OsuRuleSet) GetFCPP(cursor *graphics.Cursor) api.PPv2Results {
 	rawScore := int64(apiScore.CountGreat*300 + apiScore.CountOk*100 + apiScore.CountMeh*50)
 	maxRawScore := int64(subSet.score.scoredObjects * 300)
 
-	if subSet.player.diff.CheckModActive(difficulty.Lazer) {
-		pointScore := SliderPoint.ScoreValueMod(subSet.player.diff.Mods) * int64(subSet.score.MaxTicks)
-		sEndScore := SliderEnd.ScoreValueMod(subSet.player.diff.Mods)
-		if subSet.player.lzNoSliderAcc {
-			sEndScore = LegacySliderEnd.ScoreValueMod(subSet.player.diff.Mods)
+	if subSet.player.diff.IsLazer() {
+		pointScore := SliderPoint.ScoreValueFor(subSet.player.diff.GetGameplayMode(), subSet.player.diff.Mods) * int64(subSet.score.MaxTicks)
+		sEndScore := SliderEnd.ScoreValueFor(subSet.player.diff.GetGameplayMode(), subSet.player.diff.Mods)
+		if subSet.player.classicNoSliderHeadAccuracy {
+			sEndScore = LegacySliderEnd.ScoreValueFor(subSet.player.diff.GetGameplayMode(), subSet.player.diff.Mods)
 		}
 
 		div := maxRawScore + pointScore + int64(subSet.score.MaxSliderEnd)*sEndScore
@@ -838,7 +851,7 @@ func (set *OsuRuleSet) GetSSPP(cursor *graphics.Cursor) api.PPv2Results {
 
 	index := max(1, subSet.score.scoredObjects) - 1
 
-	diff := set.oppDiffs[subSet.player.maskedModString][index]
+	diff := set.oppDiffs[subSet.player.difficultyCacheKey][index]
 
 	return subSet.ppv2.Calculate(diff, api.PerfScore{CountGreat: -1, MaxCombo: -1, Accuracy: 1, SliderEnd: -1}, subSet.player.diff)
 }
@@ -848,13 +861,13 @@ func (set *OsuRuleSet) GetCurrentDiffAttribs(cursor *graphics.Cursor) api.Attrib
 
 	index := max(1, subSet.score.scoredObjects) - 1
 
-	return set.oppDiffs[subSet.player.maskedModString][index]
+	return set.oppDiffs[subSet.player.difficultyCacheKey][index]
 }
 
 func (set *OsuRuleSet) GetFinalDiffAttribs(cursor *graphics.Cursor) api.Attributes {
 	subSet := set.cursors[cursor]
 
-	return set.oppDiffs[subSet.player.maskedModString][len(set.oppDiffs[subSet.player.maskedModString])-1]
+	return set.oppDiffs[subSet.player.difficultyCacheKey][len(set.oppDiffs[subSet.player.difficultyCacheKey])-1]
 }
 
 func (set *OsuRuleSet) GetScore(cursor *graphics.Cursor) Score {

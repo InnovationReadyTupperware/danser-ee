@@ -27,9 +27,9 @@ import (
 type ScoreboardEntry struct {
 	*sprite.Sprite
 
-	name       string
-	score      osuapi.Score
-	lazerScore bool
+	name    string
+	score   osuapi.Score
+	isLazer bool
 
 	rank    int
 	visible bool
@@ -41,14 +41,14 @@ type ScoreboardEntry struct {
 	showAvatar     bool
 }
 
-func NewScoreboardEntry(name string, score osuapi.Score, lazerScore bool, rank int, isPlayer bool) *ScoreboardEntry {
+func NewScoreboardEntry(name string, score osuapi.Score, isLazer bool, rank int, isPlayer bool) *ScoreboardEntry {
 	bg := skin.GetTexture("menu-button-background")
 	entry := &ScoreboardEntry{
-		Sprite:     sprite.NewSpriteSingle(bg, 0, vector.NewVec2d(0, 0), vector.CentreRight),
-		name:       name,
-		score:      score,
-		lazerScore: lazerScore,
-		rank:       rank,
+		Sprite:  sprite.NewSpriteSingle(bg, 0, vector.NewVec2d(0, 0), vector.CentreRight),
+		name:    name,
+		score:   score,
+		isLazer: isLazer,
+		rank:    rank,
 	}
 
 	entry.Sprite.SetScale(0.625)
@@ -296,11 +296,7 @@ func (entry *ScoreboardEntry) ShowAvatar(value bool) {
 }
 
 func (entry *ScoreboardEntry) getScore() int64 {
-	if entry.lazerScore {
-		if settings.Gameplay.LazerClassicScore {
-			return entry.score.ClassicTotalScore
-		}
-
+	if entry.isLazer {
 		return entry.score.TotalScore
 	}
 

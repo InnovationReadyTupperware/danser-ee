@@ -1101,6 +1101,7 @@ func (l *launcher) loadReplay(p string) (*knockoutReplay, error) {
 	replay.ReplayData = nil
 
 	diff := difficulty.NewDifficulty(5, 5, 5, 5)
+	diff.SetGameplayMode(difficulty.GameplayModeFromReplayVersion(int(replay.OsuVersion)))
 
 	if replay.ScoreInfo != nil && replay.ScoreInfo.Mods != nil && len(replay.ScoreInfo.Mods) > 0 {
 		modsNew := make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))
@@ -1112,10 +1113,6 @@ func (l *launcher) loadReplay(p string) (*knockoutReplay, error) {
 		diff.SetMods2(modsNew)
 	} else {
 		diff.SetMods(difficulty.Modifier(replay.Mods))
-	}
-
-	if replay.OsuVersion >= 30000000 { // Lazer is 1000 years in the future
-		diff.AddMod(difficulty.Lazer)
 	}
 
 	return &knockoutReplay{

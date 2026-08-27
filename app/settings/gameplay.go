@@ -207,7 +207,6 @@ func initGameplay() *gameplay {
 			},
 			HideInReplays:     false,
 			FoldInReplays:     false,
-			ShowLazerMod:      true,
 			AdditionalSpacing: 0,
 		},
 		Boundaries: &boundaries{
@@ -243,7 +242,6 @@ func initGameplay() *gameplay {
 		PlayUsername:            "Guest",
 		IgnoreFailsInReplays:    false,
 		PPVersion:               "latest",
-		LazerClassicScore:       false,
 		AlwaysSkipIntro:         false,
 	}
 }
@@ -274,7 +272,6 @@ type gameplay struct {
 	PlayUsername            string `liveedit:"false"`
 	IgnoreFailsInReplays    bool
 	PPVersion               string `liveedit:"false" label:"PP counter version" combo:"211112|2021 pp rework (First Xexxar),220930|2022 pp rework,241007|2024 pp rework,250306|2025 Q1 update,26xxxx|Upcoming,latest|2025 Q4 update (latest)"`
-	LazerClassicScore       bool   `label:"Use \"Classic\" score for osu!lazer plays"`
 	AlwaysSkipIntro         bool   `liveedit:"false"`
 }
 
@@ -391,7 +388,6 @@ type mods struct {
 	*hudElementOffset
 	HideInReplays     bool
 	FoldInReplays     bool
-	ShowLazerMod      bool
 	AdditionalSpacing float64 `string:"true" min:"-1366" max:"1366"`
 }
 

@@ -340,7 +340,7 @@ func (slider *Slider) GetAsDummyCircles() []IHitObject {
 
 	for i, p := range slider.ScorePoints {
 		time := p.Time
-		if i == len(slider.ScorePoints)-1 && settings.KNOCKOUT && !slider.diff.CheckModActive(difficulty.Lazer) { // Lazer ends work differently so skip -36ms
+		if i == len(slider.ScorePoints)-1 && settings.KNOCKOUT && !slider.diff.IsLazer() { // Lazer ends work differently so skip -36ms
 			time = math.Floor(max(slider.StartTime+(slider.EndTime-slider.StartTime)/2, slider.EndTime-36))
 		}
 

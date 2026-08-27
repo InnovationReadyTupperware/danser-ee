@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	lzMinimumHealthError = 0.01
-	lzMinHealthTarget    = 0.99
-	lzMidHealthTarget    = 0.9
-	lzMaxHealthTarget    = 0.4
+	lazerMinimumHealthError = 0.01
+	lazerMinHealthTarget    = 0.99
+	lazerMidHealthTarget    = 0.9
+	lazerMaxHealthTarget    = 0.4
 )
 
 type HealthProcessorV2 struct {
@@ -73,7 +73,7 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 		increase float64
 	}
 
-	targetMinimumHealth := mutils.Clamp(difficulty.DifficultyRate(hp.player.diff.HPMod, lzMinHealthTarget, lzMidHealthTarget, lzMaxHealthTarget), 0, 1)
+	targetMinimumHealth := mutils.Clamp(difficulty.DifficultyRate(hp.player.diff.HPMod, lazerMinHealthTarget, lazerMidHealthTarget, lazerMaxHealthTarget), 0, 1)
 
 	breakCount := len(hp.beatMap.Pauses)
 
@@ -89,7 +89,7 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 		s, ok := o.(*objects.Slider)
 
 		hr := Hit300
-		if ok && hp.player.lzNoSliderAcc {
+		if ok && hp.player.classicNoSliderHeadAccuracy {
 			hr = SliderStart
 		}
 
@@ -116,7 +116,7 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 				})
 			}
 
-			if hp.player.lzNoSliderAcc {
+			if hp.player.classicNoSliderHeadAccuracy {
 				healthIncreases = append(healthIncreases, healthIncrease{
 					time:     s.GetEndTime(),
 					increase: hp.getHPResult(Hit300),
@@ -168,7 +168,7 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 		}
 
 		// Stop if the resulting health is within a reasonable offset from the target
-		if mutils.Abs(lowestHealth-targetMinimumHealth) <= lzMinimumHealthError {
+		if mutils.Abs(lowestHealth-targetMinimumHealth) <= lazerMinimumHealthError {
 			break
 		}
 

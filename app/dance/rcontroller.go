@@ -125,6 +125,7 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 		control := NewSubControl()
 
 		control.diff = beatMap.Diff.Clone()
+		control.diff.SetGameplayMode(difficulty.GameplayModeFromReplayVersion(int(replay.OsuVersion)))
 		control.diff.SetMods(difficulty.None)
 
 		if replay.ScoreInfo != nil && replay.ScoreInfo.Mods != nil && len(replay.ScoreInfo.Mods) > 0 {
@@ -137,10 +138,6 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 			control.diff.SetMods2(modsNew)
 		} else {
 			control.diff.SetMods(difficulty.Modifier(replay.Mods))
-		}
-
-		if replay.OsuVersion >= 30000000 { // Lazer is 1000 years in the future
-			control.diff.Mods |= difficulty.Lazer
 		}
 
 		if localReplay && !beatMap.Diff.Equals(control.diff) {
@@ -447,7 +444,7 @@ func (controller *ReplayController) updateMain(nTime float64) {
 
 			c.lastTime = int64(nTime)
 		} else {
-			if c.diff.CheckModActive(difficulty.Lazer) {
+			if c.diff.IsLazer() {
 				controller.processLazer(i, c, nTime)
 			} else {
 				controller.processStable(i, c, nTime)

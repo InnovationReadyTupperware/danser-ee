@@ -86,10 +86,10 @@ func (s *Score) AddResult(result JudgementResult) {
 	}
 }
 
-func (s *Score) CalculateGrade(mods difficulty.Modifier) {
+func (s *Score) CalculateGrade(mode difficulty.GameplayMode, mods difficulty.Modifier) {
 	var baseGrade Grade
 
-	if mods&(difficulty.Lazer) > 0 {
+	if mode.IsLazer() {
 		baseGrade = s.gradeV2()
 	} else {
 		baseGrade = s.gradeV1()
