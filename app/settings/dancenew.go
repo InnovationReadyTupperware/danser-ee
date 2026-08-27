@@ -10,6 +10,7 @@ func initCursorDance() *cursorDance {
 		Spinners: []*spinner{
 			DefaultsFactory.InitSpinner(),
 		},
+		SpinnerBehavior:    DefaultsFactory.InitSpinnerBehavior(),
 		ComboTag:           false,
 		Battle:             false,
 		DoSpinnersTogether: true,
@@ -73,14 +74,23 @@ func (d *defaultsFactory) InitSpinner() *spinner {
 	}
 }
 
+type spinnerBehavior struct {
+	SpinAtLowestRPM bool `label:"Spin at lowest RPM" liveedit:"false" tooltip:"Use the lowest osu!lazer completion rate for the map's OD. When disabled, use the maximum completion rate needed through OD 11."`
+}
+
+func (d *defaultsFactory) InitSpinnerBehavior() *spinnerBehavior {
+	return &spinnerBehavior{}
+}
+
 type cursorDance struct {
-	Movers             []*mover   `new:"InitMover" wiki:"Help|https://github.com/Wieku/danser-go/wiki/Movers#available-movers"`
-	Spinners           []*spinner `new:"InitSpinner" wiki:"Help|https://github.com/Wieku/danser-go/wiki/Movers#available-spinner-movers"`
-	ComboTag           bool       `liveedit:"false" tooltip:"Splits objects by combo, like osu!stable TAG multiplayer"`
-	Battle             bool       `liveedit:"false" tooltip:"All cursors together, like a knockout"`
-	DoSpinnersTogether bool       `liveedit:"false"`
-	TAGSliderDance     bool       `label:"TAG slider dance" liveedit:"false" tooltip:"Splits all sliders to \"circles\" if TAG is enabled"`
-	Resolve2BAfterTAG  bool       `label:"Resolve 2B conflicts per TAG cursor" liveedit:"false" tooltip:"Delays 2B evaluation until after objects are assigned to cursors"`
+	Movers             []*mover         `new:"InitMover" wiki:"Help|https://github.com/Wieku/danser-go/wiki/Movers#available-movers"`
+	Spinners           []*spinner       `new:"InitSpinner" wiki:"Help|https://github.com/Wieku/danser-go/wiki/Movers#available-spinner-movers"`
+	SpinnerBehavior    *spinnerBehavior `label:"Spinner behavior"`
+	ComboTag           bool             `liveedit:"false" tooltip:"Splits objects by combo, like osu!stable TAG multiplayer"`
+	Battle             bool             `liveedit:"false" tooltip:"All cursors together, like a knockout"`
+	DoSpinnersTogether bool             `liveedit:"false"`
+	TAGSliderDance     bool             `label:"TAG slider dance" liveedit:"false" tooltip:"Splits all sliders to \"circles\" if TAG is enabled"`
+	Resolve2BAfterTAG  bool             `label:"Resolve 2B conflicts per TAG cursor" liveedit:"false" tooltip:"Delays 2B evaluation until after objects are assigned to cursors"`
 	MoverSettings      *moverSettings
 }
 

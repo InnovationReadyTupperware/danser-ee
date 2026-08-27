@@ -20,7 +20,7 @@ func NewSpinner(spinner *objects.Spinner, diff *difficulty.Difficulty, moverCtor
 
 	mover := moverCtor()
 
-	mover.Init(hO.StartTime, hO.EndTime, id, diff.GetSpeed())
+	mover.Init(hO.StartTime, hO.EndTime, id, diff.GetSpeed(), spinnerRPM(diff))
 
 	danceSpinner := &DanceSpinner{
 		HitObject: &hO,
@@ -33,6 +33,21 @@ func NewSpinner(spinner *objects.Spinner, diff *difficulty.Difficulty, moverCtor
 	danceSpinner.EndPosRaw = mover.GetPositionAt(danceSpinner.EndTime)
 
 	return danceSpinner
+}
+
+func spinnerRPM(diff *difficulty.Difficulty) float64 {
+	// Stable replay provenance must retain the historical spinner path even if
+	// Classic metadata is present. The setting belongs to the replay-less/Lazer
+	// dance path and must not silently rewrite Stable behavior.
+	if diff == nil || !diff.IsLazer() {
+		return legacySpinnerRPM
+	}
+
+	if settings.CursorDance.SpinnerBehavior != nil && settings.CursorDance.SpinnerBehavior.SpinAtLowestRPM {
+		return diff.LazerSpinnerMaxRPS * 60
+	}
+
+	return difficulty.LazerSpinnerMaximumCompletionRPM
 }
 
 func (spinner *DanceSpinner) GetStartAngleMod(diff *difficulty.Difficulty) float32 {

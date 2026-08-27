@@ -149,7 +149,7 @@ func (diff *Difficulty) calculate() {
 
 	diff.SpinnerRatio = DifficultyRate(od, 3, 5, 7.5)
 	diff.LazerSpinnerMinRPS = DifficultyRate(od, 90, 150, 225) / 60
-	diff.LazerSpinnerMaxRPS = DifficultyRate(od, 250, 380, 430) / 60
+	diff.LazerSpinnerMaxRPS = LazerSpinnerCompletionRPM(od) / 60
 
 	if diff.Mods&DoubleTime > 0 {
 		diff.BaseModSpeed = 1.5
