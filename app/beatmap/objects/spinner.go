@@ -23,8 +23,6 @@ import (
 	"github.com/wieku/danser-go/framework/math/vector"
 )
 
-const rpms = 0.00795
-
 var spinnerRed = color2.Color{R: 1, G: 0, B: 0, A: 1}
 var spinnerBlue = color2.Color{R: 0.05, G: 0.5, B: 1.0, A: 1}
 
@@ -39,6 +37,9 @@ type Spinner struct {
 	fade     *animation.Glider
 	lastTime float64
 	rpm      float64
+	// autoplayRPM is captured with the object's difficulty so generated
+	// visuals do not consult mutable settings during frame updates.
+	autoplayRPM float64
 
 	spinnerbonus *bass.Sample
 	loopSample   *bass.SampleChannel
@@ -104,6 +105,7 @@ func (spinner *Spinner) SetTiming(timings *Timings, _ int, _ bool) {
 
 func (spinner *Spinner) SetDifficulty(diff *difficulty.Difficulty) {
 	spinner.diff = diff
+	spinner.autoplayRPM = difficulty.SpinnerAutoplayRPM(diff, spinAtLowestRPMEnabled())
 
 	spinner.ScaledHeight = 768
 	spinner.ScaledWidth = settings.Graphics.GetAspectRatio() * spinner.ScaledHeight
@@ -185,15 +187,35 @@ func (spinner *Spinner) Update(time float64) bool {
 
 	if time >= spinner.StartTime && time <= spinner.EndTime {
 		if (!settings.PLAY && !settings.KNOCKOUT) || settings.PLAYERS > 1 {
-			rRPMS := rpms * mutils.Clamp(float32(time-spinner.StartTime)/500, 0.0, 1.0)
+			elapsed := time - spinner.StartTime
+			if elapsed < 0 || math.IsNaN(elapsed) || math.IsInf(elapsed, 0) {
+				elapsed = 0
+			}
 
-			spinner.rad = rRPMS * float32(time-spinner.StartTime) * 2 * math32.Pi
+			if spinner.diff != nil && spinner.diff.IsLazer() && !settings.PLAY && !settings.KNOCKOUT {
+				// Generated Lazer visuals use the same selected RPM as cursor
+				// dance. Stable keeps the historical ramp and angle equation
+				// because replayed Stable visuals are an observable compatibility
+				// boundary.
+				spinner.rad = float32(elapsed * spinner.autoplayRPM / 60000 * 2 * math.Pi)
+				spinner.rpm = spinner.autoplayRPM
 
-			spinner.rpm = float64(rRPMS) * 1000 * 60
+				duration := spinner.EndTime - spinner.StartTime
+				requiredRotations := spinner.diff.LazerSpinnerMinRPS * duration / 1000
+				completion := 1.0
+				if duration > 0 && requiredRotations > 0 && !math.IsNaN(requiredRotations) && !math.IsInf(requiredRotations, 0) {
+					completion = elapsed * spinner.autoplayRPM / 60000 / requiredRotations
+				}
+				spinner.UpdateCompletion(completion)
+			} else {
+				rRPMS := difficulty.LegacySpinnerRotationsPerMillisecond * mutils.Clamp(float32(elapsed)/500, 0.0, 1.0)
+
+				spinner.rad = rRPMS * float32(elapsed) * 2 * math32.Pi
+				spinner.rpm = float64(rRPMS) * 1000 * 60
+				spinner.UpdateCompletion(safeSpinnerProgress(elapsed, spinner.EndTime-spinner.StartTime))
+			}
 
 			spinner.SetRotation(float64(spinner.rad))
-
-			spinner.UpdateCompletion((time - spinner.StartTime) / (spinner.EndTime - spinner.StartTime))
 
 			if spinner.lastTime < spinner.StartTime {
 				spinner.StartSpinSample()
@@ -331,6 +353,10 @@ func (spinner *Spinner) Hit(_ float64, isHit bool) {
 }
 
 func (spinner *Spinner) SetRotation(f float64) {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		f = 0
+	}
+
 	spinner.rad = float32(f)
 
 	if spinner.newStyle {
@@ -343,10 +369,18 @@ func (spinner *Spinner) SetRotation(f float64) {
 }
 
 func (spinner *Spinner) SetRPM(rpm float64) {
+	if rpm < 0 || math.IsNaN(rpm) || math.IsInf(rpm, 0) {
+		rpm = 0
+	}
+
 	spinner.rpm = rpm
 }
 
 func (spinner *Spinner) UpdateCompletion(completion float64) {
+	if completion < 0 || math.IsNaN(completion) || math.IsInf(completion, 0) {
+		completion = 0
+	}
+
 	if completion > 0 && spinner.completion == 0 {
 		spinner.spin.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, spinner.lastTime, spinner.lastTime+300, 1.0, 0.0))
 	}
@@ -418,6 +452,13 @@ func (spinner *Spinner) StopSpinSample() {
 	}
 }
 
+// Finalize releases spinner-owned audio state when the beatmap drops the
+// object. Update normally stops the loop at the object end, but finalization
+// is also reached after seek/skip paths and must be safe to call independently.
+func (spinner *Spinner) Finalize() {
+	spinner.StopSpinSample()
+}
+
 func (spinner *Spinner) Clear() {
 	spinner.clear.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutBack, spinner.lastTime, spinner.lastTime+spinner.diff.TimeFadeIn, 2.0, 1.0))
 	spinner.clear.AddTransform(animation.NewSingleTransform(animation.Fade, easing.OutQuad, spinner.lastTime, spinner.lastTime+spinner.diff.TimeFadeIn, 0.0, 1.0))
@@ -448,4 +489,16 @@ func (spinner *Spinner) Bonus(bonusValue int, time int64) {
 
 func (spinner *Spinner) GetType() Type {
 	return SPINNER
+}
+
+func safeSpinnerProgress(elapsed, duration float64) float64 {
+	if elapsed <= 0 || math.IsNaN(elapsed) || math.IsInf(elapsed, 0) || duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0
+	}
+
+	return elapsed / duration
+}
+
+func spinAtLowestRPMEnabled() bool {
+	return settings.CursorDance != nil && settings.CursorDance.SpinnerBehavior != nil && settings.CursorDance.SpinnerBehavior.SpinAtLowestRPM
 }

@@ -3,41 +3,53 @@ package spinners
 import (
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/framework/math/math32"
 	"github.com/wieku/danser-go/framework/math/vector"
 )
 
-var indices = []mgl32.Vec3{{-1, -1, 0}, {1, -1, 0}, {1, 1, 0}, {-1, 1, 0}}
+var (
+	indicesSquare  = []mgl32.Vec3{{-1, -1, 0}, {1, -1, 0}, {1, 1, 0}, {-1, 1, 0}}
+	squareVertices = []vector.Vector2f{
+		vector.NewVec2f(-1, -1),
+		vector.NewVec2f(1, -1),
+		vector.NewVec2f(1, 1),
+		vector.NewVec2f(-1, 1),
+	}
+)
 
+// SquareMover traces either the historical Stable path or a perimeter whose
+// polar phase is controlled directly by the selected Lazer RPM.
 type SquareMover struct {
 	*BaseMover
 }
 
-func NewSquareMover() *SquareMover {
-	return &SquareMover{BaseMover: &BaseMover{}}
+func newSquareMover(profile SpinnerProfile) *SquareMover {
+	return &SquareMover{BaseMover: &BaseMover{profile: profile}}
 }
 
-func (c *SquareMover) GetPositionAt(time float64) vector.Vector2f {
-	sDelta := c.GetSDelta(time)
+// NewSquareMover creates a centered square mover for callers that do not need
+// a custom cursor-dance profile.
+func NewSquareMover() *SquareMover {
+	return newSquareMover(DefaultSpinnerProfile())
+}
 
-	spS := settings.CursorDance.Spinners[c.id%len(settings.CursorDance.Spinners)]
-
-	mat := mgl32.Rotate3DZ(sDelta / 2000 * 2 * math32.Pi).Mul3(mgl32.Scale2D(float32(spS.Radius), float32(spS.Radius)))
-
-	startIndex := (int64(max(0, sDelta)) / 10) % 4
-
-	pt1 := indices[startIndex]
-
-	pt2 := indices[0]
-	if startIndex < 3 {
-		pt2 = indices[startIndex+1]
+func (mover *SquareMover) PositionAt(time float64) vector.Vector2f {
+	if mover.mode.IsLazer() {
+		angle := mover.angleAt(time)
+		radius := mover.profile.Radius * polygonRadiusAtAngle(squareVertices, angle)
+		return mover.polarPosition(angle, radius)
 	}
 
-	pt1 = mat.Mul3x1(pt1)
-	pt2 = mat.Mul3x1(pt2)
+	phase := mover.phaseAt(time)
+	mat := mgl32.Rotate3DZ(phase / 2000 * 2 * math32.Pi).Mul3(mgl32.Scale2D(float32(mover.profile.Radius), float32(mover.profile.Radius)))
 
-	t := float32(int64(sDelta)%10) / 10
+	startIndex := (int64(max(float32(0), phase)) / 10) % int64(len(indicesSquare))
+	endIndex := (startIndex + 1) % int64(len(indicesSquare))
 
-	return vector.NewVec2f((pt2.X()-pt1.X())*t+pt1.X(), (pt2.Y()-pt1.Y())*t+pt1.Y()).Add(center.AddS(float32(spS.CenterOffsetX), float32(spS.CenterOffsetY)))
+	start := mat.Mul3x1(indicesSquare[startIndex])
+	end := mat.Mul3x1(indicesSquare[endIndex])
+	t := float32(int64(phase)%10) / 10
+
+	path := vector.NewVec2f((end.X()-start.X())*t+start.X(), (end.Y()-start.Y())*t+start.Y())
+	return path.Add(mover.profileCenter())
 }

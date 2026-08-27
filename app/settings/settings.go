@@ -5,13 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/itchio/lzma"
-	"github.com/wieku/danser-go/framework/files"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/itchio/lzma"
+	"github.com/wieku/danser-go/framework/files"
 )
 
 type defaultsFactory struct{}
@@ -74,7 +75,9 @@ func LoadConfig(file *os.File) (*Config, error) {
 		return nil, fmt.Errorf("SettingsManager: Failed to parse %s! Please re-check the file for mistakes. Error: %s", file.Name(), err)
 	}
 
+	config.normalizeCursorDance()
 	config.migrateCursorDance()
+	config.normalizeCursorDance()
 	config.migrateHitCounterColors()
 	config.migrateBlendWeights()
 
@@ -102,6 +105,125 @@ func NewConfigFile() *Config {
 		Knockout:    initKnockout(),
 		Recording:   initRecording(),
 		Debug:       initDebug(),
+	}
+}
+
+// normalizeCursorDance repairs the part of the settings tree consumed by
+// spinner generation. Config files are user-editable JSON, so a missing
+// section, empty list, or explicit null entry must not turn into a panic in a
+// render/update loop. The runtime mover also validates numeric values because
+// settings can be changed programmatically after loading.
+func (config *Config) normalizeCursorDance() {
+	if config.CursorDance == nil {
+		config.CursorDance = initCursorDance()
+		return
+	}
+
+	defaults := initCursorDance()
+
+	if config.CursorDance.SpinnerBehavior == nil {
+		config.CursorDance.SpinnerBehavior = defaults.SpinnerBehavior
+	}
+
+	if config.CursorDance.MoverSettings == nil {
+		config.CursorDance.MoverSettings = defaults.MoverSettings
+	}
+
+	// Every mover selects its settings by taking an id modulo one of these
+	// lists. An explicit empty list therefore becomes a runtime divide-by-zero
+	// or index-out-of-range panic even though the parent settings object exists.
+	// Repair both empty lists and null entries here so the individual movers can
+	// keep their hot paths focused on movement math.
+	if len(config.CursorDance.MoverSettings.Bezier) == 0 {
+		config.CursorDance.MoverSettings.Bezier = defaults.MoverSettings.Bezier
+	}
+	for i, configured := range config.CursorDance.MoverSettings.Bezier {
+		if configured == nil {
+			config.CursorDance.MoverSettings.Bezier[i] = DefaultsFactory.InitBezier()
+		}
+	}
+
+	if len(config.CursorDance.MoverSettings.Flower) == 0 {
+		config.CursorDance.MoverSettings.Flower = defaults.MoverSettings.Flower
+	}
+	for i, configured := range config.CursorDance.MoverSettings.Flower {
+		if configured == nil {
+			config.CursorDance.MoverSettings.Flower[i] = DefaultsFactory.InitFlower()
+		}
+	}
+
+	if len(config.CursorDance.MoverSettings.HalfCircle) == 0 {
+		config.CursorDance.MoverSettings.HalfCircle = defaults.MoverSettings.HalfCircle
+	}
+	for i, configured := range config.CursorDance.MoverSettings.HalfCircle {
+		if configured == nil {
+			config.CursorDance.MoverSettings.HalfCircle[i] = DefaultsFactory.InitCircular()
+		}
+	}
+
+	if len(config.CursorDance.MoverSettings.Spline) == 0 {
+		config.CursorDance.MoverSettings.Spline = defaults.MoverSettings.Spline
+	}
+	for i, configured := range config.CursorDance.MoverSettings.Spline {
+		if configured == nil {
+			config.CursorDance.MoverSettings.Spline[i] = DefaultsFactory.InitSpline()
+		}
+	}
+
+	if len(config.CursorDance.MoverSettings.Momentum) == 0 {
+		config.CursorDance.MoverSettings.Momentum = defaults.MoverSettings.Momentum
+	}
+	for i, configured := range config.CursorDance.MoverSettings.Momentum {
+		if configured == nil {
+			config.CursorDance.MoverSettings.Momentum[i] = DefaultsFactory.InitMomentum()
+		}
+	}
+
+	if len(config.CursorDance.MoverSettings.ExGon) == 0 {
+		config.CursorDance.MoverSettings.ExGon = defaults.MoverSettings.ExGon
+	}
+	for i, configured := range config.CursorDance.MoverSettings.ExGon {
+		if configured == nil {
+			config.CursorDance.MoverSettings.ExGon[i] = DefaultsFactory.InitExGon()
+		}
+	}
+
+	if len(config.CursorDance.MoverSettings.Linear) == 0 {
+		config.CursorDance.MoverSettings.Linear = defaults.MoverSettings.Linear
+	}
+	for i, configured := range config.CursorDance.MoverSettings.Linear {
+		if configured == nil {
+			config.CursorDance.MoverSettings.Linear[i] = DefaultsFactory.InitLinear()
+		}
+	}
+
+	if len(config.CursorDance.MoverSettings.Pippi) == 0 {
+		config.CursorDance.MoverSettings.Pippi = defaults.MoverSettings.Pippi
+	}
+	for i, configured := range config.CursorDance.MoverSettings.Pippi {
+		if configured == nil {
+			config.CursorDance.MoverSettings.Pippi[i] = DefaultsFactory.InitPippi()
+		}
+	}
+
+	if len(config.CursorDance.Movers) == 0 {
+		config.CursorDance.Movers = defaults.Movers
+	}
+
+	for i, configured := range config.CursorDance.Movers {
+		if configured == nil {
+			config.CursorDance.Movers[i] = DefaultsFactory.InitMover()
+		}
+	}
+
+	if len(config.CursorDance.Spinners) == 0 {
+		config.CursorDance.Spinners = defaults.Spinners
+	}
+
+	for i, configured := range config.CursorDance.Spinners {
+		if configured == nil {
+			config.CursorDance.Spinners[i] = DefaultsFactory.InitSpinner()
+		}
 	}
 }
 

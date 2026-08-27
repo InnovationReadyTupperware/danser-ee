@@ -216,14 +216,9 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 					}
 				}
 			} else if s, ok := o.(*objects.Spinner); ok {
-				spinnerTime := (s.GetEndTime() - s.GetStartTime()) / 1000
+				requirement := calculateHealthSpinnerRequirement(hp.player.diff, s.GetStartTime(), s.GetEndTime())
 
-				requirement := int(spinnerTime * hp.player.diff.SpinnerRatio)
-				if hp.player.diff.IsLazer() {
-					requirement = int(hp.player.diff.LazerSpinnerMinRPS*spinnerTime/1000 + 0.0001)
-				}
-
-				for j := 0; j < requirement; j++ {
+				for j := int64(0); j < requirement; j++ {
 					hp.addResultInternal(SpinnerSpin)
 				}
 			}

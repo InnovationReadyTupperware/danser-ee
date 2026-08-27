@@ -2,6 +2,7 @@ package schedulers
 
 import (
 	"math/rand"
+	"slices"
 
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/beatmap/objects"
@@ -30,9 +31,17 @@ func NewGenericScheduler(mover func() movers.MultiPointMover, index, id int) Sch
 }
 
 func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficulty.Difficulty, cursor *graphics.Cursor, spinnerMoverCtor func() spinners.SpinnerMover, initKeys bool) {
+	// GenericController normalizes this section before constructing its
+	// schedulers, but PlayerController and ReplayController also use this
+	// scheduler directly. Keep the scheduler safe for those call sites and for
+	// programmatic settings replacement.
+	settings.NormalizeCursorDance()
+
 	scheduler.diff = diff
 	scheduler.cursor = cursor
-	scheduler.queue = objs
+	scheduler.queue = slices.Clone(objs)
+	scheduler.input = nil
+	scheduler.lastTime = 0
 
 	scheduler.mover.Reset(diff, scheduler.id)
 
@@ -47,10 +56,11 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 		scheduler.queue = utils.PreprocessQueue(i, scheduler.queue, (config.SliderDance && !config.RandomSliderDance) || (config.RandomSliderDance && rand.Intn(2) == 0))
 	}
 
-	// Convert spinners to pseudo spinners that have beginning and ending angles, simplifies mover codes as well
+	// Convert spinners to pseudo spinners with captured beginning and ending
+	// angles. This keeps the regular mover code independent from settings.
 	for i := range len(scheduler.queue) {
 		if s, ok := scheduler.queue[i].(*objects.Spinner); ok {
-			scheduler.queue[i] = spinners.NewSpinner(s, diff, spinnerMoverCtor, scheduler.index)
+			scheduler.queue[i] = spinners.NewSpinner(s, diff, spinnerMoverCtor)
 		}
 	}
 
@@ -103,17 +113,39 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 		}
 	}
 
+	if len(scheduler.queue) == 0 {
+		// TAG distribution can legitimately leave a cursor without objects. This
+		// is especially common for spinner-only maps when spinners are not shared
+		// between TAG cursors. Movers require a two-object window, so do not feed
+		// the synthetic dummy circle to SetObjects by itself.
+		scheduler.initializeCursor()
+		return
+	}
+
 	if initKeys {
-		scheduler.input = input.NewNaturalInputProcessor(scheduler.queue, cursor, scheduler.mover, diff.GetSpeed())
+		if cursor != nil && diff != nil {
+			scheduler.input = input.NewNaturalInputProcessor(scheduler.queue, cursor, scheduler.mover, diff.GetSpeed())
+		}
 	}
 
 	scheduler.queue = append([]objects.IHitObject{objects.DummyCircle(vector.NewVec2f(100, 100), -500)}, scheduler.queue...)
 
-	scheduler.cursor.SetPos(vector.NewVec2f(100, 100))
-	scheduler.cursor.Update(0)
+	scheduler.initializeCursor()
 
 	toRemove := scheduler.mover.SetObjects(scheduler.queue) - 1
 	scheduler.queue = scheduler.queue[toRemove:]
+}
+
+// initializeCursor preserves the historical starting position for real
+// cursors while allowing an object-free scheduler to be tested and advanced
+// without constructing the OpenGL-backed cursor renderer.
+func (scheduler *GenericScheduler) initializeCursor() {
+	if scheduler.cursor == nil {
+		return
+	}
+
+	scheduler.cursor.SetPos(vector.NewVec2f(100, 100))
+	scheduler.cursor.Update(0)
 }
 
 func (scheduler *GenericScheduler) Update(time float64) {

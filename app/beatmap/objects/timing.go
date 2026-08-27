@@ -148,7 +148,18 @@ func (tim *Timings) GetDefault() TimingPoint {
 }
 
 func (tim *Timings) GetPointAt(time float64) TimingPoint {
+	if tim == nil {
+		return TimingPoint{}
+	}
+
 	tLen := len(tim.points)
+	if tLen == 0 {
+		// A malformed or partially loaded beatmap can reach a spinner's audio
+		// callback before timing points are available. The parser normally
+		// rejects this state, but the default point is still the correct safe
+		// fallback for callers that operate on an in-memory beatmap.
+		return tim.defaultTimingPoint
+	}
 
 	index := sort.Search(tLen, func(i int) bool {
 		return time < tim.points[i].Time
@@ -158,6 +169,10 @@ func (tim *Timings) GetPointAt(time float64) TimingPoint {
 }
 
 func (tim *Timings) GetOriginalPointAt(time float64) TimingPoint {
+	if tim == nil {
+		return TimingPoint{}
+	}
+
 	tLen := len(tim.originalPoints)
 
 	if tLen == 0 {
@@ -207,5 +222,14 @@ func (tim *Timings) Clear() {
 }
 
 func (tim *Timings) Reset() {
+	if tim == nil {
+		return
+	}
+
+	if len(tim.points) == 0 {
+		tim.Current = tim.defaultTimingPoint
+		return
+	}
+
 	tim.Current = tim.points[0]
 }

@@ -1,6 +1,8 @@
 package spinners
 
 import (
+	"math"
+
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/beatmap/objects"
 	"github.com/wieku/danser-go/app/settings"
@@ -11,57 +13,73 @@ type DanceSpinner struct {
 	*objects.HitObject
 
 	mover SpinnerMover
-	id    int
 }
 
-func NewSpinner(spinner *objects.Spinner, diff *difficulty.Difficulty, moverCtor func() SpinnerMover, id int) *DanceSpinner {
-	// data copy
+// NewSpinner converts a gameplay spinner into a generated cursor path. The
+// selected profile and RPM are captured by the mover so later settings edits
+// cannot change an object that is already queued.
+func NewSpinner(spinner *objects.Spinner, diff *difficulty.Difficulty, moverCtor func() SpinnerMover) *DanceSpinner {
 	hO := *spinner.HitObject
 
-	mover := moverCtor()
+	if moverCtor == nil {
+		moverCtor = GetMoverCtor(DefaultSpinnerProfile())
+	}
 
-	mover.Init(hO.StartTime, hO.EndTime, id, diff.GetSpeed(), spinnerRPM(diff))
+	mover := moverCtor()
+	if mover == nil {
+		mover = GetMoverByName("circle")
+	}
+
+	speed := 1.0
+	mode := difficulty.GameplayLazer
+	if diff != nil {
+		speed = diff.GetSpeed()
+		mode = diff.GetGameplayMode()
+	}
+
+	mover.Initialize(hO.StartTime, speed, difficulty.SpinnerAutoplayRPM(diff, spinAtLowestRPMEnabled()), mode)
 
 	danceSpinner := &DanceSpinner{
 		HitObject: &hO,
 		mover:     mover,
-		id:        id,
 	}
 
-	danceSpinner.PositionDelegate = mover.GetPositionAt
-	danceSpinner.StartPosRaw = mover.GetPositionAt(danceSpinner.StartTime)
-	danceSpinner.EndPosRaw = mover.GetPositionAt(danceSpinner.EndTime)
+	danceSpinner.PositionDelegate = mover.PositionAt
+	danceSpinner.StartPosRaw = mover.PositionAt(danceSpinner.StartTime)
+	danceSpinner.EndPosRaw = mover.PositionAt(danceSpinner.EndTime)
 
 	return danceSpinner
 }
 
-func spinnerRPM(diff *difficulty.Difficulty) float64 {
-	// Stable replay provenance must retain the historical spinner path even if
-	// Classic metadata is present. The setting belongs to the replay-less/Lazer
-	// dance path and must not silently rewrite Stable behavior.
-	if diff == nil || !diff.IsLazer() {
-		return legacySpinnerRPM
-	}
-
-	if settings.CursorDance.SpinnerBehavior != nil && settings.CursorDance.SpinnerBehavior.SpinAtLowestRPM {
-		return diff.LazerSpinnerMaxRPS * 60
-	}
-
-	return difficulty.LazerSpinnerMaximumCompletionRPM
+func spinAtLowestRPMEnabled() bool {
+	return settings.CursorDance != nil && settings.CursorDance.SpinnerBehavior != nil && settings.CursorDance.SpinnerBehavior.SpinAtLowestRPM
 }
 
 func (spinner *DanceSpinner) GetStartAngleMod(diff *difficulty.Difficulty) float32 {
-	return spinner.GetStackedStartPositionMod(diff).AngleRV(spinner.GetStackedPositionAtMod(spinner.StartTime+min(10, spinner.GetDuration()), diff)) //temporary solution
+	duration := spinner.GetDuration()
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		duration = 0
+	}
+
+	return spinner.GetStackedStartPositionMod(diff).AngleRV(spinner.GetStackedPositionAtMod(spinner.StartTime+min(10, duration), diff))
 }
 
 func (spinner *DanceSpinner) GetEndAngleMod(diff *difficulty.Difficulty) float32 {
-	return spinner.GetStackedEndPositionMod(diff).AngleRV(spinner.GetStackedPositionAtMod(spinner.EndTime-min(10, spinner.GetDuration()), diff)) //temporary solution
+	duration := spinner.GetDuration()
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		duration = 0
+	}
+
+	return spinner.GetStackedEndPositionMod(diff).AngleRV(spinner.GetStackedPositionAtMod(spinner.EndTime-min(10, duration), diff))
 }
 
 func (spinner *DanceSpinner) GetPartLen() float32 {
-	radius := settings.CursorDance.Spinners[spinner.id%len(settings.CursorDance.Spinners)].Radius
+	duration := spinner.GetDuration()
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return 0
+	}
 
-	return float32(20.0) / float32(spinner.GetDuration()) * float32(radius)
+	return 20 * spinner.mover.Radius() / float32(duration)
 }
 
 func (spinner *DanceSpinner) GetStackedPositionAtMod(time float64, _ *difficulty.Difficulty) vector.Vector2f {

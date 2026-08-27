@@ -136,7 +136,9 @@ func (beatMap *BeatMap) Update(time float64) {
 	}
 
 	if toRemove2 > 0 {
-		beatMap.processed = beatMap.processed[toRemove:]
+		// `processed` is a separate, end-time-sorted queue. Its removal count
+		// is unrelated to the number moved from `Queue` above.
+		beatMap.processed = beatMap.processed[toRemove2:]
 	}
 }
 

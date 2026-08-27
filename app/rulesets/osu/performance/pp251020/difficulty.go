@@ -155,7 +155,14 @@ func (diffCalc *DifficultyCalculator) CalculateStep(bMap *beatmap.BeatMap, diff 
 
 	sim := newScoreSim(bMap, diff)
 
-	sim.AddFirst(diffObjects[0])
+	if len(diffObjects) > 0 {
+		// Difficulty objects describe transitions, so a one-object map has no
+		// difficulty object for its first hit object. The score simulator still
+		// needs that object as its initial score state.
+		sim.AddFirst(diffObjects[0])
+	} else {
+		sim.add(bMap.HitObjects[0])
+	}
 	stars[0] = diffCalc.getStars(aimSkill, aimNoSlidersSkill, speedSkill, flashlightSkill, sim, diff)
 
 	for _, o := range diffObjects {

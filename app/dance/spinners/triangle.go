@@ -3,41 +3,52 @@ package spinners
 import (
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/framework/math/math32"
 	"github.com/wieku/danser-go/framework/math/vector"
 )
 
-var indicesTriangle = []mgl32.Vec3{{-0.86602540378, -0.5, 0}, {0.86602540378, -0.5, 0}, {0, 1, 0}}
+var (
+	indicesTriangle  = []mgl32.Vec3{{-0.86602540378, -0.5, 0}, {0.86602540378, -0.5, 0}, {0, 1, 0}}
+	triangleVertices = []vector.Vector2f{
+		vector.NewVec2f(-0.86602540378, -0.5),
+		vector.NewVec2f(0.86602540378, -0.5),
+		vector.NewVec2f(0, 1),
+	}
+)
 
+// TriangleMover traces either the historical Stable path or a perimeter
+// whose polar phase is controlled directly by the selected Lazer RPM.
 type TriangleMover struct {
 	*BaseMover
 }
 
-func NewTriangleMover() *TriangleMover {
-	return &TriangleMover{BaseMover: &BaseMover{}}
+func newTriangleMover(profile SpinnerProfile) *TriangleMover {
+	return &TriangleMover{BaseMover: &BaseMover{profile: profile}}
 }
 
-func (c *TriangleMover) GetPositionAt(time float64) vector.Vector2f {
-	sDelta := c.GetSDelta(time)
+// NewTriangleMover creates a centered triangle mover for callers that do not
+// need a custom cursor-dance profile.
+func NewTriangleMover() *TriangleMover {
+	return newTriangleMover(DefaultSpinnerProfile())
+}
 
-	spS := settings.CursorDance.Spinners[c.id%len(settings.CursorDance.Spinners)]
-
-	mat := mgl32.Rotate3DZ(sDelta / 2000 * 2 * math32.Pi).Mul3(mgl32.Scale2D(float32(spS.Radius), float32(spS.Radius)))
-
-	startIndex := (int64(max(0, sDelta)) / 10) % 3
-
-	pt1 := indicesTriangle[startIndex]
-
-	pt2 := indicesTriangle[0]
-	if startIndex < 2 {
-		pt2 = indicesTriangle[startIndex+1]
+func (mover *TriangleMover) PositionAt(time float64) vector.Vector2f {
+	if mover.mode.IsLazer() {
+		angle := mover.angleAt(time)
+		radius := mover.profile.Radius * polygonRadiusAtAngle(triangleVertices, angle)
+		return mover.polarPosition(angle, radius)
 	}
 
-	pt1 = mat.Mul3x1(pt1)
-	pt2 = mat.Mul3x1(pt2)
+	phase := mover.phaseAt(time)
+	mat := mgl32.Rotate3DZ(phase / 2000 * 2 * math32.Pi).Mul3(mgl32.Scale2D(float32(mover.profile.Radius), float32(mover.profile.Radius)))
 
-	t := float32(int64(sDelta)%10) / 10
+	startIndex := (int64(max(float32(0), phase)) / 10) % int64(len(indicesTriangle))
+	endIndex := (startIndex + 1) % int64(len(indicesTriangle))
 
-	return vector.NewVec2f((pt2.X()-pt1.X())*t+pt1.X(), (pt2.Y()-pt1.Y())*t+pt1.Y()).Add(center.AddS(float32(spS.CenterOffsetX), float32(spS.CenterOffsetY)))
+	start := mat.Mul3x1(indicesTriangle[startIndex])
+	end := mat.Mul3x1(indicesTriangle[endIndex])
+	t := float32(int64(phase)%10) / 10
+
+	path := vector.NewVec2f((end.X()-start.X())*t+start.X(), (end.Y()-start.Y())*t+start.Y())
+	return path.Add(mover.profileCenter())
 }

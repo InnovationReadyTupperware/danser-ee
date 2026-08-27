@@ -2,6 +2,16 @@ package settings
 
 var CursorDance = initCursorDance()
 
+// NormalizeCursorDance restores safe defaults for the global cursor-dance
+// section. LoadConfig calls the equivalent Config method while decoding, but
+// this entry point also protects initialization after programmatic settings
+// replacement or a plugin-provided configuration.
+func NormalizeCursorDance() {
+	config := &Config{CursorDance: CursorDance}
+	config.normalizeCursorDance()
+	CursorDance = config.CursorDance
+}
+
 func initCursorDance() *cursorDance {
 	return &cursorDance{
 		Movers: []*mover{
@@ -64,7 +74,7 @@ type spinner struct {
 	centerOffset  string  `vector:"true" left:"CenterOffsetX" right:"CenterOffsetY"`
 	CenterOffsetX float64 `min:"-1000" max:"1000"`
 	CenterOffsetY float64 `min:"-1000" max:"1000"`
-	Radius        float64 `max:"200" format:"%.0fo!px"`
+	Radius        float64 `min:"1" max:"200" format:"%.0fo!px"`
 }
 
 func (d *defaultsFactory) InitSpinner() *spinner {
@@ -75,7 +85,7 @@ func (d *defaultsFactory) InitSpinner() *spinner {
 }
 
 type spinnerBehavior struct {
-	SpinAtLowestRPM bool `label:"Spin at lowest RPM" liveedit:"false" tooltip:"Use the lowest osu!lazer completion rate for the map's OD. When disabled, use the maximum completion rate needed through OD 11."`
+	SpinAtLowestRPM bool `label:"Spin at lowest RPM" liveedit:"false" tooltip:"Use the lowest osu!lazer RPM that awards all normal and bonus spinner ticks. When disabled, use the maximum rate needed through OD 11."`
 }
 
 func (d *defaultsFactory) InitSpinnerBehavior() *spinnerBehavior {

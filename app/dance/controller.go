@@ -35,6 +35,8 @@ func (controller *GenericController) SetBeatMap(beatMap *beatmap.BeatMap) {
 }
 
 func (controller *GenericController) InitCursors() {
+	settings.NormalizeCursorDance()
+
 	controller.cursors = make([]*graphics.Cursor, settings.TAG)
 	controller.schedulers = make([]schedulers.Scheduler, settings.TAG)
 
@@ -100,14 +102,11 @@ func (controller *GenericController) InitCursors() {
 		}
 	}
 
-	//Initialize spinner movers
+	// Initialize spinner movers after the profile resolver has captured each
+	// cursor's independent shape and center configuration.
 	for i := range controller.cursors {
-		spinMover := "circle"
-		if len(settings.CursorDance.Spinners) > 0 {
-			spinMover = settings.CursorDance.Spinners[i%len(settings.CursorDance.Spinners)].Mover
-		}
-
-		controller.schedulers[i].Init(queues[i].hitObjects, controller.bMap.Diff, controller.cursors[i], spinners.GetMoverCtorByName(spinMover), true)
+		spinnerProfile := spinners.ResolveSpinnerProfile(i)
+		controller.schedulers[i].Init(queues[i].hitObjects, controller.bMap.Diff, controller.cursors[i], spinners.GetMoverCtor(spinnerProfile), true)
 	}
 }
 

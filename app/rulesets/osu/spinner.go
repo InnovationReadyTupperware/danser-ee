@@ -10,50 +10,68 @@ import (
 )
 
 const FrameTime = 1000.0 / 60
-const countDuration = 595
 
-type spinnerstate struct {
+type spinnerState struct {
+	// Shared completion and lifecycle state.
+	requirement       int64
+	rotationCount     int64
+	lastRotationCount int64
+	rotationCountF    float32
+	finished          bool
+	updatedBefore     bool
+
+	// Stable's angle/velocity tracker and legacy scoring state.
 	lastAngle            float64
-	lastAngle32          float32
-	requirement          int64
-	rotationCount        int64
-	lastRotationCount    int64
 	scoringRotationCount int64
-	rotationCountF       float32
 	rotationCountFD      float64
 	frameVariance        float64
 	theoreticalVelocity  float64
 	currentVelocity      float64
-	finished             bool
 	zeroCount            int64
 	rpm                  float64
-	updatedBefore        bool
 
+	// Lazer's direction-aware spin history and RPM smoothing state.
+	lastAngle32                              float32
 	rotationCountFPrev                       float32
 	totalAccumulatedRotation                 float32
 	currentSpinMaxRotation                   float32
 	totalAccumulatedRotationAtLastCompletion float32
 	maximumBonusSpins                        int64
 	lastTime                                 int64
+	hasLastTime                              bool
 }
 
-func (s *spinnerstate) currentSpinRotation() float32 {
+func (s *spinnerState) currentSpinRotation() float32 {
 	return s.totalAccumulatedRotation - s.totalAccumulatedRotationAtLastCompletion
 }
 
-func (s *spinnerstate) totalRotation() float32 {
+func (s *spinnerState) totalRotation() float32 {
 	return 360*float32(s.rotationCount) + s.currentSpinMaxRotation
 }
 
-func (s *spinnerstate) getCompletion() float32 {
-	return s.totalRotation() / 360 / float32(s.requirement)
+func (s *spinnerState) getCompletion() float32 {
+	if s.requirement <= 0 {
+		// osu!lazer treats a spinner with no required rotations as complete.
+		// Returning one also keeps the HUD and post-judgement paths finite.
+		return 1
+	}
+
+	completion := s.totalRotation() / 360 / float32(s.requirement)
+	if math.IsNaN(float64(completion)) {
+		return 0
+	}
+	if math.IsInf(float64(completion), 1) {
+		return 1
+	}
+
+	return completion
 }
 
 type Spinner struct {
 	ruleSet           *OsuRuleSet
 	hitSpinner        *objects.Spinner
 	players           []*difficultyPlayer
-	state             map[*difficultyPlayer]*spinnerstate
+	state             map[*difficultyPlayer]*spinnerState
 	fadeStartRelative float64
 	maxAcceleration   float64
 }
@@ -66,25 +84,22 @@ func (spinner *Spinner) Init(ruleSet *OsuRuleSet, object objects.IHitObject, pla
 	spinner.ruleSet = ruleSet
 	spinner.hitSpinner = object.(*objects.Spinner)
 	spinner.players = players
-	spinner.state = make(map[*difficultyPlayer]*spinnerstate)
+	spinner.state = make(map[*difficultyPlayer]*spinnerState)
 
-	rSpinner := object.(*objects.Spinner)
+	rSpinner := spinner.hitSpinner
 
 	spinnerTime := int64(rSpinner.GetEndTime()) - int64(rSpinner.GetStartTime())
 
 	spinner.fadeStartRelative = 100000
 
 	for _, player := range spinner.players {
-		spinner.state[player] = new(spinnerstate)
+		spinner.state[player] = new(spinnerState)
 		spinner.fadeStartRelative = min(spinner.fadeStartRelative, player.diff.Preempt)
 		spinner.state[player].frameVariance = FrameTime
 
-		if player.diff.IsLazer() {
-			spinner.state[player].requirement = int64(player.diff.LazerSpinnerMinRPS*float64(spinnerTime)/1000 + 0.0001)
-			spinner.state[player].maximumBonusSpins = max(0, int64(player.diff.LazerSpinnerMaxRPS*float64(spinnerTime)/1000+0.0001)-spinner.state[player].requirement-difficulty.LazerSpinBonusGap)
-		} else {
-			spinner.state[player].requirement = int64(float64(spinnerTime) / 1000 * player.diff.SpinnerRatio)
-		}
+		requirements := calculateSpinnerRequirements(player.diff, rSpinner.GetStartTime(), rSpinner.GetEndTime())
+		spinner.state[player].requirement = requirements.required
+		spinner.state[player].maximumBonusSpins = requirements.maximumBonus
 	}
 
 	spinner.maxAcceleration = 0.00008 + max(0, (5000-float64(spinnerTime))/1000/2000)
@@ -210,7 +225,11 @@ func (spinner *Spinner) processStable(player *difficultyPlayer, time int64) {
 		if len(spinner.players) == 1 {
 			spinner.hitSpinner.SetRotation(player.diff.GetModifiedTime(state.rotationCountFD))
 			spinner.hitSpinner.SetRPM(state.rpm)
-			spinner.hitSpinner.UpdateCompletion(float64(state.rotationCountF) / float64(state.requirement))
+			completion := float64(0)
+			if state.requirement > 0 {
+				completion = float64(state.rotationCountF) / float64(state.requirement)
+			}
+			spinner.hitSpinner.UpdateCompletion(completion)
 		}
 
 		state.rotationCount = int64(state.rotationCountF)
@@ -244,8 +263,18 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 
 	state := spinner.state[player]
 
-	timeDiff := float64(time - state.lastTime)
+	timeDiff := 0.0
+	if state.hasLastTime {
+		timeDiff = float64(time - state.lastTime)
+		if timeDiff < 0 {
+			// Seeking can move the replay clock backwards. Lazer's tracker is
+			// frame based, so a negative interval must not reverse its RPM
+			// smoothing or manufacture rotation.
+			timeDiff = 0
+		}
+	}
 	state.lastTime = time
+	state.hasLastTime = true
 
 	if time >= int64(spinner.hitSpinner.GetStartTime()) && time <= int64(spinner.hitSpinner.GetEndTime()) {
 		var delta float32 = 0.0
@@ -269,17 +298,21 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 		var deltaRPM float32 = 0
 
 		if player.diff.CheckModActive(difficulty.SpunOut) {
-			rotationSpeed := float32(1.01 * float64(state.requirement) / (spinner.hitSpinner.GetEndTime() - spinner.hitSpinner.GetStartTime()))
+			rotationSpeed := float32(0)
+			duration := spinner.hitSpinner.GetEndTime() - spinner.hitSpinner.GetStartTime()
+			if duration > 0 && state.requirement > 0 {
+				rotationSpeed = float32(1.01 * float64(state.requirement) / duration)
+			}
 
 			delta = float32(timeDiff) * rotationSpeed * 360
 
-			spinner.lazerReportDelta(state, delta)
+			reportLazerRotationDelta(state, delta)
 
 			deltaRPM = delta
 		} else if player.gameDownState || player.diff.CheckModActive(difficulty.Relax) {
 			delta *= float32(player.diff.GetSpeed())
 
-			spinner.lazerReportDelta(state, delta)
+			reportLazerRotationDelta(state, delta)
 
 			deltaRPM = delta
 		}
@@ -338,15 +371,22 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 	}
 }
 
-func (spinner *Spinner) lazerReportDelta(state *spinnerstate, delta float32) {
+// reportLazerRotationDelta mirrors osu!lazer's direction-aware spin history:
+// a reversal can reduce the current spin without erasing completed spins.
+func reportLazerRotationDelta(state *spinnerState, delta float32) {
+	if math.IsNaN(float64(delta)) || math.IsInf(float64(delta), 0) {
+		return
+	}
+
 	if delta != 0 {
 		state.totalAccumulatedRotation += delta
 
 		state.currentSpinMaxRotation = max(state.currentSpinMaxRotation, mutils.Abs(state.currentSpinRotation()))
 
 		// Handle the case where the user has completed another spin.
-		// Note that this does could be an `if` rather than `while` if the above assertion held true.
-		// It is a `while` loop to handle tests which throw larger values at this method.
+		// This could be an if rather than a while if one frame could never cross
+		// more than one spin. Keep the loop because replay stepping and tests can
+		// legitimately provide a larger delta.
 		for state.currentSpinMaxRotation >= 360 {
 			direction := mutils.Signum(state.currentSpinRotation())
 
@@ -373,11 +413,12 @@ func (spinner *Spinner) UpdatePostFor(player *difficultyPlayer, time int64, _ bo
 		combo := Reset
 
 		if player.diff.IsLazer() {
-			if spinner.state[player].requirement == 0 || state.getCompletion() >= 1.0 {
+			completion := state.getCompletion()
+			if state.requirement == 0 || completion >= 1.0 {
 				hit = Hit300
-			} else if state.getCompletion() >= 0.9 {
+			} else if completion >= 0.9 {
 				hit = Hit100
-			} else if state.getCompletion() >= 0.75 {
+			} else if completion >= 0.75 {
 				hit = Hit50
 			}
 		} else {
