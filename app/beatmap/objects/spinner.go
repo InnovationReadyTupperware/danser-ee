@@ -26,6 +26,17 @@ import (
 var spinnerRed = color2.Color{R: 1, G: 0, B: 0, A: 1}
 var spinnerBlue = color2.Color{R: 0.05, G: 0.5, B: 1.0, A: 1}
 
+const (
+	// osu!lazer positions the legacy spinner HUD in a 640x480 window-space
+	// parent. Danser's spinner HUD uses a 768-pixel-high logical coordinate
+	// space, so the counter position is converted at draw time instead of
+	// being tied to the width of spinner-rpm. This matters for skins whose RPM
+	// background does not use the default texture dimensions.
+	lazerSpinnerWindowHeight = 480.0
+	lazerSpinnerRPMCounterX  = 80.0
+	lazerSpinnerRPMCounterY  = 448.0
+)
+
 type Spinner struct {
 	*HitObject
 
@@ -319,7 +330,8 @@ func (spinner *Spinner) Draw(time float64, color color2.Color, batch *batch.Quad
 	spinner.rpmBg.Draw(time, batch)
 
 	rpmTxt := fmt.Sprintf("%d", int(spinner.rpm))
-	scoreFont.DrawOrigin(batch, spinner.ScaledWidth/2+139, spinner.ScaledHeight-56, vector.TopRight, scoreFont.GetSize(), false, rpmTxt)
+	rpmCounterPosition := spinnerRPMCounterPosition(spinner.ScaledWidth, spinner.ScaledHeight)
+	scoreFont.DrawOrigin(batch, rpmCounterPosition.X, rpmCounterPosition.Y, vector.TopRight, scoreFont.GetSize(), false, rpmTxt)
 
 	batch.SetCamera(oldCamera)
 	batch.ResetTransform()
@@ -506,6 +518,15 @@ func safeSpinnerProgress(elapsed, duration float64) float64 {
 	}
 
 	return elapsed / duration
+}
+
+func spinnerRPMCounterPosition(scaledWidth, scaledHeight float64) vector.Vector2d {
+	coordinateScale := scaledHeight / lazerSpinnerWindowHeight
+
+	return vector.NewVec2d(
+		scaledWidth/2+lazerSpinnerRPMCounterX*coordinateScale,
+		lazerSpinnerRPMCounterY*coordinateScale,
+	)
 }
 
 func spinAtLowestRPMEnabled() bool {
