@@ -28,15 +28,17 @@ type spinnerState struct {
 	theoreticalVelocity  float64
 	currentVelocity      float64
 	zeroCount            int64
-	rpm                  float64
+	displayRPM           float64
 
-	// Lazer's direction-aware spin history and RPM smoothing state.
+	// Lazer's direction-aware spin history and visual rotation state.
 	lastAngle32                              float32
 	rotationCountFPrev                       float32
 	totalAccumulatedRotation                 float32
 	currentSpinMaxRotation                   float32
 	totalAccumulatedRotationAtLastCompletion float32
 	maximumBonusSpins                        int64
+	lazerRPMMeter                            difficulty.SpinnerRPMMeter
+	cursorDanceRPMRamp                       difficulty.SpinnerRPMRamp
 	lastTime                                 int64
 	hasLastTime                              bool
 }
@@ -165,7 +167,7 @@ func (spinner *Spinner) processStable(player *difficultyPlayer, time int64) {
 		}
 
 		decay1 := math.Pow(0.9, timeDiff/FrameTime)
-		state.rpm = state.rpm*decay1 + (1.0-decay1)*(math.Abs(state.currentVelocity)*1000)/(math.Pi*2)*60
+		state.displayRPM = state.displayRPM*decay1 + (1.0-decay1)*(math.Abs(state.currentVelocity)*1000)/(math.Pi*2)*60
 
 		mouseAngle := float64(player.cursor.RawPosition.Sub(spinnerPosition).AngleR())
 
@@ -224,7 +226,7 @@ func (spinner *Spinner) processStable(player *difficultyPlayer, time int64) {
 
 		if len(spinner.players) == 1 {
 			spinner.hitSpinner.SetRotation(player.diff.GetModifiedTime(state.rotationCountFD))
-			spinner.hitSpinner.SetRPM(state.rpm)
+			spinner.hitSpinner.SetRPM(state.displayRPM)
 			completion := float64(0)
 			if state.requirement > 0 {
 				completion = float64(state.rotationCountF) / float64(state.requirement)
@@ -263,16 +265,22 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 
 	state := spinner.state[player]
 
+	rewound := state.hasLastTime && time < state.lastTime
 	timeDiff := 0.0
-	if state.hasLastTime {
+	if state.hasLastTime && !rewound {
 		timeDiff = float64(time - state.lastTime)
-		if timeDiff < 0 {
-			// Seeking can move the replay clock backwards. Lazer's tracker is
-			// frame based, so a negative interval must not reverse its RPM
-			// smoothing or manufacture rotation.
-			timeDiff = 0
-		}
 	}
+
+	if rewound {
+		// The display meters are timeline-local. Reset them and discard the
+		// previous angle so seeking cannot turn a cursor jump into a fake spin
+		// or retain a rate from the abandoned future.
+		state.lazerRPMMeter.Reset()
+		state.cursorDanceRPMRamp.Reset()
+		state.displayRPM = 0
+		state.updatedBefore = false
+	}
+
 	state.lastTime = time
 	state.hasLastTime = true
 
@@ -281,7 +289,7 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 
 		thisAngle := player.cursor.RawPosition.Sub(spinnerPosition).Angle()
 
-		if state.updatedBefore {
+		if state.updatedBefore && !rewound {
 			delta = thisAngle - state.lastAngle32
 		}
 
@@ -295,8 +303,6 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 			delta += 360
 		}
 
-		var deltaRPM float32 = 0
-
 		if player.diff.CheckModActive(difficulty.SpunOut) {
 			rotationSpeed := float32(0)
 			duration := spinner.hitSpinner.GetEndTime() - spinner.hitSpinner.GetStartTime()
@@ -307,14 +313,10 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 			delta = float32(timeDiff) * rotationSpeed * 360
 
 			reportLazerRotationDelta(state, delta)
-
-			deltaRPM = delta
-		} else if player.gameDownState || player.diff.CheckModActive(difficulty.Relax) {
+		} else if !rewound && (player.gameDownState || player.diff.CheckModActive(difficulty.Relax)) {
 			delta *= float32(player.diff.GetSpeed())
 
 			reportLazerRotationDelta(state, delta)
-
-			deltaRPM = delta
 		}
 
 		state.updatedBefore = true
@@ -331,15 +333,18 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 			}
 		}
 
-		if timeDiff > 0 {
-			// We don't use lazer's fancy rpm metre
-			decay1 := math.Pow(0.95, timeDiff/FrameTime)
-			state.rpm = state.rpm*decay1 + (1.0-decay1)*(math.Abs(float64(deltaRPM)/timeDiff*1000))/360*60
-		}
-
 		if len(spinner.players) == 1 {
+			state.displayRPM = state.lazerRPMMeter.Update(float64(time), float64(state.totalRotation()))
+
+			if player.cursor.IsCursorDance {
+				targetRPM := spinner.hitSpinner.GetAutoplayRPM()
+				if targetRPM > 0 && !math.IsNaN(targetRPM) && !math.IsInf(targetRPM, 0) {
+					state.displayRPM = state.cursorDanceRPMRamp.Update(float64(time), targetRPM)
+				}
+			}
+
 			spinner.hitSpinner.SetRotation(float64(state.rotationCountFPrev * math32.Pi / 180))
-			spinner.hitSpinner.SetRPM(state.rpm)
+			spinner.hitSpinner.SetRPM(state.displayRPM)
 			spinner.hitSpinner.UpdateCompletion(float64(state.getCompletion()))
 		}
 

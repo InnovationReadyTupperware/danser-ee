@@ -45,6 +45,7 @@ func (controller *GenericController) InitCursors() {
 	// Mover initialization
 	for i := range controller.cursors {
 		controller.cursors[i] = graphics.NewCursor()
+		controller.cursors[i].IsCursorDance = true
 
 		mover := "flower"
 		if len(settings.CursorDance.Movers) > 0 {

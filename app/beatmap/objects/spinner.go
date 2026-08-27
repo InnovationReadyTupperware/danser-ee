@@ -40,6 +40,7 @@ type Spinner struct {
 	// autoplayRPM is captured with the object's difficulty so generated
 	// visuals do not consult mutable settings during frame updates.
 	autoplayRPM float64
+	rpmRamp     difficulty.SpinnerRPMRamp
 
 	spinnerbonus *bass.Sample
 	loopSample   *bass.SampleChannel
@@ -106,6 +107,7 @@ func (spinner *Spinner) SetTiming(timings *Timings, _ int, _ bool) {
 func (spinner *Spinner) SetDifficulty(diff *difficulty.Difficulty) {
 	spinner.diff = diff
 	spinner.autoplayRPM = difficulty.SpinnerAutoplayRPM(diff, spinAtLowestRPMEnabled())
+	spinner.rpmRamp.Reset()
 
 	spinner.ScaledHeight = 768
 	spinner.ScaledWidth = settings.Graphics.GetAspectRatio() * spinner.ScaledHeight
@@ -198,7 +200,7 @@ func (spinner *Spinner) Update(time float64) bool {
 				// because replayed Stable visuals are an observable compatibility
 				// boundary.
 				spinner.rad = float32(elapsed * spinner.autoplayRPM / 60000 * 2 * math.Pi)
-				spinner.rpm = spinner.autoplayRPM
+				spinner.rpm = spinner.rpmRamp.Update(time, spinner.autoplayRPM)
 
 				duration := spinner.EndTime - spinner.StartTime
 				requiredRotations := spinner.diff.LazerSpinnerMinRPS * duration / 1000
@@ -374,6 +376,13 @@ func (spinner *Spinner) SetRPM(rpm float64) {
 	}
 
 	spinner.rpm = rpm
+}
+
+// GetAutoplayRPM returns the generated Lazer spinner rate captured when the
+// object received its difficulty. Ruleset display code uses this value only
+// for cursor-dance cursors; spinner judgment continues to use raw rotation.
+func (spinner *Spinner) GetAutoplayRPM() float64 {
+	return spinner.autoplayRPM
 }
 
 func (spinner *Spinner) UpdateCompletion(completion float64) {
