@@ -14,7 +14,6 @@ import (
 	"github.com/wieku/danser-go/app/audio"
 	"github.com/wieku/danser-go/app/beatmap"
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
 	camera2 "github.com/wieku/danser-go/app/bmath/camera"
 	"github.com/wieku/danser-go/app/discord"
 	"github.com/wieku/danser-go/app/graphics"
@@ -390,28 +389,10 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 		overlay.results.AddResult(judgementResult.Time, judgementResult.HitResult, judgementResult.Position.Copy64(), object)
 	}
 
-	sliderChecks := osu.SliderStart | osu.PositionalMiss
-
 	playerDiff := overlay.ruleset.GetPlayerDifficulty(c)
-
-	if playerDiff.IsLazer() {
-		classicConf, confFound := difficulty.GetModConfig[difficulty.ClassicSettings](playerDiff)
-
-		if !playerDiff.CheckModActive(difficulty.Classic) || !confFound || !classicConf.NoSliderHeadAccuracy {
-			sliderChecks |= osu.BaseHits
-		}
-	}
-
-	_, hC := object.(*objects.Circle)
-	allowCircle := hC && (judgementResult.HitResult&(osu.BaseHits|osu.PositionalMiss) > 0)
-	_, sl := object.(*objects.Slider)
-	allowSlider := sl && ((judgementResult.HitResult&sliderChecks) > 0 ||
-		(judgementResult.IsSliderHead() && judgementResult.HitResult == osu.LargeTickHit))
-
-	if allowCircle || allowSlider {
-		timeDiff := float64(judgementResult.Time) - object.GetStartTime()
-
-		overlay.hitErrorMeter.Add(float64(judgementResult.Time), timeDiff, judgementResult.HitResult == osu.PositionalMiss)
+	hitErrorEvent, includeInHitError := buildHitErrorEvent(object, judgementResult)
+	if includeInHitError {
+		overlay.hitErrorMeter.Add(hitErrorEvent.time, hitErrorEvent.offset, hitErrorEvent.positionalMiss)
 
 		var startPos *vector.Vector2f
 		if judgementResult.Number > 0 {

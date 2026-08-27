@@ -15,7 +15,7 @@ func initGameplay() *gameplay {
 				YOffset: 0,
 			},
 			PointFadeOutTime:     10,
-			ShowPositionalMisses: true,
+			ShowPositionalMisses: false,
 			PositionalMissScale:  1.5,
 			ShowUnstableRate:     true,
 			UnstableRateDecimals: 0,

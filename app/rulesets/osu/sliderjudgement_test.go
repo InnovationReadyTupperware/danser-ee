@@ -104,6 +104,33 @@ func TestHitWindowModeBoundaries(t *testing.T) {
 	}
 }
 
+func TestHitErrorResultTaxonomy(t *testing.T) {
+	tests := []struct {
+		name   string
+		result JudgementResult
+		want   bool
+	}{
+		{name: "circle hit", result: JudgementResult{HitResult: Hit300}, want: true},
+		{name: "stable slider head", result: JudgementResult{HitResult: SliderStart}, want: true},
+		{name: "lazer slider head", result: JudgementResult{HitResult: Hit100, sliderPart: sliderPartHead}, want: true},
+		{name: "classic slider head", result: JudgementResult{HitResult: LargeTickHit, sliderPart: sliderPartHead}, want: true},
+		{name: "ordinary miss", result: JudgementResult{HitResult: Miss}, want: false},
+		{name: "stable slider miss", result: JudgementResult{HitResult: SliderMiss, sliderPart: sliderPartHead}, want: false},
+		{name: "nested tick", result: JudgementResult{HitResult: LargeTickHit, sliderPart: sliderPartTick}, want: false},
+		{name: "slider tail", result: JudgementResult{HitResult: SliderTailHit, sliderPart: sliderPartTail}, want: false},
+		{name: "positional miss", result: JudgementResult{HitResult: PositionalMiss}, want: false},
+		{name: "ignored miss", result: JudgementResult{HitResult: IgnoreMiss}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.result.AffectsHitError(); got != tt.want {
+				t.Fatalf("AffectsHitError() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSliderJudgementResultParts(t *testing.T) {
 	tests := []struct {
 		name    string

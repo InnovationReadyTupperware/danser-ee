@@ -2,6 +2,9 @@ package play
 
 import (
 	"fmt"
+	"math"
+	"strconv"
+
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/graphics"
 	"github.com/wieku/danser-go/app/settings"
@@ -12,8 +15,6 @@ import (
 	"github.com/wieku/danser-go/framework/math/animation/easing"
 	color2 "github.com/wieku/danser-go/framework/math/color"
 	"github.com/wieku/danser-go/framework/math/vector"
-	"math"
-	"strconv"
 )
 
 const errorBase = 4.8
@@ -31,10 +32,13 @@ type HitErrorMeter struct {
 	Height   float64
 	lastTime float64
 
-	errors       []float64
+	timingErrors []float64
+	statistics   scalarStatistics
 	unstableRate float64
 	avgPos       float64
 	avgNeg       float64
+	offsetScale  float64
+	barHalfWidth float64
 
 	urText   string
 	urGlider *animation.TargetGlider
@@ -56,12 +60,9 @@ func NewHitErrorMeter(width, height float64, diff *difficulty.Difficulty) *HitEr
 	meter.urText = "0UR"
 	meter.urGlider = animation.NewTargetGlider(0, 0)
 
-	baseScale := 0.8
-	if settings.Gameplay.HitErrorMeter.ScaleWithSpeed {
-		baseScale /= meter.diff.Speed
-	}
-
-	vals := []float64{float64(meter.diff.Hit300) * baseScale, float64(meter.diff.Hit100) * baseScale, float64(meter.diff.Hit50) * baseScale}
+	meter.offsetScale = hitErrorOffsetScaleFor(meter.diff, settings.Gameplay.HitErrorMeter.ScaleWithSpeed)
+	meter.barHalfWidth = hitErrorReferenceWindow * meter.offsetScale
+	vals := hitErrorBandPositions(meter.diff, meter.barHalfWidth)
 
 	scale := settings.Gameplay.HitErrorMeter.Scale
 
@@ -113,16 +114,11 @@ func (meter *HitErrorMeter) Add(time, error float64, positionalMiss bool) {
 		return
 	}
 
-	errorA := int64(math.Abs(error))
-
 	scale := settings.Gameplay.HitErrorMeter.Scale
 
 	pixel := graphics.Pixel.GetRegion()
 
-	errorPos := error * 0.8
-	if settings.Gameplay.HitErrorMeter.ScaleWithSpeed {
-		errorPos /= meter.diff.Speed
-	}
+	errorPos := clampHitErrorPosition(error*meter.offsetScale, meter.barHalfWidth)
 
 	middle := sprite.NewSpriteSingle(&pixel, 3.0, vector.NewVec2d(meter.Width/2+errorPos*scale, meter.Height-errorBase*2*scale), vector.Centre)
 	middle.ShowForever(false)
@@ -139,13 +135,24 @@ func (meter *HitErrorMeter) Add(time, error float64, positionalMiss bool) {
 		middle.SetScaleV(vector.NewVec2d(3, errorBase*4*settings.Gameplay.HitErrorMeter.PositionalMissScale).Scl(scale))
 		middle.SetAdditive(false)
 	} else {
-		switch {
-		case errorA < meter.diff.Hit300:
-			middle.SetColor(colors[0])
-		case errorA < meter.diff.Hit100:
-			middle.SetColor(colors[1])
-		case errorA < meter.diff.Hit50:
-			middle.SetColor(colors[2])
+		if meter.diff.IsLazer() {
+			switch errorA := math.Abs(error); {
+			case errorA <= meter.diff.Hit300U:
+				middle.SetColor(colors[0])
+			case errorA <= meter.diff.Hit100U:
+				middle.SetColor(colors[1])
+			case errorA <= meter.diff.Hit50U:
+				middle.SetColor(colors[2])
+			}
+		} else {
+			switch errorA := int64(math.Abs(error)); {
+			case errorA < meter.diff.Hit300:
+				middle.SetColor(colors[0])
+			case errorA < meter.diff.Hit100:
+				middle.SetColor(colors[1])
+			case errorA < meter.diff.Hit50:
+				middle.SetColor(colors[2])
+			}
 		}
 	}
 
@@ -175,20 +182,16 @@ func (meter *HitErrorMeter) Add(time, error float64, positionalMiss bool) {
 		meter.countN++
 	}
 
-	meter.errors = append(meter.errors, error)
-
-	average := (meter.averageN + meter.averageP) / float64(meter.countN+meter.countP)
-
-	urBase := 0.0
-	for _, e := range meter.errors {
-		urBase += math.Pow(e-average, 2)
-	}
-
-	urBase /= float64(len(meter.errors))
+	meter.timingErrors = append(meter.timingErrors, error)
+	// Keep the accumulator in raw replay-time units. Since gameplay speed is
+	// constant for a play, dividing the resulting standard deviation by Speed
+	// is algebraically equivalent to Lazer's per-sample normalization and
+	// preserves danser's existing raw/converted getter contract.
+	meter.statistics.Add(error)
 
 	meter.avgNeg = meter.averageN / max(float64(meter.countN), 1)
 	meter.avgPos = meter.averageP / max(float64(meter.countP), 1)
-	meter.unstableRate = math.Sqrt(urBase) * 10
+	meter.unstableRate = meter.statistics.standardDeviation() * 10
 
 	meter.urGlider.SetValue(meter.GetUnstableRateConverted(), settings.Gameplay.HitErrorMeter.StaticUnstableRate)
 }
@@ -240,6 +243,19 @@ func (meter *HitErrorMeter) GetAvgPos() float64 {
 
 func (meter *HitErrorMeter) GetAvgPosConverted() float64 {
 	return meter.avgPos / meter.diff.Speed
+}
+
+// GetMedian returns the median signed timing offset of accepted hit-error
+// samples. Negative values indicate early hits and positive values indicate
+// late hits. Positional misses and non-timing slider events are never stored.
+func (meter *HitErrorMeter) GetMedian() float64 {
+	return median(meter.timingErrors)
+}
+
+// GetMedianConverted returns the median timing offset after the existing
+// gameplay-speed conversion used by the ranking panel.
+func (meter *HitErrorMeter) GetMedianConverted() float64 {
+	return meter.GetMedian() / meter.diff.Speed
 }
 
 func (meter *HitErrorMeter) GetUnstableRate() float64 {

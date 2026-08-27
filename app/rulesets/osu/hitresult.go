@@ -113,6 +113,21 @@ func (r HitResult) IsScorable() bool {
 	}
 }
 
+// AffectsHitError reports whether a judgement is a successful real-object
+// timing result that can feed the hit-error meter. Slider heads are allowed
+// through their explicit slider part so Lazer Classic's LargeTickHit head is
+// retained, while nested slider results remain excluded. SliderStart is also
+// accepted without a part for the historical Stable result representation.
+func (result JudgementResult) AffectsHitError() bool {
+	v := result.HitResult & (^Additions)
+
+	if result.IsSliderHead() || v == SliderStart {
+		return result.HitResult.IsHit()
+	}
+
+	return v&BaseHits != 0
+}
+
 // IsTick reports whether r is one of osu!lazer's slider tick result kinds.
 // SliderTailHit is tick-like for accuracy and health even though it has its
 // own score weight.

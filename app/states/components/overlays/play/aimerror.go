@@ -32,16 +32,13 @@ type AimErrorMeter struct {
 	hitCircle        *texture.TextureRegion
 	hitCircleOverlay *texture.TextureRegion
 
-	errors []vector.Vector2d
-
+	statistics   vectorStatistics
 	unstableRate float64
 	urText       string
 	urGlider     *animation.TargetGlider
 
 	normalized    bool
 	shapeRenderer *shape.Renderer
-
-	toAverage vector.Vector2d
 }
 
 func NewAimErrorMeter(diff *difficulty.Difficulty) *AimErrorMeter {
@@ -143,20 +140,8 @@ func (meter *AimErrorMeter) Add(time float64, hitPosition vector.Vector2f, start
 	meter.errorDisplayFade.SetValue(1.0)
 	meter.errorDisplayFade.AddEventSEase(time+4000, time+5000, 1.0, 0.0, easing.InQuad)
 
-	meter.errors = append(meter.errors, err.Copy64())
-
-	meter.toAverage = meter.toAverage.Add(err.Copy64())
-
-	average := meter.toAverage.Scl(1 / float64(len(meter.errors)))
-
-	urBase := 0.0
-	for _, e := range meter.errors {
-		urBase += e.DstSq(average)
-	}
-
-	urBase /= float64(len(meter.errors))
-
-	meter.unstableRate = math.Sqrt(urBase) * 10
+	meter.statistics.Add(err.Copy64())
+	meter.unstableRate = meter.statistics.standardDeviation() * 10
 
 	meter.urGlider.SetValue(meter.unstableRate, settings.Gameplay.AimErrorMeter.StaticUnstableRate)
 }
