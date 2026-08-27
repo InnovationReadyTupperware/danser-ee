@@ -14,24 +14,17 @@ const Left = Buttons(1)
 const Right = Buttons(2)
 
 type sliderstate struct {
-	downButton  Buttons
-	isStartHit  bool
-	isHit       bool
-	points      []tickpoint
-	scored      int
-	missed      int
-	slideStart  int64
-	sliding     bool
-	startResult HitResult
-	endScored   bool
-}
-
-type tickpoint struct {
-	time       int64
-	scoreGiven HitResult
-	edgeNum    int
-
-	judged bool
+	downButton       Buttons
+	isStartHit       bool
+	isHit            bool
+	points           []sliderEvent
+	scored           int
+	missed           int
+	slideStart       int64
+	sliding          bool
+	startResult      HitResult
+	endScored        bool
+	tailSamplePlayed bool
 }
 
 type Slider struct {
@@ -60,8 +53,6 @@ func (slider *Slider) Init(ruleSet *OsuRuleSet, object objects.IHitObject, playe
 	slider.players = players
 	slider.state = make(map[*difficultyPlayer]*sliderstate)
 
-	rSlider := object.(*objects.Slider)
-
 	slider.lastSliderTime = math.MinInt64
 	slider.fadeStartRelative = 100000
 
@@ -70,47 +61,11 @@ func (slider *Slider) Init(ruleSet *OsuRuleSet, object objects.IHitObject, playe
 		slider.state[player] = new(sliderstate)
 		slider.state[player].startResult = Miss
 
-		edgeNumber := 1
-
 		if player.diff.IsLazer() {
-			for _, point := range rSlider.ScorePointsLazer {
-				if point.IsReverse || point.LastPoint {
-					scoreGiven := SliderRepeat
-					time := point.Time
-
-					if point.LastPoint {
-						scoreGiven = SliderEnd
-
-						if player.classicNoSliderHeadAccuracy {
-							scoreGiven = LegacySliderEnd
-						}
-
-						time = rSlider.GetEndTime()
-					}
-
-					slider.state[player].points = append(slider.state[player].points, tickpoint{int64(time), scoreGiven, edgeNumber, false})
-					edgeNumber++
-				} else {
-					slider.state[player].points = append(slider.state[player].points, tickpoint{int64(min(point.Time, rSlider.GetEndTime())), SliderPoint, -1, false})
-				}
-			}
-			// TODO: min(point.Time, rSlider.GetEndTime()) is a hack, should be revisited later
+			slider.state[player].points = buildLazerSliderEvents(slider.hitSlider, player.classicNoSliderHeadAccuracy)
 		} else {
-			for _, point := range rSlider.ScorePoints {
-				if point.IsReverse {
-					slider.state[player].points = append(slider.state[player].points, tickpoint{int64(point.Time), SliderRepeat, edgeNumber, false})
-					edgeNumber++
-				} else {
-					slider.state[player].points = append(slider.state[player].points, tickpoint{int64(point.Time), SliderPoint, -1, false})
-				}
-			}
-
-			if len(slider.state[player].points) > 0 {
-				slider.state[player].points[len(slider.state[player].points)-1].time = max(int64(slider.hitSlider.GetStartTime())+int64(slider.hitSlider.GetEndTime()-slider.hitSlider.GetStartTime())/2, int64(slider.hitSlider.GetEndTime())-36) //slider ends 36ms before the real end for scoring
-				slider.state[player].points[len(slider.state[player].points)-1].scoreGiven = SliderEnd
-			}
+			slider.state[player].points = buildStableSliderEvents(slider.hitSlider)
 		}
-
 	}
 }
 
@@ -142,30 +97,29 @@ func (slider *Slider) UpdateClickFor(player *difficultyPlayer, time int64) bool 
 					state.downButton = player.mouseDownButton
 				}
 
-				hit := SliderMiss
-				combo := Reset
-
 				state.startResult = slider.ruleSet.GetResultForDelta(player, math.Abs(float64(time)-slider.hitSlider.GetStartTime()))
 
-				if state.startResult != Miss {
-					hit = SliderStart
-					combo = Increase
+				hit, maxResult := stableSliderHeadResults(state.startResult)
+				part := sliderPartHead
+				if player.diff.IsLazer() {
+					hit, maxResult = lazerSliderHeadResults(player.classicNoSliderHeadAccuracy, state.startResult)
+				}
+
+				combo := Increase
+				if !hit.IsHit() {
+					combo = Reset
 				}
 
 				if hit != Ignore {
 					if len(slider.players) == 1 {
-						slider.hitSlider.HitEdge(0, float64(time), hit != SliderMiss)
+						slider.hitSlider.HitEdge(0, float64(time), hit.IsHit())
 					}
 
 					state.isStartHit = true
 
 					slider.ruleSet.PostHit(time, slider, player)
 
-					if player.diff.IsLazer() && !player.classicNoSliderHeadAccuracy {
-						slider.ruleSet.SendResult(player.cursor, createJudgementResult(state.startResult, Hit300, combo, time, position, slider))
-					} else {
-						slider.ruleSet.SendResult(player.cursor, createJudgementResult(hit, SliderStart, combo, time, position, slider))
-					}
+					slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(hit, maxResult, combo, time, position, slider, part))
 
 					if state.startResult != Miss && player.diff.IsLazer() {
 						slider.lazerPostHeadProcess(player, state, time)
@@ -195,7 +149,14 @@ func (slider *Slider) lazerPostHeadProcess(player *difficultyPlayer, state *slid
 	allTicksInRange := true
 
 	for _, point := range state.points {
-		if point.time > time {
+		if point.judged {
+			continue
+		}
+
+		// The tail's gameplay start time is the true end of the slider. Its
+		// -36 ms leniency is handled by normal frame processing, not by the
+		// late-head catch-up pass, which mirrors lazer's nested object timing.
+		if point.time > float64(time) {
 			break
 		}
 
@@ -300,7 +261,7 @@ func (slider *Slider) UpdateFor(player *difficultyPlayer, time int64, processSli
 			slider.processTicksStable(player, state, time, allowable, sliderPosition, processSliderEndsAhead)
 		}
 
-		if !allowable && state.sliding && state.scored+state.missed < len(state.points) {
+		if !allowable && state.sliding && hasUnjudgedSliderEvents(state.points) {
 			if len(slider.players) == 1 {
 				slider.hitSlider.KillSlide(float64(time))
 			}
@@ -313,99 +274,118 @@ func (slider *Slider) UpdateFor(player *difficultyPlayer, time int64, processSli
 }
 
 func (slider *Slider) processTicksStable(player *difficultyPlayer, state *sliderstate, time int64, allowable bool, sliderPosition vector.Vector2f, processSliderEndsAhead bool) {
-	pointsPassed := 0
+	// Stable replays intentionally retain the historical one-event-per-call
+	// cadence and integer timestamps. The explicit event kind removes the old
+	// repeat-index arithmetic without letting the Lazer batch-processing path
+	// change Stable replay results.
+	for index := range state.points {
+		point := &state.points[index]
 
-	for i, point := range state.points {
-		if point.time > time && !(i == len(state.points)-1 && processSliderEndsAhead && point.time-time == 1) {
+		if point.judged {
+			continue
+		}
+
+		passed := point.time <= float64(time)
+		if !passed && processSliderEndsAhead && index == len(state.points)-1 && point.time-float64(time) == 1 {
+			passed = true
+		}
+
+		if !passed {
 			break
 		}
-
-		pointsPassed++
-	}
-
-	if state.scored+state.missed < pointsPassed {
-		index := state.scored + state.missed
-		point := state.points[index]
-
-		maxScore := SliderPoint
-		if pointsPassed == len(state.points) {
-			maxScore = SliderEnd
-		} else if pointsPassed%(len(state.points)/len(slider.hitSlider.TickReverse)) == 0 {
-			maxScore = SliderRepeat
+		if !allowable && float64(time) < point.time {
+			// processSliderEndsAhead only makes the final point eligible for
+			// the next frame's Stable processing. The historical path did not
+			// turn that early, untracked point into a miss yet.
+			return
 		}
 
-		scoreGiven := SliderMiss
+		point.judged = true
+		point.hitResult = SliderMiss
 		combo := Reset
 
-		if allowable && state.slideStart <= point.time {
+		if allowable && float64(state.slideStart) <= point.time {
+			point.hitResult = point.maxResult
 			state.scored++
-
-			scoreGiven = maxScore
 			combo = Increase
 		} else {
 			state.missed++
-
-			if state.scored+state.missed == len(state.points) {
+			if point.isTail() {
 				combo = Hold
 			}
 		}
 
-		slider.ruleSet.SendResult(player.cursor, createJudgementResult(scoreGiven, maxScore, combo, time, sliderPosition, slider))
+		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(point.hitResult, point.maxResult, combo, time, sliderPosition, slider, point.resultPart()))
+		break
 	}
 }
 
 func (slider *Slider) processTicksLazer(player *difficultyPlayer, state *sliderstate, time int64, allowable bool, sliderPosition vector.Vector2f) {
+	// Lazer resolves every event that is due in the current frame. This matters
+	// for late frames: a cursor sample can retroactively resolve several ticks,
+	// but a tail remains ordered behind all preceding events and can use its
+	// separate early-release window.
 	if !state.isStartHit {
 		return
 	}
 
-	pointsPassed := 0
+	for index := range state.points {
+		point := &state.points[index]
 
-	for _, point := range state.points {
-		pTime := point.time
-		if point.scoreGiven&(SliderEnd|LegacySliderEnd) > 0 {
-			pTime -= 36
+		if point.judged {
+			continue
 		}
 
-		if pTime > time {
+		if !lazerSliderEventDue(*point, float64(time)) {
 			break
 		}
 
-		pointsPassed++
-	}
+		previousEventsJudged := true
+		for previousIndex := 0; previousIndex < index; previousIndex++ {
+			if !state.points[previousIndex].judged {
+				previousEventsJudged = false
+				break
+			}
+		}
 
-	for index := state.scored + state.missed; index < pointsPassed; index++ {
-		point := state.points[index]
+		if point.isTail() && !lazerSliderTailMayBeJudged(*point, float64(time), previousEventsJudged) {
+			break
+		}
 
-		scoreGiven := Ignore
-		combo := Reset
+		// Lazer does not judge a tail as a miss during its early leniency
+		// window. It waits until the true end so a player can still regain
+		// tracking and receive the tail hit.
+		if point.isTail() && float64(time) < point.time && !allowable {
+			break
+		}
 
-		if allowable {
+		point.judged = true
+		point.hitResult = lazerSliderEventResult(*point, allowable)
+		combo := Hold
+
+		if point.hitResult.IsHit() {
 			state.scored++
-
-			scoreGiven = point.scoreGiven
 			combo = Increase
 
-			if point.scoreGiven&(SliderEnd|LegacySliderEnd) > 0 {
+			if point.isTail() {
 				state.endScored = true
-
 				if player.classicNoSliderHeadAccuracy {
 					combo = Hold
 				}
 			}
-		} else if time >= point.time {
+		} else if point.hitResult != IgnoreMiss {
 			state.missed++
-
-			scoreGiven = SliderMiss
-
-			if point.scoreGiven&(SliderEnd|LegacySliderEnd) > 0 {
-				combo = Hold
+			if !point.isTail() {
+				combo = Reset
 			}
 		}
 
-		if scoreGiven != Ignore {
-			slider.ruleSet.SendResult(player.cursor, createJudgementResult(scoreGiven, point.scoreGiven, combo, time, sliderPosition, slider))
+		if point.isTail() && point.hitResult.IsHit() && !player.classicAlwaysPlayTailSample && len(slider.players) == 1 {
+			slider.hitSlider.HitEdge(point.edgeIndex, float64(time), true)
+			state.tailSamplePlayed = true
 		}
+
+		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(point.hitResult, point.maxResult, combo, time, sliderPosition, slider, point.resultPart()))
 	}
 }
 
@@ -416,55 +396,55 @@ func (slider *Slider) UpdatePostFor(player *difficultyPlayer, time int64, proces
 		slider.processHeadMiss(player, time)
 	}
 
-	if (time >= int64(slider.hitSlider.GetEndTime()) || (processSliderEndsAhead && int64(slider.hitSlider.GetEndTime())-time == 1)) && !state.isHit {
+	atEnd := float64(time) >= lazerSliderEndTime(slider.hitSlider)
+	if !player.diff.IsLazer() {
+		atEnd = time >= int64(slider.hitSlider.GetEndTime())
+		atEnd = atEnd || (processSliderEndsAhead && int64(slider.hitSlider.GetEndTime())-time == 1)
+	}
+
+	if atEnd && !state.isHit {
 		if len(slider.players) == 1 && !state.isStartHit && !player.diff.IsLazer() {
 			slider.hitSlider.ArmStart(false, float64(time))
 		}
 
-		if state.startResult != Miss {
-			state.scored++
+		hitCount := state.scored
+		if state.startResult.IsHit() {
+			hitCount++
 		}
 
-		rate := float64(state.scored) / float64(len(state.points)+1)
+		totalCount := len(state.points) + 1
+		sliderResult := classicSliderCollapse(hitCount, totalCount)
 
 		if len(slider.players) == 1 {
 			lazerMode := player.diff.IsLazer()
 
-			if ((!lazerMode || player.classicAlwaysPlayTailSample) && rate > 0) || (lazerMode && !player.classicAlwaysPlayTailSample && state.endScored) {
+			if !lazerMode {
+				if sliderResult != Miss {
+					slider.hitSlider.HitEdge(len(slider.hitSlider.TickReverse), float64(time), true)
+				}
+			} else if player.classicAlwaysPlayTailSample && sliderResult != Miss {
+				slider.hitSlider.HitEdge(len(slider.hitSlider.TickReverse), float64(time), true)
+			} else if state.endScored && !state.tailSamplePlayed && !player.classicAlwaysPlayTailSample {
 				slider.hitSlider.HitEdge(len(slider.hitSlider.TickReverse), float64(time), true)
 			}
 		}
 
 		position := slider.hitSlider.GetStackedEndPositionMod(player.diff)
 
-		if player.diff.IsLazer() && !player.classicNoSliderHeadAccuracy {
-			hit := Ignore
-			if state.scored > 0 {
-				hit = SliderFinish
-			}
-
-			slider.ruleSet.SendResult(player.cursor, createJudgementResultF(hit, SliderFinish, Hold, time, position, slider, true))
-		} else {
-			hit := Miss
-
-			if rate == 1.0 {
-				hit = Hit300
-			} else if rate >= 0.5 {
-				hit = Hit100
-			} else if rate > 0 {
-				hit = Hit50
-			}
-
+		if !player.diff.IsLazer() || player.classicNoSliderHeadAccuracy {
 			combo := Reset
-			if hit != Miss {
+			if sliderResult != Miss {
 				combo = Hold
-
 				if player.diff.IsLazer() {
+					// Classic Lazer sliders score their proportional parent result
+					// in addition to the nested head and tick results. The parent
+					// result is therefore a real combo increase, while Stable keeps
+					// its historical summary-only behavior.
 					combo = Increase
 				}
 			}
 
-			slider.ruleSet.SendResult(player.cursor, createJudgementResultF(hit, Hit300, combo, time, position, slider, true))
+			slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(sliderResult, Hit300, combo, time, position, slider, sliderPartSummary))
 		}
 
 		state.isHit = true
@@ -476,18 +456,24 @@ func (slider *Slider) UpdatePostFor(player *difficultyPlayer, time int64, proces
 func (slider *Slider) processHeadMiss(player *difficultyPlayer, time int64) {
 	state := slider.state[player]
 
-	if time > int64(slider.hitSlider.GetStartTime())+player.diff.Hit50 && !state.isStartHit {
+	missDeadline := float64(int64(slider.hitSlider.GetStartTime()) + player.diff.Hit50)
+	if player.diff.IsLazer() {
+		missDeadline = slider.hitSlider.GetStartTime() + player.diff.Hit50U
+	}
+
+	if float64(time) > missDeadline && !state.isStartHit {
 		if len(slider.players) == 1 && !state.isHit { //don't fade if slider already ended (and armed the start)
 			slider.hitSlider.ArmStart(false, float64(time))
 		}
 
 		position := slider.hitSlider.GetStackedStartPositionMod(player.diff)
 
-		if player.diff.IsLazer() && !player.classicNoSliderHeadAccuracy {
-			slider.ruleSet.SendResult(player.cursor, createJudgementResult(Miss, Hit300, Reset, time, position, slider))
-		} else {
-			slider.ruleSet.SendResult(player.cursor, createJudgementResult(SliderMiss, SliderStart, Reset, time, position, slider))
+		hit, maxResult := stableSliderHeadResults(Miss)
+		if player.diff.IsLazer() {
+			hit, maxResult = lazerSliderHeadResults(player.classicNoSliderHeadAccuracy, Miss)
 		}
+
+		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(hit, maxResult, Reset, time, position, slider, sliderPartHead))
 
 		if player.leftCond {
 			state.downButton = Left
@@ -526,11 +512,12 @@ func (slider *Slider) MissForcefully(player *difficultyPlayer, time int64) {
 			slider.hitSlider.HitEdge(0, float64(time), false)
 		}
 
-		if player.diff.IsLazer() && !player.classicNoSliderHeadAccuracy {
-			slider.ruleSet.SendResult(player.cursor, createJudgementResult(Miss, Hit300, Reset, time, position, slider))
-		} else {
-			slider.ruleSet.SendResult(player.cursor, createJudgementResult(SliderMiss, SliderStart, Reset, time, position, slider))
+		hit, maxResult := stableSliderHeadResults(Miss)
+		if player.diff.IsLazer() {
+			hit, maxResult = lazerSliderHeadResults(player.classicNoSliderHeadAccuracy, Miss)
 		}
+
+		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(hit, maxResult, Reset, time, position, slider, sliderPartHead))
 
 		state.isStartHit = true
 		state.startResult = Miss

@@ -185,20 +185,35 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 			lazerSkipScore := false
 
 			if s, ok := o.(*objects.Slider); ok {
-				repeats := len(s.TickReverse) + 1
-
-				if hp.player.diff.IsLazer() && !hp.player.classicNoSliderHeadAccuracy {
-					repeats -= 1
+				if hp.player.diff.IsLazer() {
+					// The legacy processor is also used by CL's ClassicHealth
+					// setting. Feed it the same explicit Lazer event sequence as
+					// runtime judgment, while retaining stable's calculation below.
 					lazerSkipScore = true
-					hp.addResultInternal(Hit300)
-				}
 
-				for j := 0; j < repeats; j++ {
-					hp.addResultInternal(SliderRepeat)
-				}
+					headResult := Hit300
+					if hp.player.classicNoSliderHeadAccuracy {
+						headResult = LargeTickHit
+					}
+					hp.addResultWithPart(headResult, sliderPartHead)
 
-				for j := 0; j < len(s.TickPoints); j++ {
-					hp.addResultInternal(SliderPoint)
+					for _, event := range buildLazerSliderEvents(s, hp.player.classicNoSliderHeadAccuracy) {
+						hp.addResultWithPart(event.maxResult, event.resultPart())
+					}
+
+					if hp.player.classicNoSliderHeadAccuracy {
+						hp.addResultInternal(Hit300)
+					}
+				} else {
+					repeats := len(s.TickReverse) + 1
+
+					for j := 0; j < repeats; j++ {
+						hp.addResultInternal(SliderRepeat)
+					}
+
+					for j := 0; j < len(s.TickPoints); j++ {
+						hp.addResultInternal(SliderPoint)
+					}
 				}
 			} else if s, ok := o.(*objects.Spinner); ok {
 				spinnerTime := (s.GetEndTime() - s.GetStartTime()) / 1000
@@ -265,18 +280,24 @@ func (hp *HealthProcessor) ResetHp() {
 }
 
 func (hp *HealthProcessor) AddResult(result JudgementResult) {
-	hp.addResultInternal(result.HitResult)
+	hp.addResultWithPart(result.HitResult, result.sliderPart)
 }
 
 func (hp *HealthProcessor) addResultInternal(result HitResult) {
+	hp.addResultWithPart(result, sliderPartNone)
+}
+
+func (hp *HealthProcessor) addResultWithPart(result HitResult, part sliderJudgementPart) {
 	normal := result & (^Additions)
 	addition := result & Additions
 
 	hpAdd := 0.0
 
 	switch normal {
-	case SliderMiss:
+	case SliderMiss, SmallTickMiss, LargeTickMiss:
 		hpAdd += difficulty.DifficultyRate(hp.player.diff.HPMod, -4.0, -15.0, -28.0)
+	case IgnoreMiss:
+		return
 	case Miss:
 		hpAdd += difficulty.DifficultyRate(hp.player.diff.HPMod, -6.0, -25.0, -40.0)
 	case Hit50:
@@ -289,6 +310,14 @@ func (hp *HealthProcessor) addResultInternal(result HitResult) {
 		hpAdd += hp.HpMultiplierNormal * HpSliderTick
 	case SliderStart, SliderRepeat, LegacySliderEnd, SliderEnd:
 		hpAdd += hp.HpMultiplierNormal * HpSliderRepeat
+	case SmallTickHit, SliderTailHit:
+		hpAdd += hp.HpMultiplierNormal * HpSliderRepeat
+	case LargeTickHit:
+		if part == sliderPartTick {
+			hpAdd += hp.HpMultiplierNormal * HpSliderTick
+		} else {
+			hpAdd += hp.HpMultiplierNormal * HpSliderRepeat
+		}
 	case SpinnerSpin, SpinnerPoints:
 		hpAdd += hp.HpMultiplierNormal * HpSpinnerSpin
 	case SpinnerBonus:

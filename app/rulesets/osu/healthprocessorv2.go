@@ -29,6 +29,8 @@ type HealthProcessorV2 struct {
 
 	countGood int
 	countBad  int
+
+	lastObject HitObject
 }
 
 func NewHealthProcessorV2(beatMap *beatmap.BeatMap, player *difficultyPlayer) *HealthProcessorV2 {
@@ -90,7 +92,7 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 
 		hr := Hit300
 		if ok && hp.player.classicNoSliderHeadAccuracy {
-			hr = SliderStart
+			hr = LargeTickHit
 		}
 
 		healthIncreases = append(healthIncreases, healthIncrease{
@@ -99,20 +101,10 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 		})
 
 		if ok {
-			for j := 0; j < len(s.ScorePointsLazer); j++ {
-				sc := s.ScorePointsLazer[j]
-
-				result := SliderPoint
-
-				if j == len(s.ScorePointsLazer)-1 {
-					result = SliderEnd
-				} else if sc.IsReverse {
-					result = SliderRepeat
-				}
-
+			for _, event := range buildLazerSliderEvents(s, hp.player.classicNoSliderHeadAccuracy) {
 				healthIncreases = append(healthIncreases, healthIncrease{
-					time:     sc.Time,
-					increase: hp.getHPResult(result),
+					time:     event.time,
+					increase: hp.getHPResultForPart(event.maxResult, event.resultPart()),
 				})
 			}
 
@@ -180,29 +172,55 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 
 func (hp *HealthProcessorV2) ResetHp() {
 	hp.health = 1
+	hp.countGood = 0
+	hp.countBad = 0
+	hp.lastObject = nil
 }
 
 func (hp *HealthProcessorV2) AddResult(result JudgementResult) {
 	normal := result.HitResult & (^Additions)
 
-	hpRes := hp.getHPResult(normal)
-	if normal == SliderMiss && result.ComboResult == Hold { //Missed slider ends don't decrease hp
+	hpRes := hp.getHPResultForPart(normal, result.sliderPart)
+	if normal == SliderMiss && result.ComboResult == Hold { // Missed stable-style slider ends don't decrease HP.
 		hpRes = 0
 	}
 
-	if (result.fromSliderFinish || result.object.GetObject().GetType() != objects.SLIDER) && result.object.GetObject().IsNewCombo() {
-		hp.countGood = 0
-		hp.countBad = 0
+	objectEndsCombo := result.object != nil && result.object.GetObject().IsLastCombo()
+
+	if result.object != nil {
+		if hp.player.diff.IsLazer() {
+			if result.object != hp.lastObject {
+				// A Lazer slider emits several results against the same top-level
+				// object. Reset the combo-quality accumulator only when that
+				// object first appears, so misses in its body can affect the tail
+				// or Classic summary combo-end recovery.
+				hp.lastObject = result.object
+				if result.object.GetObject().IsNewCombo() {
+					hp.countGood = 0
+					hp.countBad = 0
+				}
+			}
+		} else if result.object.GetObject().IsNewCombo() {
+			// Keep the Stable reset boundary: slider body results do not
+			// reset combo quality, while the historical summary result does.
+			if result.IsSliderSummary() || result.object.GetObject().GetType() != objects.SLIDER {
+				hp.countGood = 0
+				hp.countBad = 0
+			}
+		}
 	}
 
 	switch normal {
-	case SliderMiss, Hit100:
+	case SliderMiss, SmallTickMiss, LargeTickMiss, Hit100:
 		hp.countGood++
 	case Hit50, Miss:
 		hp.countBad++
 	}
 
-	if (result.HitResult&(BaseHits|SliderFinish)) > 0 && (result.fromSliderFinish || result.object.GetObject().GetType() != objects.SLIDER) && result.object.GetObject().IsLastCombo() {
+	isSuccessfulSliderEnd := result.IsSliderSummary() || normal == SliderTailHit
+	isSuccessfulObjectEnd := result.object != nil &&
+		result.object.GetObject().GetType() != objects.SLIDER && normal&BaseHits != 0
+	if result.HitResult.IsHit() && (isSuccessfulSliderEnd || isSuccessfulObjectEnd) && objectEndsCombo {
 		if hp.countGood == 0 && hp.countBad == 0 {
 			hpRes += 0.07
 		} else if hp.countBad == 0 {
@@ -216,11 +234,17 @@ func (hp *HealthProcessorV2) AddResult(result JudgementResult) {
 }
 
 func (hp *HealthProcessorV2) getHPResult(result HitResult) float64 {
+	return hp.getHPResultForPart(result, sliderPartNone)
+}
+
+func (hp *HealthProcessorV2) getHPResultForPart(result HitResult, part sliderJudgementPart) float64 {
 	normal := result & (^Additions)
 
 	switch normal {
-	case SliderMiss:
+	case SliderMiss, SmallTickMiss, LargeTickMiss:
 		return difficulty.DifficultyRate(hp.player.diff.HPMod, -0.02, -0.075, -0.14)
+	case IgnoreMiss:
+		return 0
 	case Miss:
 		return difficulty.DifficultyRate(hp.player.diff.HPMod, -0.03, -0.125, -0.2)
 	case Hit50:
@@ -232,6 +256,16 @@ func (hp *HealthProcessorV2) getHPResult(result HitResult) float64 {
 	case SliderPoint:
 		return 0.015
 	case SliderStart, SliderRepeat, LegacySliderEnd, SliderEnd:
+		return 0.02
+	case SmallTickHit:
+		return 0.02
+	case LargeTickHit:
+		if part == sliderPartTick {
+			return 0.015
+		}
+
+		return 0.02
+	case SliderTailHit:
 		return 0.02
 	case SpinnerSpin, SpinnerPoints:
 		return 0.0085

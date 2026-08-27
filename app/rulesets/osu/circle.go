@@ -101,7 +101,12 @@ func (circle *Circle) UpdateClickFor(player *difficultyPlayer, time int64) bool 
 func (circle *Circle) UpdatePostFor(player *difficultyPlayer, time int64, _ bool) bool {
 	state := circle.state[player]
 
-	if time > int64(circle.hitCircle.GetEndTime())+player.diff.Hit50 && !state.isHit {
+	missDeadline := float64(int64(circle.hitCircle.GetEndTime()) + player.diff.Hit50)
+	if player.diff.IsLazer() {
+		missDeadline = circle.hitCircle.GetEndTime() + player.diff.Hit50U
+	}
+
+	if float64(time) > missDeadline && !state.isHit {
 		position := circle.hitCircle.GetStackedPositionAtMod(float64(time), player.diff)
 		circle.ruleSet.SendResult(player.cursor, createJudgementResult(Miss, Hit300, Reset, time, position, circle))
 

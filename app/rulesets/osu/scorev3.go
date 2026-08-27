@@ -48,28 +48,26 @@ func (s *scoreV3Processor) Init(beatMap *beatmap.BeatMap, player *difficultyPlay
 		if o.GetType() == objects.SPINNER {
 			s.AddResult(createJudgementResult(Hit300, Hit300, Increase, int64(o.GetEndTime()), o.GetStartPosition(), nil))
 		} else if slider, ok := o.(*objects.Slider); ok {
+			headResult := Hit300
+			headMaxResult := Hit300
 			if player.classicNoSliderHeadAccuracy {
-				s.AddResult(createJudgementResult(SliderStart, SliderStart, Increase, int64(o.GetStartTime()), o.GetStartPosition(), nil))
-			} else {
-				s.AddResult(createJudgementResult(Hit300, Hit300, Increase, int64(o.GetStartTime()), o.GetStartPosition(), nil))
+				headResult = LargeTickHit
+				headMaxResult = LargeTickHit
 			}
 
-			for i, p := range slider.ScorePointsLazer {
-				if i == len(slider.ScorePoints)-1 {
-					if player.classicNoSliderHeadAccuracy {
-						s.AddResult(createJudgementResult(LegacySliderEnd, LegacySliderEnd, Hold, int64(p.Time), p.Pos, nil))
-					} else {
-						s.AddResult(createJudgementResult(SliderEnd, SliderEnd, Increase, int64(p.Time), p.Pos, nil))
-					}
-				} else if p.IsReverse {
-					s.AddResult(createJudgementResult(SliderRepeat, SliderRepeat, Increase, int64(p.Time), p.Pos, nil))
-				} else {
-					s.AddResult(createJudgementResult(SliderPoint, SliderPoint, Increase, int64(p.Time), p.Pos, nil))
+			s.AddResult(createSliderJudgementResult(headResult, headMaxResult, Increase, int64(o.GetStartTime()), o.GetStartPosition(), nil, sliderPartHead))
+
+			for _, event := range buildLazerSliderEvents(slider, player.classicNoSliderHeadAccuracy) {
+				combo := Increase
+				if event.isTail() && player.classicNoSliderHeadAccuracy {
+					combo = Hold
 				}
+
+				s.AddResult(createSliderJudgementResult(event.maxResult, event.maxResult, combo, int64(event.time), o.GetStartPosition(), nil, event.resultPart()))
 			}
 
 			if player.classicNoSliderHeadAccuracy {
-				s.AddResult(createJudgementResult(Hit300, Hit300, Increase, int64(o.GetEndTime()), o.GetStartPosition(), nil))
+				s.AddResult(createSliderJudgementResult(Hit300, Hit300, Increase, int64(o.GetEndTime()), o.GetEndPosition(), nil, sliderPartSummary))
 			}
 		} else {
 			s.AddResult(createJudgementResult(Hit300, Hit300, Increase, int64(o.GetStartTime()), o.GetStartPosition(), nil))
@@ -98,18 +96,26 @@ func (s *scoreV3Processor) AddResult(result JudgementResult) {
 
 	if result.HitResult.IsBonus() {
 		s.bonus += result.HitResult.ScoreValueLazer()
-	} else if result.HitResult.AffectsAccLazer() {
-		s.accPart += result.HitResult.ScoreValueLazer()
-		s.accPartMax += result.MaxResult.ScoreValueLazer()
+	} else {
+		// The maximum result contributes to the denominator even when the
+		// actual result is IgnoreMiss. This is what makes a dropped Lazer
+		// slider tail lower accuracy without awarding the tail's score.
+		if result.MaxResult.AffectsAccLazer() {
+			s.accPartMax += result.MaxResult.ScoreValueLazer()
+			s.hits++
+		}
 
-		s.hits++
+		if result.HitResult.AffectsAccLazer() {
+			s.accPart += result.HitResult.ScoreValueLazer()
+		}
 	}
 
 	if result.HitResult&BaseHitsM > 0 {
 		s.basicHitCount++
 	}
 
-	// slider end misses (not classic mod!) don't propagate combo score
+	// Ignored non-classic slider tails contribute no combo score. The maximum
+	// result still contributes to the accuracy denominator above.
 	if result.HitResult.AffectsAccLazer() && !(result.HitResult == SliderMiss && result.MaxResult == SliderEnd) {
 		s.comboPart += float64(result.MaxResult.ScoreValueLazer()) * math.Pow(float64(s.combo), 0.5)
 	}

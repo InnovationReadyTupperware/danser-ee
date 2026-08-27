@@ -405,7 +405,8 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 	_, hC := object.(*objects.Circle)
 	allowCircle := hC && (judgementResult.HitResult&(osu.BaseHits|osu.PositionalMiss) > 0)
 	_, sl := object.(*objects.Slider)
-	allowSlider := sl && (judgementResult.HitResult&sliderChecks) > 0
+	allowSlider := sl && ((judgementResult.HitResult&sliderChecks) > 0 ||
+		(judgementResult.IsSliderHead() && judgementResult.HitResult == osu.LargeTickHit))
 
 	if allowCircle || allowSlider {
 		timeDiff := float64(judgementResult.Time) - object.GetStartTime()

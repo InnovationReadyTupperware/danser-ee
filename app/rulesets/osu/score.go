@@ -69,7 +69,7 @@ func (s *Score) AddResult(result JudgementResult) {
 		s.scoredObjects++
 	}
 
-	if (result.HitResult & (SliderEnd | LegacySliderEnd)) > 0 {
+	if (result.HitResult & (SliderEnd | LegacySliderEnd | SmallTickHit | SliderTailHit)) > 0 {
 		s.SliderEnd++
 	}
 
@@ -77,11 +77,11 @@ func (s *Score) AddResult(result JudgementResult) {
 		s.CountSB++
 	}
 
-	if result.MaxResult&(SliderStart|SliderPoint|SliderRepeat) > 0 {
+	if result.MaxResult&(SliderStart|SliderPoint|SliderRepeat|LargeTickHit) > 0 {
 		s.MaxTicks++
 	}
 
-	if result.MaxResult&(LegacySliderEnd|SliderEnd) > 0 {
+	if result.MaxResult&(LegacySliderEnd|SliderEnd|SmallTickHit|SliderTailHit) > 0 {
 		s.MaxSliderEnd++
 	}
 }
