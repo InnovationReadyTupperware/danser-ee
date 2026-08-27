@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -78,6 +79,24 @@ var screenshotTime float64
 var preciseProgress bool
 
 var monitorHz int
+
+func printCLIUsage() {
+	output := flag.CommandLine.Output()
+	cliName := filepath.Base(os.Args[0])
+	launcherName := "danser"
+	if runtime.GOOS == "windows" {
+		launcherName += ".exe"
+	}
+
+	fmt.Fprintln(output, "No beatmap or replay selected.")
+	fmt.Fprintf(output, "Run %s to open the graphical launcher, or provide input to %s.\n", launcherName, cliName)
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Examples:")
+	fmt.Fprintf(output, "  %s -md5 <beatmap-md5>\n", cliName)
+	fmt.Fprintf(output, "  %s -replay path/to/replay.osr\n", cliName)
+	fmt.Fprintln(output)
+	fmt.Fprintf(output, "Use %s -h for all available options.\n", cliName)
+}
 
 func run() {
 	defer func() {
@@ -152,6 +171,14 @@ func run() {
 		sPatch := flag.String("sPatch", "", "Patches the currently loaded settings")
 
 		flag.Parse()
+
+		// The GUI binary routes no-argument launches to the launcher. The CLI
+		// binary reaches this package directly, so provide a useful next step
+		// without initializing SDL, OpenGL, audio, or the beatmap database.
+		if len(os.Args) == 1 {
+			printCLIUsage()
+			return
+		}
 
 		if *mods != "" && *mods2 != "" {
 			panic("You can't specify legacy and structured mods at the same time")
@@ -257,7 +284,7 @@ func run() {
 		closeAfterSettingsLoad := false
 
 		if (*md5+*artist+*title+*difficulty+*creator) == "" && *id < 0 {
-			log.Println("No beatmap specified, closing...")
+			log.Println("No beatmap specified; provide beatmap details or use the launcher.")
 			closeAfterSettingsLoad = true
 		}
 
@@ -285,11 +312,6 @@ func run() {
 			settings.JsonPatch = *sPatch
 			settings.LoadPatch()
 			log.Println("Current config:", settings.GetCompressedString())
-		}
-
-		if !newSettings && len(os.Args) == 1 {
-			platform.OpenURL("https://youtu.be/dQw4w9WgXcQ")
-			closeAfterSettingsLoad = true
 		}
 
 		player = nil
