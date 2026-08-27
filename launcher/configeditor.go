@@ -446,9 +446,9 @@ func (editor *settingsEditor) buildMainSection(jsonPath, sPath, name string, u r
 					goroutines.RunOS(func() {
 						switch result {
 						case osuapi.AuthError:
-							showMessage(mError, message)
+							showMessage(mError, "%s", message)
 						default:
-							showMessage(mInfo, message)
+							showMessage(mInfo, "%s", message)
 						}
 					})
 				})

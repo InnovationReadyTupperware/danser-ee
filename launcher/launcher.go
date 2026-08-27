@@ -772,7 +772,7 @@ func (l *launcher) drawMain() {
 				mapText = "Do you want to load new beatmap sets?"
 			}
 
-			reload = showMessage(mQuestion, "Changes in osu!'s Song directory have been detected.\n\n"+mapText)
+			reload = showMessage(mQuestion, "%s", "Changes in osu!'s Song directory have been detected.\n\n"+mapText)
 		}
 
 		l.beatmapDirUpdated = false
@@ -934,7 +934,7 @@ func (l *launcher) trySelectReplayFromPath(p string) {
 
 	if err != nil {
 		e := []rune(err.Error())
-		showMessage(mError, string(unicode.ToUpper(e[0]))+string(e[1:]))
+		showMessage(mError, "%s", string(unicode.ToUpper(e[0]))+string(e[1:]))
 		return
 	}
 
@@ -1608,7 +1608,7 @@ func (l *launcher) cloneConfig(toClone, name string) {
 	cConfig, err := l.loadConfig(toClone)
 
 	if err != nil {
-		showMessage(mError, err.Error())
+		showMessage(mError, "%s", err.Error())
 		return
 	}
 
@@ -1623,7 +1623,7 @@ func (l *launcher) renameConfig(toRename, name string) {
 	cConfig, err := l.loadConfig(toRename)
 
 	if err != nil {
-		showMessage(mError, err.Error())
+		showMessage(mError, "%s", err.Error())
 		return
 	}
 

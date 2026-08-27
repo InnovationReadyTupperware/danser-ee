@@ -247,7 +247,7 @@ func downloadAvatar(url, path string) error {
 	defer response.Body.Close()
 
 	if response.StatusCode != 200 {
-		return fmt.Errorf("failed to create request to: \"%s\": %s", url, response.StatusCode)
+		return fmt.Errorf("failed to create request to: \"%s\": %d", url, response.StatusCode)
 	}
 
 	out, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)

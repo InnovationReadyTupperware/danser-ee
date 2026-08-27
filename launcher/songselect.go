@@ -515,24 +515,24 @@ func (m *songSelectPopup) showMapTooltip(bMap *beatmap.BeatMap) {
 		imgui.TableSetupColumnV("btooltip3", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(2))
 		imgui.TableSetupColumnV("btooltip4", imgui.TableColumnFlagsWidthFixed, imgui.CalcTextSizeV("9.9", false, 0).X, imgui.ID(3))
 
-		tRow := func(text string, text2 string, args ...any) {
+		tRow := func(text string, text2 string) {
 			textColumn(text)
-			textColumn(fmt.Sprintf(text2, args...))
+			textColumn(text2)
 		}
 
 		tRow("Stars: ", sR)
 		tRow("", "")
 
-		tRow("Objects: ", "%d", bMap.Circles+bMap.Sliders+bMap.Spinners)
+		tRow("Objects: ", fmt.Sprintf("%d", bMap.Circles+bMap.Sliders+bMap.Spinners))
 		tRow("AR: ", mutils.FormatWOZeros(bMap.Diff.GetAR(), 2))
 
-		tRow("Circles: ", "%d", bMap.Circles)
+		tRow("Circles: ", fmt.Sprintf("%d", bMap.Circles))
 		tRow("OD: ", mutils.FormatWOZeros(bMap.Diff.GetOD(), 2))
 
-		tRow("Sliders: ", "%d", bMap.Sliders)
+		tRow("Sliders: ", fmt.Sprintf("%d", bMap.Sliders))
 		tRow("CS: ", mutils.FormatWOZeros(bMap.Diff.GetCS(), 2))
 
-		tRow("Spinners: ", "%d", bMap.Spinners)
+		tRow("Spinners: ", fmt.Sprintf("%d", bMap.Spinners))
 		tRow("HP: ", mutils.FormatWOZeros(bMap.Diff.GetHP(), 2))
 
 		tRow("BPM: ", bpm)

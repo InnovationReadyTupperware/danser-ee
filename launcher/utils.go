@@ -55,7 +55,7 @@ func checkForUpdates(pingUpToDate bool) {
 			showMessage(mInfo, "You're using the newest version of danser.")
 		}
 	case utils.Failed:
-		showMessage(mError, "Can't get version from GitHub:", err)
+		showMessage(mError, "Can't get version from GitHub: %s", err)
 	case utils.Snapshot:
 		if showMessage(mQuestion, "You're using a snapshot version of danser.\nFor newer version of snapshots please visit the official danser discord server at: %s\n\nDo you want to go there?", url) {
 			platform.OpenURL(url)
