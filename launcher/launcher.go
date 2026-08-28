@@ -924,7 +924,7 @@ func (l *launcher) drawCatalogProgress() {
 		return
 	}
 
-	imgui.PushFont(Font, 18)
+	imgui.PushFont(Font, 24)
 	imgui.TextUnformatted(message)
 	imgui.PopFont()
 	imgui.Dummy(vec2(0, 4))
