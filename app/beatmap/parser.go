@@ -3,6 +3,7 @@ package beatmap
 import (
 	"cmp"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -102,9 +103,13 @@ func parseDifficulty(line []string, beatMap *BeatMap) {
 func parseEvents(line []string, beatMap *BeatMap) {
 	switch line[0] {
 	case "Background", "0":
-		beatMap.Bg = strings.Replace(line[2], "\"", "", -1)
+		if len(line) > 2 {
+			beatMap.Bg = strings.Replace(line[2], "\"", "", -1)
+		}
 	case "Break", "2":
-		beatMap.Pauses = append(beatMap.Pauses, NewPause(line))
+		if len(line) > 2 {
+			beatMap.Pauses = append(beatMap.Pauses, NewPause(line))
+		}
 	}
 }
 
@@ -157,8 +162,52 @@ func ParseBeatMap(beatMap *BeatMap) error {
 	}
 
 	defer file.Close()
+	return parseBeatMapReader(beatMap, file)
+}
 
-	scanner := files.NewScanner(file)
+// ParseBeatMapFileWithError parses the already-open file without reopening it.
+// Importing a large library uses this path so metadata parsing and hashing can
+// share one file read and so a file replaced during import is handled by the
+// caller's existing handle.
+func ParseBeatMapFileWithError(file *os.File) (*BeatMap, error) {
+	if file == nil {
+		return nil, errors.New("nil beatmap file")
+	}
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	beatMap := NewBeatMap()
+	beatMap.Dir, err = filepath.Rel(settings.General.GetSongsDir(), filepath.Dir(file.Name()))
+	if err != nil {
+		return nil, err
+	}
+	if beatMap.Dir == "." {
+		beatMap.Dir = ""
+	}
+	beatMap.Dir = filepath.ToSlash(beatMap.Dir)
+	beatMap.File = info.Name()
+	beatMap.FileSize = info.Size()
+
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+
+	if err = parseBeatMapReader(beatMap, file); err != nil {
+		return nil, err
+	}
+
+	return beatMap, nil
+}
+
+func parseBeatMapReader(beatMap *BeatMap, reader io.Reader) error {
+	if beatMap == nil || reader == nil {
+		return errors.New("nil beatmap or reader")
+	}
+
+	scanner := files.NewScanner(reader)
 
 	buf := bufferPool.Get().(*[]byte)
 	scanner.Buffer(*buf, cap(*buf))
@@ -204,20 +253,36 @@ func ParseBeatMap(beatMap *BeatMap) error {
 			}
 		case "HitObjects":
 			if arr := tokenize(line, ","); arr != nil {
+				if len(arr) < 4 {
+					continue
+				}
+
 				var time string
 
 				objTypeI, _ := strconv.Atoi(arr[3])
 				objType := objects.Type(objTypeI)
 				if (objType & objects.CIRCLE) > 0 {
+					if len(arr) < 3 {
+						continue
+					}
 					beatMap.Circles++
 					time = arr[2]
 				} else if (objType & objects.SPINNER) > 0 {
+					if len(arr) < 6 {
+						continue
+					}
 					beatMap.Spinners++
 					time = arr[5]
 				} else if (objType & objects.SLIDER) > 0 {
+					if len(arr) < 3 {
+						continue
+					}
 					beatMap.Sliders++
 					time = arr[2]
 				} else if (objType & objects.LONGNOTE) > 0 {
+					if len(arr) < 6 {
+						continue
+					}
 					beatMap.Sliders++
 					time = strings.Split(arr[5], ":")[0]
 				}
@@ -230,7 +295,9 @@ func ParseBeatMap(beatMap *BeatMap) error {
 
 	beatMap.FinalizePoints()
 
-	file.Seek(0, 0)
+	if err := scanner.Err(); err != nil {
+		return err
+	}
 
 	if beatMap.Name+beatMap.Artist+beatMap.Creator == "" || counter == 0 {
 		return errors.New("corrupted file")
@@ -240,19 +307,7 @@ func ParseBeatMap(beatMap *BeatMap) error {
 }
 
 func ParseBeatMapFile(file *os.File) *BeatMap {
-	beatMap := NewBeatMap()
-	beatMap.Dir, _ = filepath.Rel(settings.General.GetSongsDir(), filepath.Dir(file.Name()))
-	beatMap.Dir = filepath.ToSlash(beatMap.Dir)
-
-	f, _ := file.Stat()
-	beatMap.File = f.Name()
-
-	err := ParseBeatMap(beatMap)
-
-	if err != nil {
-		return nil
-	}
-
+	beatMap, _ := ParseBeatMapFileWithError(file)
 	return beatMap
 }
 

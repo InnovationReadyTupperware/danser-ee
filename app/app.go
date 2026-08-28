@@ -157,6 +157,7 @@ func run() {
 		skin := flag.String("skin", "", "Replace Skin.CurrentSkin setting temporarily")
 
 		noDbCheck := flag.Bool("nodbcheck", false, "Don't validate the database and only import new beatmap sets if there are any. Useful for slow drives.")
+		rebuildDB := flag.Bool("rebuilddb", false, "Rebuild danser's beatmap catalog by rescanning the Songs folder while preserving local play statistics.")
 		noUpdCheck := flag.Bool("noupdatecheck", strings.HasPrefix(env.LibDir(), "/usr/lib/"), "Don't check for updates. Speeds up startup if older version of danser is needed for various reasons. Has no effect if danser is running as a linux package")
 
 		ar := flag.Float64("ar", math.NaN(), "Modify map's AR, only in cursordance/play modes")
@@ -322,48 +323,72 @@ func run() {
 			if err != nil {
 				log.Println("Failed to initialize database:", err)
 			} else {
-				beatmaps := database.LoadBeatmaps(*noDbCheck, nil)
+				if *rebuildDB {
+					database.RebuildCatalog(nil)
+				}
+
+				var entries []*database.BeatmapEntry
+				if *rebuildDB {
+					database.LoadCachedCatalog().ForEach(func(entry *database.BeatmapEntry) bool {
+						entries = append(entries, entry)
+						return true
+					})
+				} else {
+					entries = database.LoadCatalog(*noDbCheck, nil)
+				}
+				var selectedEntry *database.BeatmapEntry
 
 				if *id > -1 {
-					for _, b := range beatmaps {
-						if b.ID == *id {
-							beatMap = b
+					for _, entry := range entries {
+						if entry.ID == *id {
+							selectedEntry = entry
 
 							break
 						}
 					}
 				} else if *md5 != "" {
-					for _, b := range beatmaps {
-						if strings.EqualFold(b.MD5, *md5) {
-							beatMap = b
+					for _, entry := range entries {
+						if strings.EqualFold(entry.MD5, *md5) {
+							selectedEntry = entry
 
 							break
 						}
 					}
 				} else {
-					for _, b := range beatmaps {
-						if (*artist == "" || strings.EqualFold(*artist, b.Artist)) &&
-							(*title == "" || strings.EqualFold(*title, b.Name)) &&
-							(*difficulty == "" || strings.EqualFold(*difficulty, b.Difficulty)) &&
-							(*creator == "" || strings.EqualFold(*creator, b.Creator)) {
-							beatMap = b
+					for _, entry := range entries {
+						if (*artist == "" || strings.EqualFold(*artist, entry.Artist)) &&
+							(*title == "" || strings.EqualFold(*title, entry.Name)) &&
+							(*difficulty == "" || strings.EqualFold(*difficulty, entry.Difficulty)) &&
+							(*creator == "" || strings.EqualFold(*creator, entry.Creator)) {
+							selectedEntry = entry
 
 							break
 						}
 					}
 
-					if beatMap == nil {
+					if selectedEntry == nil {
 						log.Println("Beatmap with exact parameters not found, searching partially...")
-						for _, b := range beatmaps {
-							if (*artist == "" || strings.Contains(strings.ToLower(b.Artist), strings.ToLower(*artist))) &&
-								(*title == "" || strings.Contains(strings.ToLower(b.Name), strings.ToLower(*title))) &&
-								(*difficulty == "" || strings.Contains(strings.ToLower(b.Difficulty), strings.ToLower(*difficulty))) &&
-								(*creator == "" || strings.Contains(strings.ToLower(b.Creator), strings.ToLower(*creator))) {
-								beatMap = b
+						artistQuery := strings.ToLower(*artist)
+						titleQuery := strings.ToLower(*title)
+						difficultyQuery := strings.ToLower(*difficulty)
+						creatorQuery := strings.ToLower(*creator)
+						for _, entry := range entries {
+							if (*artist == "" || strings.Contains(strings.ToLower(entry.Artist), artistQuery)) &&
+								(*title == "" || strings.Contains(strings.ToLower(entry.Name), titleQuery)) &&
+								(*difficulty == "" || strings.Contains(strings.ToLower(entry.Difficulty), difficultyQuery)) &&
+								(*creator == "" || strings.Contains(strings.ToLower(entry.Creator), creatorQuery)) {
+								selectedEntry = entry
 
 								break
 							}
 						}
+					}
+				}
+
+				if selectedEntry != nil {
+					beatMap, err = database.LoadRuntimeBeatMap(selectedEntry)
+					if err != nil {
+						log.Println("Failed to load selected beatmap:", err)
 					}
 				}
 			}

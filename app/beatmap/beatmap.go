@@ -42,7 +42,7 @@ type BeatMap struct {
 	SetID int64
 	ID    int64
 
-	LastModified, TimeAdded, PlayCount, LastPlayed, PreviewTime int64
+	LastModified, FileSize, TimeAdded, PlayCount, LastPlayed, PreviewTime int64
 
 	Stars        float64
 	StarsVersion int
