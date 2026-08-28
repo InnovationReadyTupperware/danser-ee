@@ -107,7 +107,7 @@ func NewSliderEndCircle(pos vector.Vector2f, appearTime, bounceStartTime, time f
 func (circle *Circle) Update(time float64) bool {
 	if !circle.silent && ((!settings.PLAY && !settings.KNOCKOUT) || settings.PLAYERS > 1) && (circle.lastTime < circle.StartTime && time >= circle.StartTime) {
 		circle.Arm(true, circle.StartTime)
-		circle.PlaySound()
+		circle.PlaySound(circle.StartTime)
 	}
 
 	for _, s := range circle.sprites {
@@ -119,7 +119,11 @@ func (circle *Circle) Update(time float64) bool {
 	return true
 }
 
-func (circle *Circle) PlaySound() {
+// PlaySound submits the circle's hit sound at eventTime. The update that
+// notices a hit may be late, especially when a replay frame advances over
+// several milliseconds, so using the nominal or judged event timestamp keeps
+// the sample aligned with the music.
+func (circle *Circle) PlaySound(eventTime float64) {
 	if circle.audioSubmissionDisabled {
 		return
 	}
@@ -137,7 +141,9 @@ func (circle *Circle) PlaySound() {
 		sampleSet = point.SampleSet
 	}
 
-	audio.PlaySample(sampleSet, circle.BasicHitSound.AdditionSet, circle.sample, index, point.SampleVolume, circle.HitObjectID, circle.GetStackedStartPositionMod(circle.diff).X64())
+	audio.PlaySampleAt(eventTime, sampleSet, circle.BasicHitSound.AdditionSet, circle.sample, index,
+		point.SampleVolume, circle.BasicHitSound.CustomVolume, circle.HitObjectID,
+		circle.GetStackedStartPositionMod(circle.diff).X64())
 }
 
 func (circle *Circle) SetTiming(timings *Timings, _ int, _ bool) {

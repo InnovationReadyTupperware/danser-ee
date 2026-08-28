@@ -58,10 +58,12 @@ type Slider struct {
 	partLen     float64
 	RepeatCount int
 
-	sampleSets   []int
-	additionSets []int
-	samples      []int
-	baseSample   int
+	sampleSets    []int
+	additionSets  []int
+	samples       []int
+	sampleVolumes []float64
+	baseSample    int
+	audioLoops    audio.SliderLoopState
 
 	Pos         vector.Vector2f
 	TickPoints  []TickPoint
@@ -129,6 +131,7 @@ func NewSlider(data []string) *Slider {
 	slider.samples = make([]int, slider.RepeatCount+1)
 	slider.sampleSets = make([]int, slider.RepeatCount+1)
 	slider.additionSets = make([]int, slider.RepeatCount+1)
+	slider.sampleVolumes = make([]float64, slider.RepeatCount+1)
 
 	f, _ := strconv.ParseInt(data[4], 10, 64)
 	slider.baseSample = int(f)
@@ -158,11 +161,25 @@ func NewSlider(data []string) *Slider {
 		for i := range n {
 			extras := strings.Split(subData[i], ":")
 
+			if len(extras) == 0 {
+				continue
+			}
+
 			sampleSet, _ := strconv.Atoi(extras[0])
-			additionSet, _ := strconv.Atoi(extras[1])
+			additionSet := 0
+			if len(extras) > 1 {
+				additionSet, _ = strconv.Atoi(extras[1])
+			}
 
 			slider.sampleSets[i] = sampleSet
 			slider.additionSets[i] = additionSet
+
+			if len(extras) > 3 {
+				volume, err := strconv.ParseFloat(extras[3], 64)
+				if err == nil {
+					slider.sampleVolumes[i] = volume / 100
+				}
+			}
 		}
 	}
 
@@ -761,7 +778,7 @@ func (slider *Slider) Update(time float64) bool {
 				if p.IsReverse {
 					slider.HitEdge(p.EdgeIndex, time, true)
 				} else {
-					slider.PlayTick()
+					slider.PlayTickAt(p.Time)
 				}
 			}
 
@@ -855,7 +872,7 @@ func (slider *Slider) Update(time float64) bool {
 	}
 
 	if slider.isSliding && time >= slider.StartTime && time <= visualEndTime {
-		slider.PlaySlideSamples()
+		slider.PlaySlideSamples(time)
 	}
 
 	if slider.lastTime <= visualEndTime && time > visualEndTime && slider.isSliding {
@@ -1043,27 +1060,27 @@ func (slider *Slider) AnimateSliderBreak(time float64) {
 	slider.StopSlide()
 }
 
-func (slider *Slider) PlaySlideSamples() {
+func (slider *Slider) PlaySlideSamples(time float64) {
 	if slider.audioSubmissionDisabled {
 		return
 	}
 
-	point := slider.Timings.Current
+	point := slider.Timings.GetPointAt(time)
 
 	sampleSet := slider.BasicHitSound.SampleSet
 	if sampleSet == 0 {
 		sampleSet = point.SampleSet
 	}
 
-	audio.PlaySliderLoops(sampleSet, slider.BasicHitSound.AdditionSet, slider.baseSample, point.SampleIndex, point.SampleVolume, slider.HitObjectID, slider.Pos.X64())
+	audio.PlaySliderLoopsAt(&slider.audioLoops, time, sampleSet, slider.BasicHitSound.AdditionSet, slider.baseSample,
+		point.SampleIndex, point.SampleVolume, slider.HitObjectID, slider.Pos.X64())
 }
 
 func (slider *Slider) StopSlideSamples() {
-	if slider.audioSubmissionDisabled {
-		return
-	}
-
-	audio.StopSliderLoops()
+	// Cleanup must remain unconditional. The submission flag prevents new
+	// sounds after a seek/skip, but an already-running loop still owns a
+	// native channel and must be stopped when the slider leaves the screen.
+	audio.StopSliderLoops(&slider.audioLoops)
 }
 
 func (slider *Slider) PlayEdgeSample(index int) {
@@ -1079,14 +1096,21 @@ func (slider *Slider) PlayEdgeSample(index int) {
 		sampleSet = slider.BasicHitSound.SampleSet
 	}
 
-	edgeTime := slider.StartTime + math.Floor(float64(index)*slider.partLen) + 5
-	edgePosition := slider.GetStackedPositionAtMod(slider.StartTime+math.Floor(float64(index)*slider.partLen), slider.diff)
+	eventTime := slider.StartTime + math.Floor(float64(index)*slider.partLen)
+	edgeTime := eventTime + 5
+	edgePosition := slider.GetStackedPositionAtMod(eventTime, slider.diff)
 	if slider.diff != nil && slider.diff.IsLazer() {
-		edgeTime = slider.StartTime + float64(index)*slider.visualSpanDuration() + 5
+		eventTime = slider.StartTime + float64(index)*slider.visualSpanDuration()
+		edgeTime = eventTime + 5
 		edgePosition = slider.GetStackedPositionAtModLazer(edgeTime-5, slider.diff)
 	}
 
-	slider.playSampleT(sampleSet, slider.additionSets[index], slider.samples[index], slider.Timings.GetPointAt(edgeTime), edgePosition)
+	customVolume := slider.sampleVolumes[index]
+	if customVolume <= 0 && index == 0 {
+		customVolume = slider.BasicHitSound.CustomVolume
+	}
+
+	slider.playSampleT(eventTime, sampleSet, slider.additionSets[index], slider.samples[index], slider.Timings.GetPointAt(edgeTime), customVolume, edgePosition)
 }
 
 func (slider *Slider) HitEdge(index int, time float64, isHit bool) {
@@ -1101,15 +1125,21 @@ func (slider *Slider) HitEdge(index int, time float64, isHit bool) {
 	}
 }
 
-func (slider *Slider) PlayTick() {
+func (slider *Slider) PlayTickAt(eventTime float64) {
 	if slider.audioSubmissionDisabled {
 		return
 	}
 
-	audio.PlaySliderTick(slider.Timings.Current.SampleSet, slider.Timings.Current.SampleIndex, slider.Timings.Current.SampleVolume, slider.HitObjectID, slider.Pos.X64())
+	point := slider.Timings.GetPointAt(eventTime)
+	position := slider.GetStackedPositionAtMod(eventTime, slider.diff)
+	if slider.diff != nil && slider.diff.IsLazer() {
+		position = slider.GetStackedPositionAtModLazer(eventTime, slider.diff)
+	}
+
+	audio.PlaySliderTickAt(eventTime, point.SampleSet, point.SampleIndex, point.SampleVolume, slider.HitObjectID, position.X64())
 }
 
-func (slider *Slider) playSampleT(sampleSet, additionSet, sample int, point TimingPoint, pos vector.Vector2f) {
+func (slider *Slider) playSampleT(eventTime float64, sampleSet, additionSet, sample int, point TimingPoint, customVolume float64, pos vector.Vector2f) {
 	if sampleSet == 0 {
 		sampleSet = point.SampleSet
 	}
@@ -1118,7 +1148,7 @@ func (slider *Slider) playSampleT(sampleSet, additionSet, sample int, point Timi
 		additionSet = sampleSet
 	}
 
-	audio.PlaySample(sampleSet, additionSet, sample, point.SampleIndex, point.SampleVolume, slider.HitObjectID, pos.X64())
+	audio.PlaySampleAt(eventTime, sampleSet, additionSet, sample, point.SampleIndex, point.SampleVolume, customVolume, slider.HitObjectID, pos.X64())
 }
 
 func (slider *Slider) GetPosition() vector.Vector2f {
@@ -1268,7 +1298,11 @@ func (slider *Slider) Draw(time float64, color color2.Color, batch *batch.QuadBa
 }
 
 func (slider *Slider) Finalize() {
-	slider.body.Dispose()
+	slider.StopSlideSamples()
+	if slider.body != nil {
+		slider.body.Dispose()
+		slider.body = nil
+	}
 }
 
 func (slider *Slider) drawBall(time float64, batch *batch.QuadBatch, color color2.Color, alpha float64, useBallTexture bool) {

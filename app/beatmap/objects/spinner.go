@@ -12,7 +12,6 @@ import (
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/bass"
 	"github.com/wieku/danser-go/framework/graphics/batch"
 	"github.com/wieku/danser-go/framework/graphics/sprite"
 	"github.com/wieku/danser-go/framework/math/animation"
@@ -53,9 +52,8 @@ type Spinner struct {
 	autoplayRPM float64
 	rpmRamp     difficulty.SpinnerRPMRamp
 
-	spinnerbonus *bass.Sample
-	loopSample   *bass.SampleChannel
-	completion   float64
+	loopSample *audio.SampleChannel
+	completion float64
 
 	newStyle     bool
 	sprites      *sprite.Manager
@@ -186,7 +184,6 @@ func (spinner *Spinner) SetDifficulty(diff *difficulty.Difficulty) {
 
 	spinner.frontSprites.Add(spinner.spin)
 
-	spinner.spinnerbonus = audio.LoadSample("spinnerbonus")
 	spinner.bonusFade = animation.NewGlider(0.0)
 	spinner.bonusScale = animation.NewGlider(0.0)
 
@@ -231,7 +228,7 @@ func (spinner *Spinner) Update(time float64) bool {
 			spinner.SetRotation(float64(spinner.rad))
 
 			if spinner.lastTime < spinner.StartTime {
-				spinner.StartSpinSample()
+				spinner.StartSpinSample(spinner.StartTime)
 			}
 		}
 	}
@@ -346,7 +343,7 @@ func (spinner *Spinner) Draw(time float64, color color2.Color, batch *batch.Quad
 
 func (spinner *Spinner) DrawApproach(_ float64, _ color2.Color, _ *batch.QuadBatch) {}
 
-func (spinner *Spinner) Hit(_ float64, isHit bool) {
+func (spinner *Spinner) Hit(eventTime float64, isHit bool) {
 	if !isHit || spinner.audioSubmissionDisabled {
 		return
 	}
@@ -363,7 +360,8 @@ func (spinner *Spinner) Hit(_ float64, isHit bool) {
 		sampleSet = point.SampleSet
 	}
 
-	audio.PlaySample(sampleSet, spinner.BasicHitSound.AdditionSet, spinner.sample, index, point.SampleVolume, spinner.HitObjectID, spinner.StartPosRaw.X64())
+	audio.PlaySampleAt(eventTime, sampleSet, spinner.BasicHitSound.AdditionSet, spinner.sample, index,
+		point.SampleVolume, spinner.BasicHitSound.CustomVolume, spinner.HitObjectID, spinner.StartPosRaw.X64())
 }
 
 func (spinner *Spinner) SetRotation(f float64) {
@@ -409,7 +407,7 @@ func (spinner *Spinner) UpdateCompletion(completion float64) {
 	spinner.completion = completion
 
 	if skin.GetInfo().SpinnerFrequencyModulate && spinner.loopSample != nil {
-		bass.SetRate(spinner.loopSample, min(100000, 20000+(40000*completion)))
+		audio.SetLoopRate(spinner.loopSample, min(100000, 20000+(40000*completion)))
 	}
 
 	scale := 0.8 + min(1.0, completion)*0.2
@@ -433,42 +431,31 @@ func (spinner *Spinner) UpdateCompletion(completion float64) {
 	}
 }
 
-func (spinner *Spinner) StartSpinSample() {
+func (spinner *Spinner) StartSpinSample(eventTime float64) {
 	if spinner.audioSubmissionDisabled {
 		return
 	}
 
 	if spinner.loopSample == nil {
-		sample := audio.LoadSample("spinnerspin")
-		if sample != nil {
-			spinner.loopSample = sample.PlayLoop()
-		}
+		spinner.loopSample = audio.PlayNamedLoopAt("spinnerspin", eventTime, 1)
 	} else {
-		bass.PlaySample(spinner.loopSample)
+		audio.ResumeLoop(spinner.loopSample)
 	}
 
 	if skin.GetInfo().SpinnerFrequencyModulate && spinner.loopSample != nil {
-		bass.SetRate(spinner.loopSample, min(100000, 20000+(40000*spinner.completion)))
+		audio.SetLoopRate(spinner.loopSample, min(100000, 20000+(40000*spinner.completion)))
 	}
 }
 
 func (spinner *Spinner) PauseSpinSample() {
-	if spinner.audioSubmissionDisabled {
-		return
-	}
-
 	if spinner.loopSample != nil {
-		bass.PauseSample(spinner.loopSample)
+		audio.PauseLoop(spinner.loopSample)
 	}
 }
 
 func (spinner *Spinner) StopSpinSample() {
-	if spinner.audioSubmissionDisabled {
-		return
-	}
-
 	if spinner.loopSample != nil {
-		bass.StopSample(spinner.loopSample)
+		audio.StopLoop(spinner.loopSample)
 		spinner.loopSample = nil
 	}
 }
@@ -490,13 +477,13 @@ func (spinner *Spinner) Bonus(bonusValue int, time int64) {
 		spinner.glow.AddTransform(animation.NewColorTransform(animation.Color3, easing.OutQuad, spinner.lastTime, spinner.lastTime+difficulty.HitFadeOut, color2.Color{R: 1, G: 1, B: 1, A: 1}, spinnerBlue))
 	}
 
-	if spinner.spinnerbonus != nil && !spinner.audioSubmissionDisabled {
+	if !spinner.audioSubmissionDisabled {
 		v := 1.0
 		if !settings.Audio.IgnoreBeatmapSampleVolume {
 			v = spinner.Timings.GetPointAt(float64(time)).SampleVolume
 		}
 
-		spinner.spinnerbonus.PlayRV(v)
+		audio.PlayNamedSampleAt("spinnerbonus", float64(time), v)
 	}
 
 	spinner.bonusFade.Reset()

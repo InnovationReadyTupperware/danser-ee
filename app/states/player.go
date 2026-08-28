@@ -66,8 +66,13 @@ type Player struct {
 
 	// mixerAtMusicStart latches the master mixer's output position at the
 	// moment music starts playing. Offline rendering derives gameplay time
-	// from delivered mixer bytes relative to this anchor; see Update.
+	// from delivered mixer bytes relative to this anchor; see Update. The
+	// latest output position is retained separately so tempo changes are
+	// integrated over time instead of multiplying the whole song by the most
+	// recent speed.
 	mixerAtMusicStart float64
+	lastMixerPosition float64
+	mixerClockStarted bool
 
 	batch       *batch2.QuadBatch
 	controller  dance.Controller
@@ -163,6 +168,7 @@ type Player struct {
 
 func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 	player := new(Player)
+	audio.ResetClock()
 	player.heapGrowthRate = frame.NewExponentialMovingAverage(300 * time.Millisecond)
 	player.mBuffer = make([]byte, 0, 256)
 
@@ -576,6 +582,12 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 					speed = settings.SPEED * player.bMap.Diff.GetSpeed()
 					player.rawPositionF += delta * speed
 				}
+			} else if musicState == bass.MusicStalled {
+				// A stalled decoder has no new output to anchor against. Do not
+				// extrapolate gameplay time across the stall or hitsounds will be
+				// submitted early and then appear to jump when decoding resumes.
+				player.rawPositionF = player.musicPlayer.GetPosition() * 1000
+				player.lastMusicPos = player.rawPositionF
 			} else {
 				musicPos := player.musicPlayer.GetPosition() * 1000
 				speed = player.musicPlayer.GetSpeed()
@@ -680,7 +692,21 @@ func (player *Player) Update(delta float64) bool {
 		// audio and frames locked together. Virtual tracks never touch
 		// the mixer, so they keep the wall-clock path.
 		speed = player.musicPlayer.GetSpeed()
-		player.rawPositionF = player.startPoint + (bass.MixerPosition()-player.mixerAtMusicStart)*1000*speed
+		mixerPosition := bass.MixerPosition()
+		if !player.mixerClockStarted {
+			player.lastMixerPosition = player.mixerAtMusicStart
+			player.mixerClockStarted = true
+		}
+
+		// The output mixer advances in real seconds while tempo and frequency
+		// changes alter how much gameplay time each output second represents.
+		// Integrate each output interval so a speed change halfway through a
+		// render cannot retroactively stretch the entire preceding song.
+		mixerDelta := mixerPosition - player.lastMixerPosition
+		if mixerDelta >= 0 && !math.IsNaN(mixerDelta) && !math.IsInf(mixerDelta, 0) {
+			player.rawPositionF += mixerDelta * 1000 * speed
+		}
+		player.lastMixerPosition = mixerPosition
 	} else {
 		if player.musicPlayer.GetState() == bass.MusicPlaying {
 			speed = player.musicPlayer.GetSpeed()
@@ -782,6 +808,11 @@ func (player *Player) updateMain(delta float64) {
 	player.musicPlayer.SetPitch(mutils.Lerp(1, settings.PITCH, player.pitchGlider.GetValue()))
 	player.musicPlayer.SetRelativeFrequency(freqAdjust * player.frequencyGlider.GetValue())
 
+	// Publish one coherent relationship for every audio submission in this
+	// update. Individual objects may be processed after a late frame, but
+	// their samples are then scheduled against their nominal event time.
+	player.publishAudioClock()
+
 	if player.progressMsF >= player.startPointE {
 		if _, ok := player.controller.(*dance.GenericController); ok {
 			player.bMap.Update(player.progressMsF)
@@ -861,6 +892,19 @@ func (player *Player) updateMusic(delta float64) {
 	} else if player.Scl > target {
 		player.Scl -= (player.Scl - target) * 0.15 * delta / 16.66667
 	}
+}
+
+func (player *Player) publishAudioClock() {
+	if player.musicPlayer == nil {
+		return
+	}
+
+	audio.SetClockSnapshot(audio.ClockSnapshot{
+		GameplayTimeMs:   player.progressMsF,
+		MixerTimeSeconds: bass.MixerPosition(),
+		PlaybackRate:     player.musicPlayer.GetSpeed(),
+		Valid:            true,
+	})
 }
 
 func (player *Player) DrawMain(float64) {
@@ -1371,9 +1415,18 @@ func (player *Player) Hide() {}
 
 func (player *Player) Dispose() {
 	player.stopMemoryProfiler()
+	bass.StopAllSamples()
 	if player.background != nil {
 		if storyboard := player.background.GetStoryboard(); storyboard != nil {
-			storyboard.StopThread()
+			storyboard.Dispose()
 		}
 	}
+	if player.musicPlayer != nil {
+		player.musicPlayer.Stop()
+		player.musicPlayer.Close()
+		player.musicPlayer = nil
+	}
+
+	audio.ClearBeatmapSamples()
+	audio.ResetClock()
 }

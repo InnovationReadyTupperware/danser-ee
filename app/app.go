@@ -910,6 +910,13 @@ func Run() {
 }
 
 func closeHandler(err any, stackTrace []string) {
+	if player != nil {
+		player.Dispose()
+		player = nil
+	}
+	bass.Shutdown()
+	audio.ClearBeatmapSamples()
+
 	settings.CloseWatcher()
 	discord.Disconnect()
 	platform.EnableQuickEdit()

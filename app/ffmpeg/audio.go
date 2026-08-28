@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -36,6 +37,13 @@ func startAudio(audioFPS float64) {
 	}
 
 	inputName := "-"
+	outputInfo := bass.GetOutputInfo()
+	if outputInfo.SampleRate <= 0 {
+		outputInfo.SampleRate = 48000
+	}
+	if outputInfo.Channels <= 0 {
+		outputInfo.Channels = 2
+	}
 
 	if runtime.GOOS != "windows" {
 		pipe, err := files.NewNamedPipe(tempDir, "")
@@ -52,8 +60,8 @@ func startAudio(audioFPS float64) {
 
 		"-f", "f32le",
 		"-acodec", "pcm_f32le",
-		"-ar", "48000",
-		"-ac", "2",
+		"-ar", strconv.Itoa(outputInfo.SampleRate),
+		"-ac", strconv.Itoa(outputInfo.Channels),
 		"-i", inputName,
 
 		"-nostats", //hide audio encoding statistics because video ones are more important

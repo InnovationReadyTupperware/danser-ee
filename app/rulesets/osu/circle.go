@@ -68,7 +68,7 @@ func (circle *Circle) UpdateClickFor(player *difficultyPlayer, time int64) bool 
 							combo = Reset
 						} else {
 							if len(circle.players) == 1 {
-								circle.hitCircle.PlaySound()
+								circle.hitCircle.PlaySound(float64(time))
 							}
 						}
 

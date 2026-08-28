@@ -1,6 +1,7 @@
 package bass
 
 /*
+#include <stdlib.h>
 #include "bass.h"
 #include "bass_fx.h"
 #include "bassmix.h"
@@ -16,6 +17,9 @@ import (
 	"github.com/wieku/danser-go/app/settings"
 )
 
+// TrackBass is a tempo-capable music stream attached to the master mixer.
+// Native state is accessed only through the BASS executor; this matters when
+// the gameplay clock, rendering worker, and mixer thread are active together.
 type TrackBass struct {
 	channel           C.HSTREAM
 	fft               []float32
@@ -30,49 +34,86 @@ type TrackBass struct {
 	addedToMixer      bool
 	baseFrequency     float64
 	relativeFrequency float64
+	closed            bool
 }
 
+// NewTrack loads a tempo-capable track and attaches it to the master mixer in
+// a paused state. Attaching before playback permits seeks to use mixer-source
+// positions without racing a later add operation.
 func NewTrack(path string) *TrackBass {
-	player := &TrackBass{
-		fft:               make([]float32, 512),
-		speed:             1,
-		pitch:             1,
-		relativeFrequency: 1,
-	}
-
-	flags := C.BASS_STREAM_DECODE | C.BASS_STREAM_PRESCAN //| C.BASS_ASYNCFILE
-
-	if runtime.GOOS == "windows" {
-		wFile := utf16.Encode([]rune(path))
-		wFile = append(wFile, 0) // NULL terminated string
-
-		player.channel = C.BASS_StreamCreateFile(0, unsafe.Pointer(&wFile[0]), 0, 0, C.DWORD(flags|C.BASS_UNICODE))
-	} else {
-		// For the time being, only Linux will use ASYNC flag as it recently got bugged on Windows
-		flags |= C.BASS_ASYNCFILE
-
-		player.channel = C.BASS_StreamCreateFile(0, unsafe.Pointer(C.CString(path)), 0, 0, C.DWORD(flags))
-	}
-
-	if player.channel == 0 {
+	if path == "" {
 		return nil
 	}
 
-	player.channel = C.BASS_FX_TempoCreate(player.channel, C.BASS_FX_FREESOURCE|C.BASS_STREAM_DECODE)
+	return runOnAudioThreadResult(func() *TrackBass {
+		player := &TrackBass{
+			fft:               make([]float32, 512),
+			speed:             1,
+			pitch:             1,
+			relativeFrequency: 1,
+		}
 
-	setupFXChannel(player.channel)
+		flags := C.BASS_STREAM_DECODE | C.BASS_STREAM_PRESCAN
 
-	var freq C.float
+		if runtime.GOOS == "windows" {
+			wFile := utf16.Encode([]rune(path))
+			wFile = append(wFile, 0)
 
-	C.BASS_ChannelGetAttribute(player.channel, C.BASS_ATTRIB_FREQ, &freq)
+			player.channel = C.BASS_StreamCreateFile(0, unsafe.Pointer(&wFile[0]), 0, 0, C.DWORD(flags|C.BASS_UNICODE))
+		} else {
+			// Linux keeps ASYNCFILE because the Windows implementation has a
+			// known interaction with the current BASS stream buffer settings.
+			flags |= C.BASS_ASYNCFILE
+			cPath := C.CString(path)
+			player.channel = C.BASS_StreamCreateFile(0, unsafe.Pointer(cPath), 0, 0, C.DWORD(flags))
+			C.free(unsafe.Pointer(cPath))
+		}
 
-	player.baseFrequency = float64(freq)
+		if player.channel == 0 {
+			return nil
+		}
 
-	if player.baseFrequency <= 0 {
-		player.baseFrequency = float64(sampleRate)
-	}
+		source := player.channel
+		player.channel = C.BASS_FX_TempoCreate(source, C.BASS_FX_FREESOURCE|C.BASS_STREAM_DECODE)
+		if player.channel == 0 {
+			// BASS_FX_FREESOURCE only transfers ownership after a
+			// successful wrapper creation. Free the original source on the
+			// failure path so a corrupt or unsupported track cannot leak a
+			// decoder handle.
+			C.BASS_ChannelFree(source)
+			return nil
+		}
 
-	return player
+		setupFXChannel(player.channel)
+
+		var freq C.float
+		if C.BASS_ChannelGetAttribute(player.channel, C.BASS_ATTRIB_FREQ, &freq) == 0 {
+			C.BASS_ChannelFree(player.channel)
+			player.channel = 0
+			return nil
+		}
+
+		player.baseFrequency = float64(freq)
+		if player.baseFrequency <= 0 {
+			player.baseFrequency = float64(sampleRate)
+		}
+
+		if !addTrackToMixerInternal(player) {
+			C.BASS_ChannelFree(player.channel)
+			player.channel = 0
+			return nil
+		}
+
+		C.BASS_Mixer_ChannelFlags(player.channel, C.BASS_MIXER_CHAN_PAUSE, C.BASS_MIXER_CHAN_PAUSE)
+		if C.BASS_Mixer_ChannelFlags(player.channel, 0, 0)&C.BASS_MIXER_CHAN_PAUSE == 0 {
+			C.BASS_Mixer_ChannelRemove(player.channel)
+			C.BASS_ChannelFree(player.channel)
+			player.channel = 0
+			return nil
+		}
+
+		return player
+	})
 }
 
 func setupFXChannel(channel C.HSTREAM) {
@@ -82,216 +123,423 @@ func setupFXChannel(channel C.HSTREAM) {
 	C.BASS_ChannelSetAttribute(channel, C.BASS_ATTRIB_TEMPO_OPTION_SEQUENCE_MS, C.float(30.0))
 }
 
+func addTrackToMixerInternal(track *TrackBass) bool {
+	if track == nil || track.channel == 0 || track.closed {
+		return false
+	}
+
+	if track.addedToMixer {
+		return true
+	}
+
+	if masterMixer == 0 || C.BASS_Mixer_StreamAddChannel(masterMixer, track.channel, C.BASS_MIXER_CHAN_NORAMPIN|C.BASS_MIXER_CHAN_BUFFER) == 0 {
+		return false
+	}
+
+	track.addedToMixer = true
+	return true
+}
+
+// Close removes and frees the native track. Repeated calls are safe.
+func (track *TrackBass) Close() {
+	if track == nil {
+		return
+	}
+
+	runOnAudioThread(func() {
+		if track.closed {
+			return
+		}
+		track.closed = true
+		track.playing = false
+
+		if track.channel == 0 {
+			return
+		}
+
+		if track.addedToMixer {
+			C.BASS_Mixer_ChannelRemove(track.channel)
+			track.addedToMixer = false
+		}
+
+		C.BASS_ChannelFree(track.channel)
+		track.channel = 0
+	})
+}
+
 func (track *TrackBass) AddSilence(seconds float64) {
-	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TAIL, C.float(seconds))
+	if track == nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return
+	}
+
+	runOnAudioThread(func() {
+		if track.channel != 0 && !track.closed {
+			C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TAIL, C.float(max(0, seconds)))
+		}
+	})
 }
 
 func (track *TrackBass) Play() {
-	track.SetVolume(settings.Audio.GeneralVolume * settings.Audio.MusicVolume)
-
-	C.BASS_Mixer_StreamAddChannel(masterMixer, track.channel, C.BASS_MIXER_CHAN_NORAMPIN|C.BASS_MIXER_CHAN_BUFFER)
-
-	track.playing = true
-	track.addedToMixer = true
+	track.playWithVolume(settings.Audio.GeneralVolume * settings.Audio.MusicVolume)
 }
 
 func (track *TrackBass) PlayV(volume float64) {
-	track.SetVolume(volume)
+	track.playWithVolume(volume)
+}
 
-	track.playing = true
+func (track *TrackBass) playWithVolume(volume float64) {
+	if track == nil {
+		return
+	}
 
-	C.BASS_Mixer_StreamAddChannel(masterMixer, track.channel, C.BASS_MIXER_CHAN_NORAMPIN|C.BASS_MIXER_CHAN_BUFFER)
-	track.addedToMixer = true
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed {
+			return
+		}
+
+		if !addTrackToMixerInternal(track) {
+			return
+		}
+
+		C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_VOL, C.float(volume))
+		C.BASS_Mixer_ChannelFlags(track.channel, 0, C.BASS_MIXER_CHAN_PAUSE)
+		track.playing = true
+	})
 }
 
 func (track *TrackBass) Pause() {
-	track.playing = false
+	if track == nil {
+		return
+	}
 
-	C.BASS_Mixer_ChannelFlags(track.channel, C.BASS_MIXER_CHAN_PAUSE, C.BASS_MIXER_CHAN_PAUSE)
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed || !track.addedToMixer {
+			return
+		}
+
+		C.BASS_Mixer_ChannelFlags(track.channel, C.BASS_MIXER_CHAN_PAUSE, C.BASS_MIXER_CHAN_PAUSE)
+		track.playing = false
+	})
 }
 
 func (track *TrackBass) Resume() {
-	track.playing = true
+	if track == nil {
+		return
+	}
 
-	C.BASS_Mixer_ChannelFlags(track.channel, 0, C.BASS_MIXER_CHAN_PAUSE)
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed || !track.addedToMixer {
+			return
+		}
+
+		C.BASS_Mixer_ChannelFlags(track.channel, 0, C.BASS_MIXER_CHAN_PAUSE)
+		track.playing = true
+	})
 }
 
 func (track *TrackBass) Stop() {
-	track.playing = false
-	track.addedToMixer = false
+	if track == nil {
+		return
+	}
 
-	C.BASS_ChannelStop(track.channel)
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed {
+			return
+		}
+
+		track.playing = false
+		if track.addedToMixer {
+			C.BASS_Mixer_ChannelRemove(track.channel)
+			track.addedToMixer = false
+		}
+		// Stop is a restart boundary for the track API. Resetting the source
+		// position preserves the old behavior when a caller later invokes Play
+		// again instead of resuming from the previous end position.
+		C.BASS_ChannelStop(track.channel)
+	})
 }
 
 func (track *TrackBass) SetVolume(vol float64) {
-	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_VOL, C.float(vol))
+	if track == nil {
+		return
+	}
+
+	runOnAudioThread(func() {
+		if track.channel != 0 && !track.closed {
+			C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_VOL, C.float(vol))
+		}
+	})
 }
 
 func (track *TrackBass) SetVolumeRelative(vol float64) {
-	combined := settings.Audio.GeneralVolume * settings.Audio.MusicVolume * vol
-
-	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_VOL, C.float(combined))
+	track.SetVolume(settings.Audio.GeneralVolume * settings.Audio.MusicVolume * vol)
 }
 
 func (track *TrackBass) GetLength() float64 {
-	return float64(C.BASS_ChannelBytes2Seconds(track.channel, C.BASS_ChannelGetLength(track.channel, C.BASS_POS_BYTE)))
+	if track == nil {
+		return 0
+	}
+
+	return runOnAudioThreadResult(func() float64 {
+		if track.channel == 0 || track.closed {
+			return 0
+		}
+
+		length := C.BASS_ChannelGetLength(track.channel, C.BASS_POS_BYTE)
+		if uint64(length) == ^uint64(0) {
+			return 0
+		}
+
+		return float64(C.BASS_ChannelBytes2Seconds(track.channel, length))
+	})
 }
 
 func (track *TrackBass) SetPosition(pos float64) {
-	if track.addedToMixer {
-		C.BASS_Mixer_ChannelSetPosition(track.channel, C.BASS_ChannelSeconds2Bytes(track.channel, C.double(pos)), C.BASS_POS_BYTE)
-	} else {
-		C.BASS_ChannelSetPosition(track.channel, C.BASS_ChannelSeconds2Bytes(track.channel, C.double(pos)), C.BASS_POS_BYTE)
+	if track == nil || math.IsNaN(pos) || math.IsInf(pos, 0) {
+		return
 	}
+
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed {
+			return
+		}
+
+		pos = max(0, pos)
+		bytes := C.BASS_ChannelSeconds2Bytes(track.channel, C.double(pos))
+		if track.addedToMixer {
+			C.BASS_Mixer_ChannelSetPosition(track.channel, bytes, C.BASS_POS_BYTE)
+		} else {
+			C.BASS_ChannelSetPosition(track.channel, bytes, C.BASS_POS_BYTE)
+		}
+	})
 }
 
 func (track *TrackBass) GetPosition() float64 {
-	var bassPos float64
-
-	if track.addedToMixer {
-		bassPos = float64(C.BASS_ChannelBytes2Seconds(track.channel, C.BASS_Mixer_ChannelGetPosition(track.channel, C.BASS_POS_BYTE)))
+	if track == nil {
+		return 0
 	}
 
-	return bassPos
+	return runOnAudioThreadResult(func() float64 {
+		if track.channel == 0 || track.closed {
+			return 0
+		}
+
+		var pos C.QWORD
+		if track.addedToMixer {
+			pos = C.BASS_Mixer_ChannelGetPosition(track.channel, C.BASS_POS_BYTE)
+		} else {
+			pos = C.BASS_ChannelGetPosition(track.channel, C.BASS_POS_BYTE)
+		}
+
+		if uint64(pos) == ^uint64(0) {
+			return 0
+		}
+
+		return float64(C.BASS_ChannelBytes2Seconds(track.channel, pos))
+	})
 }
 
 func (track *TrackBass) SetTempo(tempo float64) {
-	if track.speed == tempo {
+	if track == nil || math.IsNaN(tempo) || math.IsInf(tempo, 0) || tempo <= 0 {
 		return
 	}
 
-	track.speed = tempo
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed || track.speed == tempo {
+			return
+		}
 
-	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO, C.float((tempo-1.0)*100))
+		track.speed = tempo
+		C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO, C.float((tempo-1.0)*100))
+	})
 }
 
 func (track *TrackBass) GetTempo() float64 {
-	return track.speed
+	if track == nil {
+		return 1
+	}
+
+	return runOnAudioThreadResult(func() float64 { return track.speed })
 }
 
 func (track *TrackBass) SetPitch(pitch float64) {
-	if track.pitch == pitch {
+	if track == nil || math.IsNaN(pitch) || math.IsInf(pitch, 0) {
 		return
 	}
 
-	track.pitch = pitch
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed || track.pitch == pitch {
+			return
+		}
 
-	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO_PITCH, C.float((pitch-1.0)*14.4))
+		track.pitch = pitch
+		C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO_PITCH, C.float((pitch-1.0)*14.4))
+	})
 }
 
 func (track *TrackBass) GetPitch() float64 {
-	return track.pitch
+	if track == nil {
+		return 1
+	}
+
+	return runOnAudioThreadResult(func() float64 { return track.pitch })
 }
 
 func (track *TrackBass) SetRelativeFrequency(rFreq float64) {
-	if track.relativeFrequency == rFreq {
+	if track == nil || math.IsNaN(rFreq) || math.IsInf(rFreq, 0) || rFreq <= 0 {
 		return
 	}
 
-	track.relativeFrequency = rFreq
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed || track.relativeFrequency == rFreq {
+			return
+		}
 
-	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_FREQ, C.float(rFreq*track.baseFrequency))
+		track.relativeFrequency = rFreq
+		C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_FREQ, C.float(rFreq*track.baseFrequency))
+	})
 }
 
 func (track *TrackBass) GetRelativeFrequency() float64 {
-	return track.relativeFrequency
+	if track == nil {
+		return 1
+	}
+
+	return runOnAudioThreadResult(func() float64 { return track.relativeFrequency })
 }
 
 func (track *TrackBass) GetSpeed() float64 {
-	return track.speed * track.relativeFrequency
+	if track == nil {
+		return 1
+	}
+
+	return runOnAudioThreadResult(func() float64 { return track.speed * track.relativeFrequency })
 }
 
 func (track *TrackBass) GetState() int {
-	if !track.addedToMixer {
+	if track == nil {
 		return MusicStopped
 	}
 
-	state := int(C.BASS_ChannelIsActive(track.channel))
+	return runOnAudioThreadResult(func() int {
+		if track.channel == 0 || track.closed || !track.addedToMixer {
+			return MusicStopped
+		}
 
-	if state == MusicPlaying && track.addedToMixer && C.BASS_Mixer_ChannelFlags(track.channel, 0, 0)&C.BASS_MIXER_CHAN_PAUSE > 0 {
-		return MusicPaused
-	}
+		state := int(C.BASS_ChannelIsActive(track.channel))
+		if state == MusicPlaying && C.BASS_Mixer_ChannelFlags(track.channel, 0, 0)&C.BASS_MIXER_CHAN_PAUSE > 0 {
+			return MusicPaused
+		}
 
-	return state
+		return state
+	})
 }
 
 func (track *TrackBass) Update() {
-	if track.playing {
-		if track.addedToMixer {
-			C.BASS_Mixer_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
+	if track == nil {
+		return
+	}
+
+	runOnAudioThread(func() {
+		if track.channel == 0 || track.closed {
+			return
+		}
+
+		if track.playing {
+			if track.addedToMixer {
+				C.BASS_Mixer_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
+			} else {
+				C.BASS_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
+			}
 		} else {
-			C.BASS_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
+			for i := range track.fft {
+				track.fft[i] = 0
+			}
 		}
-	} else {
-		for i := range track.fft {
-			track.fft[i] = 0
+
+		toPeak := 0.0
+		beatAv := 0.0
+		for i, value := range track.fft {
+			h := math.Abs(float64(value))
+			toPeak = max(toPeak, h)
+			if i > 0 && i < 5 {
+				beatAv = max(beatAv, float64(value))
+			}
 		}
-	}
 
-	toPeak := 0.0
-	beatAv := 0.0
-
-	for i, g := range track.fft {
-		h := math.Abs(float64(g))
-
-		toPeak = max(toPeak, h)
-
-		if i > 0 && i < 5 {
-			beatAv = max(beatAv, float64(g))
+		boost := 0.0
+		for i := 0; i < 10; i++ {
+			boost += float64(track.fft[i]*track.fft[i]) * float64(10-i) / float64(10)
 		}
-	}
 
-	boost := 0.0
+		track.lowMax = beatAv
+		track.boost = boost
+		track.peak = toPeak
 
-	for i := 0; i < 10; i++ {
-		boost += float64(track.fft[i]*track.fft[i]) * float64(10-i) / float64(10)
-	}
-
-	track.lowMax = beatAv
-	track.boost = boost
-	track.peak = toPeak
-
-	var level int
-
-	if track.playing {
-		if track.addedToMixer {
-			level = int(C.BASS_Mixer_ChannelGetLevel(track.channel))
-		} else {
-			level = int(C.BASS_ChannelGetLevel(track.channel))
+		level := 0
+		if track.playing {
+			if track.addedToMixer {
+				level = int(C.BASS_Mixer_ChannelGetLevel(track.channel))
+			} else {
+				level = int(C.BASS_ChannelGetLevel(track.channel))
+			}
 		}
-	}
 
-	left := level & 65535
-	right := level >> 16
-
-	track.leftChannel = float64(left) / 32768
-	track.rightChannel = float64(right) / 32768
+		left := level & 65535
+		right := level >> 16
+		track.leftChannel = float64(left) / 32768
+		track.rightChannel = float64(right) / 32768
+	})
 }
 
 func (track *TrackBass) GetFFT() []float32 {
-	return track.fft
+	if track == nil {
+		return nil
+	}
+
+	return runOnAudioThreadResult(func() []float32 {
+		return append([]float32(nil), track.fft...)
+	})
 }
 
 func (track *TrackBass) GetPeak() float64 {
-	return track.peak
+	if track == nil {
+		return 0
+	}
+	return runOnAudioThreadResult(func() float64 { return track.peak })
 }
 
 func (track *TrackBass) GetLevelCombined() float64 {
-	return (track.leftChannel + track.rightChannel) / 2
+	if track == nil {
+		return 0
+	}
+	return runOnAudioThreadResult(func() float64 { return (track.leftChannel + track.rightChannel) / 2 })
 }
 
 func (track *TrackBass) GetLeftLevel() float64 {
-	return track.leftChannel
+	if track == nil {
+		return 0
+	}
+	return runOnAudioThreadResult(func() float64 { return track.leftChannel })
 }
 
 func (track *TrackBass) GetRightLevel() float64 {
-	return track.rightChannel
+	if track == nil {
+		return 0
+	}
+	return runOnAudioThreadResult(func() float64 { return track.rightChannel })
 }
 
 func (track *TrackBass) GetBoost() float64 {
-	return track.boost
+	if track == nil {
+		return 0
+	}
+	return runOnAudioThreadResult(func() float64 { return track.boost })
 }
 
 func (track *TrackBass) GetBeat() float64 {
-	return track.lowMax
+	if track == nil {
+		return 0
+	}
+	return runOnAudioThreadResult(func() float64 { return track.lowMax })
 }

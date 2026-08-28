@@ -8,6 +8,9 @@ const (
 )
 
 type ITrack interface {
+	// Close releases the native track handle. Callers must not use the track
+	// after Close; repeated calls are safe.
+	Close()
 	AddSilence(seconds float64)
 	Play()
 	PlayV(volume float64)

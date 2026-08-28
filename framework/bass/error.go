@@ -180,5 +180,7 @@ func (e Error) Message() string { //nolint:gocyclo
 }
 
 func GetError() Error {
-	return Error(C.BASS_ErrorGetCode())
+	return runOnAudioThreadResult(func() Error {
+		return Error(C.BASS_ErrorGetCode())
+	})
 }

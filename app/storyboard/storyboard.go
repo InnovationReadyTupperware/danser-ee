@@ -6,12 +6,14 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/wieku/danser-go/app/audio"
 	"github.com/wieku/danser-go/app/beatmap"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/app/skin"
@@ -36,7 +38,8 @@ type Storyboard struct {
 	textures map[string]*texture.TextureRegion
 	atlas    *texture.TextureAtlas
 
-	samples map[string]*bass.Sample
+	samples     map[string]*bass.Sample
+	audioEvents []*storyboardAudioEvent
 
 	background *sprite.Manager
 	pass       *sprite.Manager
@@ -70,6 +73,17 @@ type Storyboard struct {
 
 	videos     []sprite.ISprite
 	videoAlpha atomic.Uint64
+
+	lastAudioTime            float64
+	audioTimelineInitialized bool
+	disposeOnce              sync.Once
+}
+
+type storyboardAudioEvent struct {
+	sample *bass.Sample
+	start  float64
+	volume float64
+	played bool
 }
 
 func getSection(line string) string {
@@ -83,16 +97,17 @@ func getSection(line string) string {
 
 func NewStoryboard(beatMap *beatmap.BeatMap) *Storyboard {
 	storyboard := &Storyboard{
-		beatMap:    beatMap,
-		textures:   make(map[string]*texture.TextureRegion),
-		samples:    make(map[string]*bass.Sample),
-		zIndex:     -1,
-		background: sprite.NewManager(),
-		pass:       sprite.NewManager(),
-		foreground: sprite.NewManager(),
-		overlay:    sprite.NewManager(),
-		atlas:      nil,
-		videos:     make([]sprite.ISprite, 0),
+		beatMap:       beatMap,
+		textures:      make(map[string]*texture.TextureRegion),
+		samples:       make(map[string]*bass.Sample),
+		zIndex:        -1,
+		background:    sprite.NewManager(),
+		pass:          sprite.NewManager(),
+		foreground:    sprite.NewManager(),
+		overlay:       sprite.NewManager(),
+		atlas:         nil,
+		videos:        make([]sprite.ISprite, 0),
+		lastAudioTime: math.Inf(-1),
 	}
 
 	files := []string{
@@ -138,14 +153,15 @@ func NewStoryboard(beatMap *beatmap.BeatMap) *Storyboard {
 
 			switch currentSection {
 			case "General":
-				split := strings.Split(line, ":")
-				if strings.TrimSpace(split[0]) == "WidescreenStoryboard" && strings.TrimSpace(split[1]) == "1" {
+				split := strings.SplitN(line, ":", 2)
+				if len(split) == 2 && strings.TrimSpace(split[0]) == "WidescreenStoryboard" && strings.TrimSpace(split[1]) == "1" {
 					storyboard.widescreen = true
 				}
 			case "256", "Variables":
-				split := strings.Split(line, "=")
-
-				variables = append(variables, [2]string{split[0], split[1]})
+				split := strings.SplitN(line, "=", 2)
+				if len(split) == 2 {
+					variables = append(variables, [2]string{split[0], split[1]})
+				}
 			case "32", "Events":
 				if strings.ContainsRune(line, '$') {
 					for _, v := range variables {
@@ -155,12 +171,21 @@ func NewStoryboard(beatMap *beatmap.BeatMap) *Storyboard {
 
 				if strings.HasPrefix(line, "Sample") || strings.HasPrefix(line, "5") {
 					spl := strings.Split(line, ",")
+					if len(spl) < 4 {
+						continue
+					}
 
-					startTime, _ := strconv.ParseFloat(spl[1], 64)
+					startTime, err := strconv.ParseFloat(strings.TrimSpace(spl[1]), 64)
+					if err != nil || math.IsNaN(startTime) || math.IsInf(startTime, 0) {
+						continue
+					}
 
 					volume := 100.0
 					if len(spl) > 4 {
-						volume, _ = strconv.ParseFloat(spl[4], 64)
+						parsedVolume, volumeErr := strconv.ParseFloat(strings.TrimSpace(spl[4]), 64)
+						if volumeErr == nil && !math.IsNaN(parsedVolume) && !math.IsInf(parsedVolume, 0) {
+							volume = max(0, min(100, parsedVolume))
+						}
 					}
 
 					sample := strings.TrimSpace(strings.ReplaceAll(spl[3], `"`, ""))
@@ -169,13 +194,19 @@ func NewStoryboard(beatMap *beatmap.BeatMap) *Storyboard {
 						sample += ".wav"
 					}
 
-					sbSprite := sprite.NewAudioSprite(storyboard.getSample(sample), startTime, volume/100)
-
-					storyboard.addSpriteToLayer(spl[2], sbSprite)
-
-					hasAudio = true
+					if bassSample := storyboard.getSample(sample); bassSample != nil {
+						storyboard.audioEvents = append(storyboard.audioEvents, &storyboardAudioEvent{
+							sample: bassSample,
+							start:  startTime,
+							volume: volume / 100,
+						})
+						hasAudio = true
+					}
 				} else if settings.Playfield.Background.LoadVideos && (strings.HasPrefix(line, "Video") || strings.HasPrefix(line, "1")) {
 					spl := strings.Split(line, ",")
+					if len(spl) < 3 {
+						continue
+					}
 
 					fPath, err2 := beatMap.GetRelatedFile(strings.TrimSpace(strings.ReplaceAll(spl[2], `"`, "")))
 					if err2 != nil {
@@ -221,10 +252,23 @@ func NewStoryboard(beatMap *beatmap.BeatMap) *Storyboard {
 
 		if currentSprite != "" {
 			storyboard.loadSprite(currentSprite, commands)
+			// Sprite declarations belong to the file they were read from. Clear
+			// the pending declaration here so the same sprite is not loaded again
+			// when the next storyboard input file is processed.
+			currentSprite = ""
+			commands = nil
+		}
+
+		if err := scanner.Err(); err != nil {
+			log.Println("Storyboard read error:", err)
 		}
 
 		file.Close()
 	}
+
+	sort.SliceStable(storyboard.audioEvents, func(i, j int) bool {
+		return storyboard.audioEvents[i].start < storyboard.audioEvents[j].start
+	})
 
 	storyboard.hasVisuals = storyboard.numSprites > 0 || hasVideo
 
@@ -257,6 +301,9 @@ func NewStoryboard(beatMap *beatmap.BeatMap) *Storyboard {
 
 func (storyboard *Storyboard) loadSprite(currentSprite string, commands []string) {
 	spl := strings.Split(currentSprite, ",")
+	if len(spl) < 6 {
+		return
+	}
 
 	origin := parseOrigin(spl[2])
 
@@ -276,8 +323,15 @@ func (storyboard *Storyboard) loadSprite(currentSprite string, commands []string
 	loopForever := true
 
 	if spl[0] == "Animation" || spl[0] == "6" {
+		if len(spl) < 8 {
+			return
+		}
+
 		frames, _ := strconv.ParseInt(spl[6], 10, 32)
 		frameDelay, _ = strconv.ParseFloat(spl[7], 64)
+		if frames <= 0 || frameDelay < 0 || math.IsNaN(frameDelay) || math.IsInf(frameDelay, 0) {
+			return
+		}
 
 		if len(spl) > 8 && spl[8] == "LoopOnce" {
 			loopForever = false
@@ -381,6 +435,9 @@ func (storyboard *Storyboard) getSample(sample string) (bassSample *bass.Sample)
 		}
 
 		bassSample = bass.NewSample(path)
+		if bassSample != nil {
+			storyboard.samples[sample] = bassSample
+		}
 	}
 
 	return
@@ -432,6 +489,32 @@ func (storyboard *Storyboard) StopThread() {
 	storyboard.threadWG.Wait()
 }
 
+// Dispose stops storyboard updates and releases map-local audio and graphics
+// resources. Storyboard samples are separate from the skin cache, so this is
+// the owner responsible for freeing them.
+func (storyboard *Storyboard) Dispose() {
+	if storyboard == nil {
+		return
+	}
+
+	storyboard.disposeOnce.Do(func() {
+		storyboard.StopThread()
+
+		storyboard.renderMu.Lock()
+		defer storyboard.renderMu.Unlock()
+
+		for _, sample := range storyboard.samples {
+			sample.Close()
+		}
+		storyboard.samples = nil
+
+		if storyboard.atlas != nil {
+			storyboard.atlas.Dispose()
+			storyboard.atlas = nil
+		}
+	})
+}
+
 // IsThreadRunning reports whether the storyboard worker has been requested to
 // run. It is safe to call from the render or gameplay thread.
 func (storyboard *Storyboard) IsThreadRunning() bool {
@@ -464,6 +547,31 @@ func (storyboard *Storyboard) SetFPS(fps int) {
 func (storyboard *Storyboard) Update(time float64) {
 	storyboard.renderMu.Lock()
 	defer storyboard.renderMu.Unlock()
+
+	if !storyboard.audioTimelineInitialized {
+		// A storyboard can first be updated after a seek. Mark samples before
+		// that point as already passed so seeking into a map does not replay
+		// every earlier storyboard sound in one frame.
+		for _, event := range storyboard.audioEvents {
+			event.played = event.start < time
+		}
+		storyboard.lastAudioTime = math.Nextafter(time, math.Inf(-1))
+		storyboard.audioTimelineInitialized = true
+	} else if time < storyboard.lastAudioTime {
+		for _, event := range storyboard.audioEvents {
+			event.played = event.start < time
+		}
+		// Treat an event exactly at the seek target as crossed on this update.
+		storyboard.lastAudioTime = math.Nextafter(time, math.Inf(-1))
+	}
+
+	for _, event := range storyboard.audioEvents {
+		if !event.played && storyboard.lastAudioTime < event.start && time >= event.start {
+			audio.PlaySampleHandleAt(event.sample, event.start, event.volume)
+			event.played = true
+		}
+	}
+	storyboard.lastAudioTime = time
 
 	storyboard.background.Update(time)
 	storyboard.pass.Update(time)

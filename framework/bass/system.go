@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"sync"
 
 	"github.com/wieku/danser-go/app/settings"
 )
@@ -21,8 +22,33 @@ var masterMixer C.HSTREAM
 
 var sampleRate = 44100
 
+const (
+	// BASS 2.4.18 removed the obsolete name from bass.h, but retains the
+	// numeric configuration slot for compatibility. Keep the existing value
+	// because Windows timing behavior is an intentional Stable compatibility
+	// boundary in this application.
+	bassConfigVistaTruePosition = 30
+	bassConfigMP3OldGaps        = 68
+)
+
+// OutputInfo describes the format of the master mixer. Realtime BASS output
+// can use a device rate different from the requested rate, so callers must
+// use this value when converting timeline positions to mixer bytes.
+type OutputInfo struct {
+	SampleRate     int
+	Channels       int
+	BytesPerSample int
+	LatencyMs      int
+}
+
+var (
+	outputInfoMu sync.RWMutex
+	outputInfo   OutputInfo
+)
+
 func Init(offscreen bool) {
 	log.Println("Initializing BASS...")
+	startExecutor()
 
 	playbackBufferLength := 100
 	deviceBufferLength := 10
@@ -36,27 +62,6 @@ func Init(offscreen bool) {
 		devUpdatePeriod = int(settings.Audio.NonWindows.BassDeviceUpdatePeriod)
 	}
 
-	// Output data regardless if audio is playing
-	C.BASS_SetConfig(C.BASS_CONFIG_DEV_NONSTOP, C.DWORD(1))
-
-	// Worse time resolution but lower latency with DirectSound
-	C.BASS_SetConfig(C.BASS_CONFIG_VISTA_TRUEPOS, C.DWORD(0))
-
-	// Smaller stream buffer length, reduces latency
-	C.BASS_SetConfig(C.BASS_CONFIG_BUFFER, C.DWORD(playbackBufferLength))
-
-	// Update BASS stream buffer more frequently
-	C.BASS_SetConfig(C.BASS_CONFIG_UPDATEPERIOD, C.DWORD(updatePeriod))
-
-	// Smaller device buffer length, reduces latency
-	C.BASS_SetConfig(C.BASS_CONFIG_DEV_BUFFER, C.DWORD(deviceBufferLength))
-
-	// Update BASS device buffer more frequently
-	C.BASS_SetConfig(C.BASS_CONFIG_DEV_PERIOD, C.DWORD(devUpdatePeriod))
-
-	// BASS_CONFIG_MP3_OLDGAPS
-	C.BASS_SetConfig(C.DWORD(68), C.DWORD(1))
-
 	deviceId := -1 //default audio device
 
 	// Float output gives the mix sum headroom: stacked hitsounds over loud
@@ -64,35 +69,104 @@ func Init(offscreen bool) {
 	// audio engine, instead of hard-clipping against a 16-bit mixing chain.
 	// Sources remain 16-bit; BASSmix converts them losslessly at mix-in.
 	mixerFlags := C.BASS_MIXER_NONSTOP | C.BASS_SAMPLE_FLOAT
+	requestedRate := sampleRate
 
 	if offscreen {
-		sampleRate = 48000
+		requestedRate = 48000
 		deviceId = 0 //If we're rendering, we don't want BASS to be tied to specific device, especially in headless system
 		mixerFlags |= C.BASS_SAMPLE_FLOAT | C.BASS_STREAM_DECODE
 	}
 
-	if C.BASS_Init(C.int(deviceId), C.DWORD(sampleRate), C.DWORD(0), nil, nil) != 0 {
-		log.Println("BASS Initialized!")
-		log.Println("BASS Version:       ", parseVersion(int(C.BASS_GetVersion())))
-		log.Println("BASS FX Version:    ", parseVersion(int(C.BASS_FX_GetVersion())))
-		log.Println("BASS Mix Version:   ", parseVersion(int(C.BASS_Mixer_GetVersion())))
+	var initError Error
+	var initOK bool
 
-		// We're not interested in BASSEnc in onscreen mode, show audio device instead
-		if !offscreen {
-			log.Println("BASS Audio Device:  ", getDeviceName())
-			log.Println("BASS Audio Latency: ", fmt.Sprintf("%dms", getLatency()))
+	runOnAudioThread(func() {
+		// Output data regardless if audio is playing.
+		C.BASS_SetConfig(C.BASS_CONFIG_DEV_NONSTOP, C.DWORD(1))
+
+		// Worse time resolution but lower latency with DirectSound.
+		C.BASS_SetConfig(C.DWORD(bassConfigVistaTruePosition), C.DWORD(0))
+
+		// Smaller stream buffer length, reduces latency.
+		C.BASS_SetConfig(C.BASS_CONFIG_BUFFER, C.DWORD(playbackBufferLength))
+
+		// Update BASS stream buffer more frequently.
+		C.BASS_SetConfig(C.BASS_CONFIG_UPDATEPERIOD, C.DWORD(updatePeriod))
+
+		// Smaller device buffer length, reduces latency.
+		C.BASS_SetConfig(C.BASS_CONFIG_DEV_BUFFER, C.DWORD(deviceBufferLength))
+
+		// Update BASS device buffer more frequently.
+		C.BASS_SetConfig(C.BASS_CONFIG_DEV_PERIOD, C.DWORD(devUpdatePeriod))
+
+		// BASS_CONFIG_MP3_OLDGAPS keeps legacy MP3 gap behavior stable.
+		C.BASS_SetConfig(C.DWORD(bassConfigMP3OldGaps), C.DWORD(1))
+
+		if C.BASS_Init(C.int(deviceId), C.DWORD(requestedRate), C.DWORD(0), nil, nil) == 0 {
+			initError = Error(C.BASS_ErrorGetCode())
+			return
 		}
 
-		masterMixer = C.BASS_Mixer_StreamCreate(C.DWORD(sampleRate), 2, C.DWORD(mixerFlags))
+		var info C.BASS_INFO
+		if C.BASS_GetInfo(&info) == 0 || info.freq == 0 {
+			initError = Error(C.BASS_ErrorGetCode())
+			C.BASS_Free()
+			return
+		}
+
+		sampleRate = int(info.freq)
+		outputInfoMu.Lock()
+		outputInfo = OutputInfo{
+			SampleRate:     sampleRate,
+			Channels:       2,
+			BytesPerSample: 4,
+			LatencyMs:      int(info.latency),
+		}
+		outputInfoMu.Unlock()
+
+		masterMixer = C.BASS_Mixer_StreamCreate(C.DWORD(sampleRate), C.DWORD(outputInfo.Channels), C.DWORD(mixerFlags))
+		if masterMixer == 0 {
+			initError = Error(C.BASS_ErrorGetCode())
+			C.BASS_Free()
+			return
+		}
+
 		C.BASS_ChannelSetAttribute(masterMixer, C.BASS_ATTRIB_BUFFER, 0)
 		C.BASS_ChannelSetDevice(masterMixer, C.BASS_GetDevice())
 
-		if !offscreen {
-			C.BASS_ChannelPlay(masterMixer, 0)
+		if !offscreen && C.BASS_ChannelPlay(masterMixer, 0) == 0 {
+			initError = Error(C.BASS_ErrorGetCode())
+			C.BASS_ChannelFree(masterMixer)
+			masterMixer = 0
+			C.BASS_Free()
+			return
 		}
-	} else {
-		err := GetError()
-		panic(fmt.Sprintf("Failed to run BASS, error id: %d, message: %s", err, err.Message()))
+
+		initOK = true
+	})
+
+	if !initOK {
+		stopExecutor()
+		panic(fmt.Sprintf("Failed to run BASS, error id: %d, message: %s", initError, initError.Message()))
+	}
+
+	versions := runOnAudioThreadResult(func() struct{ bass, fx, mix string } {
+		return struct{ bass, fx, mix string }{
+			bass: parseVersion(int(C.BASS_GetVersion())),
+			fx:   parseVersion(int(C.BASS_FX_GetVersion())),
+			mix:  parseVersion(int(C.BASS_Mixer_GetVersion())),
+		}
+	})
+
+	log.Println("BASS Initialized!")
+	log.Println("BASS Version:       ", versions.bass)
+	log.Println("BASS FX Version:    ", versions.fx)
+	log.Println("BASS Mix Version:   ", versions.mix)
+
+	// We're not interested in BASSEnc in onscreen mode, show audio device instead.
+	if !offscreen {
+		log.Println("BASS Audio Device:  ", runOnAudioThreadResult(getDeviceName))
+		log.Println("BASS Audio Latency: ", fmt.Sprintf("%dms", GetOutputInfo().LatencyMs))
 	}
 }
 
@@ -113,10 +187,33 @@ func getDeviceName() string {
 	return C.GoString(info.name)
 }
 
-func getLatency() int {
-	var info C.BASS_INFO
+// GetOutputInfo returns the immutable output format selected during Init.
+func GetOutputInfo() OutputInfo {
+	outputInfoMu.RLock()
+	defer outputInfoMu.RUnlock()
+	return outputInfo
+}
 
-	C.BASS_GetInfo(&info)
+// Shutdown stops BASS after all application-owned tracks and samples have
+// been released. It is safe to call more than once.
+func Shutdown() {
+	runOnAudioThread(func() {
+		// Normally Player.Dispose performs this first. Keep the native boundary
+		// self-contained as well so a direct shutdown cannot leave sample loops
+		// attached while the master mixer is being freed.
+		stopAllSamplesInternal()
 
-	return int(info.latency)
+		if masterMixer != 0 {
+			C.BASS_ChannelStop(masterMixer)
+			C.BASS_ChannelFree(masterMixer)
+			masterMixer = 0
+		}
+
+		C.BASS_Free()
+		outputInfoMu.Lock()
+		outputInfo = OutputInfo{}
+		outputInfoMu.Unlock()
+	})
+
+	stopExecutor()
 }

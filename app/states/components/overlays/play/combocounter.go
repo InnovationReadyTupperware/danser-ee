@@ -5,7 +5,6 @@ import (
 	"github.com/wieku/danser-go/app/audio"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/bass"
 	"github.com/wieku/danser-go/framework/graphics/batch"
 	"github.com/wieku/danser-go/framework/graphics/font"
 	"github.com/wieku/danser-go/framework/graphics/sprite"
@@ -22,8 +21,6 @@ type ComboCounter struct {
 	popCounter  *sprite.TextSprite
 
 	comboSlide *animation.Glider
-
-	comboBreak *bass.Sample
 
 	time         float64
 	delta        float64
@@ -46,7 +43,6 @@ func NewComboCounter() *ComboCounter {
 		mainCounter:  sprite.NewTextSprite("0x", fnt, 0, vector.NewVec2d(0, 0), vector.BottomLeft),
 		popCounter:   sprite.NewTextSprite("0x", fnt, 0, vector.NewVec2d(0, 0), vector.BottomLeft),
 		comboSlide:   animation.NewGlider(0),
-		comboBreak:   audio.LoadSample("combobreak"),
 		nextTransfer: math.MaxFloat64,
 	}
 
@@ -88,8 +84,8 @@ func (counter *ComboCounter) Increase() {
 }
 
 func (counter *ComboCounter) Reset() {
-	if counter.combo > 20 && counter.comboBreak != nil && !counter.audioDisabled {
-		counter.comboBreak.Play()
+	if counter.combo > 20 && !counter.audioDisabled {
+		audio.PlayNamedSampleAt("combobreak", counter.time, 1)
 	}
 
 	counter.combo = 0

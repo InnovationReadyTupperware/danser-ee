@@ -952,7 +952,7 @@ func (overlay *ScoreOverlay) showPassInfo() {
 
 	if pass {
 		if !overlay.audioDisabled {
-			overlay.passContainer.Add(sprite.NewAudioSprite(audio.LoadSample("sectionpass"), time+20, 1))
+			audio.PlayNamedSampleAt("sectionpass", time+20, 1)
 		}
 
 		overlay.sPass.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, time+20, time+20, 0, 1))
@@ -963,7 +963,7 @@ func (overlay *ScoreOverlay) showPassInfo() {
 		overlay.sPass.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, time+1280, time+1480, 1, 0))
 	} else {
 		if !overlay.audioDisabled {
-			overlay.passContainer.Add(sprite.NewAudioSprite(audio.LoadSample("sectionfail"), time+130, 1))
+			audio.PlayNamedSampleAt("sectionfail", time+130, 1)
 		}
 
 		overlay.sFail.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, time+130, time+130, 0, 1))

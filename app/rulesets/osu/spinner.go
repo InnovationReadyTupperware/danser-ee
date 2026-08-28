@@ -162,7 +162,7 @@ func (spinner *Spinner) processStable(player *difficultyPlayer, time int64) {
 			if state.currentVelocity == 0 {
 				spinner.hitSpinner.PauseSpinSample()
 			} else {
-				spinner.hitSpinner.StartSpinSample()
+				spinner.hitSpinner.StartSpinSample(float64(time))
 			}
 		}
 
@@ -327,7 +327,7 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 
 		if len(spinner.players) == 1 {
 			if spinning {
-				spinner.hitSpinner.StartSpinSample()
+				spinner.hitSpinner.StartSpinSample(float64(time))
 			} else {
 				spinner.hitSpinner.PauseSpinSample()
 			}

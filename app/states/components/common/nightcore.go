@@ -1,9 +1,10 @@
 package common
 
 import (
+	"math"
+
+	"github.com/wieku/danser-go/app/audio"
 	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/bass"
 )
 
 const barsPerSegment = 4
@@ -16,23 +17,15 @@ type NightcoreProcessor struct {
 	firstValue    int
 
 	pProgress int
-
-	hatSample    *bass.Sample
-	clapSample   *bass.Sample
-	kickSample   *bass.Sample
-	finishSample *bass.Sample
 }
 
 func NewNightcoreProcessor() *NightcoreProcessor {
 	proc := &NightcoreProcessor{
-		BeatSynced:   NewBeatSynced(),
-		hatSample:    skin.GetSample("nightcore-hat"),
-		clapSample:   skin.GetSample("nightcore-clap"),
-		kickSample:   skin.GetSample("nightcore-kick"),
-		finishSample: skin.GetSample("nightcore-finish"),
+		BeatSynced: NewBeatSynced(),
 	}
 
 	proc.Divisor = nightCoreDivisor
+	proc.pProgress = -1
 
 	return proc
 }
@@ -44,6 +37,7 @@ func (bs *NightcoreProcessor) Update(time float64) {
 
 	if !bs.IsSynced {
 		bs.hasFirstValue = false
+		bs.pProgress = -1
 
 		return
 	}
@@ -58,52 +52,61 @@ func (bs *NightcoreProcessor) Update(time float64) {
 		}
 	}
 
-	if bs.beatIndex >= bs.firstValue && bs.beatIndex != bs.pProgress {
-		bs.playBeat(bs.beatIndex%segLength, bs.timingPoint.Signature)
+	if bs.beatIndex >= bs.firstValue {
+		firstBeat := bs.firstValue
+		if bs.pProgress >= firstBeat {
+			firstBeat = bs.pProgress + 1
+		}
+
+		for beatIndex := firstBeat; beatIndex <= bs.beatIndex; beatIndex++ {
+			bs.playBeat(beatIndex%segLength, bs.timingPoint.Signature, bs.beatTime(beatIndex))
+		}
 	}
 
 	bs.pProgress = bs.beatIndex
 }
 
-func (bs *NightcoreProcessor) playBeat(beatIndex int, signature int) { //nolint:gocyclo
+func (bs *NightcoreProcessor) beatTime(beatIndex int) float64 {
+	beatLength := bs.timingPoint.GetBaseBeatLength() / bs.Divisor
+	if beatLength <= 0 || math.IsNaN(beatLength) || math.IsInf(beatLength, 0) {
+		return bs.lastTime
+	}
+
+	index := beatIndex
+	if bs.timingPoint.OmitFirstBarLine {
+		index++
+	}
+
+	return bs.timingPoint.Time + float64(index)*beatLength
+}
+
+func (bs *NightcoreProcessor) playBeat(beatIndex int, signature int, eventTime float64) { //nolint:gocyclo
 	if !settings.Audio.PlayNightcoreSamples {
 		return
 	}
 
-	if beatIndex == 0 && bs.finishSample != nil {
-		bs.finishSample.Play()
+	if beatIndex == 0 {
+		audio.PlayNamedSampleAt("nightcore-finish", eventTime, 1)
 	}
 
 	switch signature {
 	case 3:
 		switch beatIndex % 6 {
 		case 0:
-			if bs.kickSample != nil {
-				bs.kickSample.Play()
-			}
+			audio.PlayNamedSampleAt("nightcore-kick", eventTime, 1)
 		case 3:
-			if bs.clapSample != nil {
-				bs.clapSample.Play()
-			}
+			audio.PlayNamedSampleAt("nightcore-clap", eventTime, 1)
 		default:
-			if bs.hatSample != nil {
-				bs.hatSample.Play()
-			}
+			audio.PlayNamedSampleAt("nightcore-hat", eventTime, 1)
 		}
 	case 4:
 		switch beatIndex % 4 {
 		case 0:
-			if bs.kickSample != nil {
-				bs.kickSample.Play()
-			}
+			audio.PlayNamedSampleAt("nightcore-kick", eventTime, 1)
 		case 2:
-			if bs.clapSample != nil {
-				bs.clapSample.Play()
-			}
+			audio.PlayNamedSampleAt("nightcore-clap", eventTime, 1)
 		default:
-			if bs.hatSample != nil {
-				bs.hatSample.Play()
-			}
+			audio.PlayNamedSampleAt("nightcore-hat", eventTime, 1)
 		}
 	}
 }

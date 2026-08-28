@@ -41,9 +41,14 @@ func commonParse(data []string, extraIndex int) *HitObject {
 func parseExtras(data []string, extraIndex int) (info audio.HitSoundInfo) {
 	if extraIndex < len(data) && len(data[extraIndex]) > 0 {
 		extras := strings.Split(data[extraIndex], ":")
+		if len(extras) == 0 {
+			return info
+		}
 
 		info.SampleSet, _ = strconv.Atoi(extras[0])
-		info.AdditionSet, _ = strconv.Atoi(extras[1])
+		if len(extras) > 1 {
+			info.AdditionSet, _ = strconv.Atoi(extras[1])
+		}
 
 		if len(extras) > 2 {
 			info.CustomIndex, _ = strconv.Atoi(extras[2])
