@@ -189,6 +189,60 @@ func GetTexture(name string) *texture.TextureRegion {
 	return GetTextureSource(name, ALL)
 }
 
+// GetTextureWithSource resolves a texture through the active skin hierarchy
+// and returns the provider which supplied it. Callers that need a related
+// legacy asset must use this provider instead of resolving the related name
+// through ALL, otherwise a fallback texture can silently mix with a custom
+// skin's assets.
+func GetTextureWithSource(name string) (*texture.TextureRegion, Source) {
+	checkInit()
+
+	if CurrentSkin == defaultName {
+		if texture := GetTextureSource(name, LOCAL); texture != nil {
+			return texture, LOCAL
+		}
+
+		return nil, UNKNOWN
+	}
+
+	for _, source := range []Source{SKIN, FALLBACK, LOCAL} {
+		if texture := GetTextureSource(name, source); texture != nil {
+			return texture, source
+		}
+	}
+
+	return nil, UNKNOWN
+}
+
+// GetLegacySliderEndTextures resolves the optional legacy slider tail
+// component. The component is available only when the active skin hierarchy
+// provides a real legacy hitcircle. A custom skin which relies on the local
+// default hitcircle must not accidentally acquire the default skin's tail
+// animation; this is the distinction between Lazer's legacy component lookup
+// and an unconditional texture fallback.
+func GetLegacySliderEndTextures() (circle, overlay *texture.TextureRegion, ok bool) {
+	hitCircle, source := GetTextureWithSource("hitcircle")
+	if hitCircle == nil || source == UNKNOWN || (source == LOCAL && CurrentSkin != defaultName) {
+		return nil, nil, false
+	}
+
+	lookupPrefix := "hitcircle"
+	if GetTextureSource("sliderendcircle", source) != nil {
+		lookupPrefix = "sliderendcircle"
+	}
+
+	// The provider chooses the prefix, while the final lookup follows the
+	// normal hierarchy. This matches Lazer's handling of a fallback skin while
+	// preventing a custom slider-end circle from inheriting hitcircleoverlay.
+	circle = GetTexture(lookupPrefix)
+	if circle == nil {
+		circle = hitCircle
+	}
+	overlay = GetTexture(lookupPrefix + "overlay")
+
+	return circle, overlay, true
+}
+
 func GetTextureSource(name string, source Source) *texture.TextureRegion {
 	checkInit()
 

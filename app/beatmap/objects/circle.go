@@ -155,20 +155,30 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 
 	endTime := circle.StartTime
 
-	base := skin.GetTexture(defaultCircleName + "circle")
-	named := skin.GetTexture(circle.textureName + "circle")
-
 	name := circle.textureName + "circle"
+	var overlayTexture *texture.TextureRegion
 
-	if named == nil || skin.GetMostSpecific(named, base) == base {
-		name = defaultCircleName + "circle"
+	if circle.SliderPoint && !circle.SliderPointStart {
+		// Lazer only creates the legacy slider-tail component when a real
+		// legacy hitcircle provider exists. Do not let a custom modern skin
+		// inherit the local default tail just because DrawEndCircles is on.
+		circle.hitCircleTexture, overlayTexture, _ = skin.GetLegacySliderEndTextures()
+	} else {
+		base := skin.GetTexture(defaultCircleName + "circle")
+		named := skin.GetTexture(circle.textureName + "circle")
+
+		if named == nil || skin.GetMostSpecific(named, base) == base {
+			name = defaultCircleName + "circle"
+		}
+
+		circle.hitCircleTexture = skin.GetTexture(name)
+		overlayTexture = skin.GetTexture(name + "overlay")
 	}
 
-	circle.hitCircleTexture = skin.GetTexture(name)
 	circle.fullTexture = skin.GetTexture("hitcircle-full")
 
 	circle.hitCircle = sprite.NewSpriteSingle(circle.hitCircleTexture, 0, vector.NewVec2d(0, 0), vector.Centre)
-	circle.hitCircleOverlay = sprite.NewSpriteSingle(skin.GetTexture(name+"overlay"), 0, vector.NewVec2d(0, 0), vector.Centre)
+	circle.hitCircleOverlay = sprite.NewSpriteSingle(overlayTexture, 0, vector.NewVec2d(0, 0), vector.Centre)
 
 	circle.comboText = sprite.NewTextSpriteSize(strconv.Itoa(int(circle.ComboNumber)), skin.GetFont("default"), skin.GetFont("default").GetSize()*0.8, 0, vector.NewVec2d(0, 0), vector.Centre)
 
@@ -278,7 +288,11 @@ func (circle *Circle) Arm(clicked bool, time float64) {
 		endScale = 1.8
 	}
 
-	if clicked && !circle.diff.CheckModActive(difficulty.Hidden) && !circle.diff.CheckModActive(difficulty.Traceable) {
+	// Slider repeats and tails only receive Lazer's legacy hit-circle
+	// animation when the skin supplied a visible endpoint component. A nil
+	// endpoint texture is meaningful: applying the transform anyway used to
+	// make every skin behave as if it had a slider tail.
+	if clicked && (!circle.SliderPoint || (circle.hitCircleTexture != nil && settings.Objects.Sliders.HitAnimations)) && !circle.diff.CheckModActive(difficulty.Hidden) && !circle.diff.CheckModActive(difficulty.Traceable) {
 		endTime := startTime + difficulty.HitFadeOut
 		circle.hitCircle.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
 		circle.hitCircleOverlay.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
@@ -342,7 +356,7 @@ func (circle *Circle) Draw(time float64, color color2.Color, batch *batch.QuadBa
 
 	circle.hitCircle.SetColor(skin.GetObjectColor(int(circle.ComboSet), int(circle.ComboSetHax), color))
 
-	drawCircle := !circle.SliderPoint || circle.SliderPointStart || settings.Objects.Sliders.DrawEndCircles
+	drawCircle := circle.hitCircleTexture != nil && (!circle.SliderPoint || circle.SliderPointStart || settings.Objects.Sliders.DrawEndCircles)
 
 	if drawCircle {
 		circle.hitCircle.Draw(time, batch)
