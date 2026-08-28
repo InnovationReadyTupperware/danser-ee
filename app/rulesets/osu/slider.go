@@ -168,7 +168,7 @@ func (slider *Slider) lazerPostHeadProcess(player *difficultyPlayer, state *slid
 		}
 	}
 
-	slider.processTicksLazer(player, state, time, allTicksInRange, sliderPosition)
+	slider.processTicksLazer(player, state, time, allTicksInRange)
 
 	if allTicksInRange || player.cursor.RawPosition.Dst(sliderPosition) <= player.diff.GetRadius() {
 		state.sliding = true
@@ -256,7 +256,7 @@ func (slider *Slider) UpdateFor(player *difficultyPlayer, time int64, processSli
 		}
 
 		if lazerMode {
-			slider.processTicksLazer(player, state, time, allowable, sliderPosition)
+			slider.processTicksLazer(player, state, time, allowable)
 		} else {
 			slider.processTicksStable(player, state, time, allowable, sliderPosition, processSliderEndsAhead)
 		}
@@ -350,7 +350,7 @@ func (slider *Slider) processTicksStable(player *difficultyPlayer, state *slider
 	}
 }
 
-func (slider *Slider) processTicksLazer(player *difficultyPlayer, state *sliderstate, time int64, allowable bool, sliderPosition vector.Vector2f) {
+func (slider *Slider) processTicksLazer(player *difficultyPlayer, state *sliderstate, time int64, allowable bool) {
 	// Lazer resolves every event that is due in the current frame. This matters
 	// for late frames: a cursor sample can retroactively resolve several ticks,
 	// but a tail remains ordered behind all preceding events and can use its
@@ -417,7 +417,12 @@ func (slider *Slider) processTicksLazer(player *difficultyPlayer, state *sliders
 			state.tailSamplePlayed = true
 		}
 
-		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(point.hitResult, point.maxResult, combo, time, sliderPosition, slider, point.resultPart()))
+		// A late frame can resolve several events at once. Keep the result
+		// timestamp at the actual processing time, but place the result at the
+		// event's path position so judgement markers do not bunch at the
+		// cursor's current position.
+		eventPosition := slider.hitSlider.GetStackedPositionAtModLazer(point.time, player.diff)
+		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(point.hitResult, point.maxResult, combo, time, eventPosition, slider, point.resultPart()))
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/beatmap/objects"
+	"github.com/wieku/danser-go/app/graphics"
 	"github.com/wieku/danser-go/app/rulesets/osu"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/app/skin"
@@ -26,6 +27,23 @@ type HitResults struct {
 	alpha    float64
 }
 
+const (
+	sliderJudgmentMarkerFadeIn       = 120.0
+	sliderJudgmentMarkerFadeOutDelay = 250.0
+	sliderJudgmentMarkerFadeOut      = 600.0
+	sliderJudgmentMarkerScaleTime    = 100.0
+)
+
+var (
+	sliderTickMissMarkerColor = color2.NewIRGB(237, 17, 33)
+	sliderEndMissMarkerColor  = color2.NewIRGB(128, 128, 128)
+)
+
+type sliderJudgmentMarker struct {
+	textureName   string
+	fallbackColor color2.Color
+}
+
 func NewHitResults(diff *difficulty.Difficulty) *HitResults {
 	// Preload all frames to avoid stalling during gameplay
 	skin.GetFrames("hit0", true)
@@ -35,6 +53,8 @@ func NewHitResults(diff *difficulty.Difficulty) *HitResults {
 	skin.GetFrames("hit300", true)
 	skin.GetFrames("hit300k", true)
 	skin.GetFrames("hit300g", true)
+	skin.GetFrames("slidertickmiss", true)
+	skin.GetFrames("sliderendmiss", true)
 
 	return &HitResults{
 		bottom: sprite.NewManager(),
@@ -43,7 +63,22 @@ func NewHitResults(diff *difficulty.Difficulty) *HitResults {
 	}
 }
 
+// AddJudgmentResult adds the visual effects associated with a gameplay
+// judgment. Slider-part results are deliberately accepted here as well as
+// ordinary hit results: Lazer exposes missed slider parts as independent
+// judgments, while Stable keeps its historical slider visuals.
+func (results *HitResults) AddJudgmentResult(judgement osu.JudgementResult, object objects.IHitObject) {
+	results.addHitResult(judgement.Time, judgement.HitResult, judgement.Position.Copy64(), object)
+	results.addSliderJudgmentMarker(judgement)
+}
+
+// AddResult preserves the original hit-result API for callers that do not
+// have the complete judgement metadata required by Lazer slider markers.
 func (results *HitResults) AddResult(time int64, result osu.HitResult, position vector.Vector2d, object objects.IHitObject) {
+	results.addHitResult(time, result, position, object)
+}
+
+func (results *HitResults) addHitResult(time int64, result osu.HitResult, position vector.Vector2d, object objects.IHitObject) {
 	var tex string
 	var particle string
 
@@ -150,6 +185,123 @@ func (results *HitResults) AddResult(time int64, result osu.HitResult, position 
 	lighting.AddTransformUnordered(animation.NewSingleTransform(animation.Fade, easing.Linear, float64(time+400), float64(time+1400), 1, 0))
 
 	results.bottom.Add(lighting)
+}
+
+func (results *HitResults) addSliderJudgmentMarker(judgement osu.JudgementResult) {
+	if results.diff == nil || !results.diff.IsLazer() || !settings.Objects.Sliders.ShowSliderJudgmentMarkers {
+		return
+	}
+
+	definition, ok := sliderJudgmentMarkerFor(judgement.HitResult, judgement.IsSliderNested(), judgement.IsSliderHead())
+	if !ok {
+		return
+	}
+
+	startTime := float64(judgement.Time)
+	position := judgement.Position.Copy64()
+	frames := skin.GetFrames(definition.textureName, true)
+
+	var marker sprite.ISprite
+	if len(frames) > 0 {
+		marker = sprite.NewAnimation(
+			frames,
+			skin.GetInfo().GetFrameTime(max(1, len(frames))),
+			false,
+			startTime+1,
+			position,
+			vector.Centre,
+		)
+	} else {
+		// The default skin does not provide these legacy judgement animations.
+		// Reuse the already loaded built-in cross as a visible fallback and
+		// rotate it into an X. A non-empty custom animation takes precedence,
+		// even when its pixels are intentionally transparent.
+		if graphics.Cross == nil || graphics.Cross.Width <= 0 {
+			return
+		}
+
+		marker = sprite.NewSpriteSingle(graphics.Cross, startTime+1, position, vector.Centre)
+		marker.SetColor(definition.fallbackColor)
+		marker.SetScale(64 / (float64(graphics.Cross.Width) * math.Sqrt2))
+		marker.SetRotation(math.Pi / 4)
+	}
+
+	marker.ShowForever(false)
+	marker.AddTransformUnordered(animation.NewSingleTransform(
+		animation.Fade,
+		easing.Linear,
+		startTime,
+		startTime+sliderJudgmentMarkerFadeIn,
+		0,
+		1,
+	))
+
+	if len(frames) <= 1 {
+		marker.AddTransformUnordered(animation.NewSingleTransform(
+			animation.Scale,
+			easing.InQuad,
+			startTime,
+			startTime+sliderJudgmentMarkerScaleTime,
+			1.2,
+			1,
+		))
+		marker.AddTransformUnordered(animation.NewSingleTransform(
+			animation.Fade,
+			easing.Linear,
+			startTime+sliderJudgmentMarkerFadeOutDelay,
+			startTime+sliderJudgmentMarkerFadeOutDelay+sliderJudgmentMarkerFadeOut,
+			1,
+			0,
+		))
+	} else {
+		// LegacyJudgementPieceOld intentionally skips the miss-specific scale
+		// and shortened fade for multi-frame animations unless transforms are
+		// forced. Preserve that skin-specific behavior instead of flattening
+		// every marker into the single-frame path.
+		marker.AddTransformUnordered(animation.NewSingleTransform(
+			animation.Fade,
+			easing.Linear,
+			startTime+500,
+			startTime+500+sliderJudgmentMarkerFadeOut,
+			1,
+			0,
+		))
+	}
+
+	marker.SortTransformations()
+	marker.AdjustTimesToTransformations()
+	marker.ResetValuesToTransforms()
+
+	results.top.Add(marker)
+}
+
+func sliderJudgmentMarkerFor(result osu.HitResult, nested, head bool) (sliderJudgmentMarker, bool) {
+	if !nested && !head {
+		return sliderJudgmentMarker{}, false
+	}
+
+	switch result &^ osu.Additions {
+	case osu.LargeTickMiss:
+		// Classic Lazer can use LargeTickMiss for a missed slider head when
+		// classicNoSliderHeadAccuracy is enabled. LegacySkin uses the same
+		// slidertickmiss component for that result, so heads are included for
+		// this result only.
+		return sliderJudgmentMarker{
+			textureName:   "slidertickmiss",
+			fallbackColor: sliderTickMissMarkerColor,
+		}, true
+	case osu.IgnoreMiss:
+		if !nested {
+			return sliderJudgmentMarker{}, false
+		}
+
+		return sliderJudgmentMarker{
+			textureName:   "sliderendmiss",
+			fallbackColor: sliderEndMissMarkerColor,
+		}, true
+	default:
+		return sliderJudgmentMarker{}, false
+	}
 }
 
 func (results *HitResults) Update(time float64) {

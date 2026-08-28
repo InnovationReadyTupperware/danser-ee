@@ -385,8 +385,8 @@ func (overlay *ScoreOverlay) initUnderlay() {
 func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu.JudgementResult, score osu.Score) {
 	object := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number]
 
-	if judgementResult.HitResult&(osu.BaseHitsM) > 0 {
-		overlay.results.AddResult(judgementResult.Time, judgementResult.HitResult, judgementResult.Position.Copy64(), object)
+	if judgementResult.HitResult&(osu.BaseHitsM) > 0 || judgementResult.IsSliderNested() || judgementResult.IsSliderHead() {
+		overlay.results.AddJudgmentResult(judgementResult, object)
 	}
 
 	playerDiff := overlay.ruleset.GetPlayerDifficulty(c)

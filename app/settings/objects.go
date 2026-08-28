@@ -11,14 +11,15 @@ func initObjects() *objects {
 		ScaleToTheBeat:      false,
 		StackEnabled:        true,
 		Sliders: &sliders{
-			ForceSliderBallTexture: true,
-			DrawEndCircles:         true,
-			DrawReverseArrows:      true,
-			DrawSliderFollowCircle: true,
-			HitAnimations:          true,
-			DrawScorePoints:        true,
-			SliderMerge:            false,
-			BorderWidth:            1.0,
+			ForceSliderBallTexture:    true,
+			DrawEndCircles:            true,
+			DrawReverseArrows:         true,
+			DrawSliderFollowCircle:    true,
+			HitAnimations:             true,
+			ShowSliderJudgmentMarkers: true,
+			DrawScorePoints:           true,
+			SliderMerge:               false,
+			BorderWidth:               1.0,
 			Distortions: &distortions{
 				Enabled:             true,
 				ViewportSize:        0,
@@ -112,16 +113,17 @@ type objects struct {
 }
 
 type sliders struct {
-	ForceSliderBallTexture bool `label:"Force slider ball texture on mandalas"`
-	DrawEndCircles         bool
-	DrawReverseArrows      bool
-	DrawSliderFollowCircle bool
-	HitAnimations          bool `label:"Slider hit animations" tooltip:"Show slider hit, tick, repeat, tail, and break animations"`
-	DrawScorePoints        bool //true
-	SliderMerge            bool
-	BorderWidth            float64      `max:"9"`
-	Distortions            *distortions `liveedit:"false"`
-	Snaking                *snaking
+	ForceSliderBallTexture    bool `label:"Force slider ball texture on mandalas"`
+	DrawEndCircles            bool
+	DrawReverseArrows         bool
+	DrawSliderFollowCircle    bool
+	HitAnimations             bool `label:"Slider hit animations" tooltip:"Show slider hit, tick, repeat, tail, and break animations"`
+	ShowSliderJudgmentMarkers bool `label:"Show slider judgment markers" tooltip:"Show Lazer-style X markers for missed slider parts"`
+	DrawScorePoints           bool //true
+	SliderMerge               bool
+	BorderWidth               float64      `max:"9"`
+	Distortions               *distortions `liveedit:"false"`
+	Snaking                   *snaking
 }
 
 type distortions struct {
