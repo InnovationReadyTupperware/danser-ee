@@ -6,7 +6,6 @@ import (
 
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/graphics"
 	"github.com/wieku/danser-go/app/rulesets/osu"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/app/skin"
@@ -28,24 +27,14 @@ type HitResults struct {
 }
 
 const (
-	sliderDefaultJudgmentMarkerSize      = 16.0
-	sliderDefaultJudgmentMarkerScaleTime = 150.0
-	sliderDefaultJudgmentMarkerFadeOut   = 600.0
-
 	sliderLegacyJudgmentMarkerFadeIn       = 120.0
 	sliderLegacyJudgmentMarkerFadeOutDelay = 250.0
 	sliderLegacyJudgmentMarkerFadeOut      = 600.0
 	sliderLegacyJudgmentMarkerScaleTime    = 100.0
 )
 
-var (
-	sliderTickMissMarkerColor = color2.NewIRGB(237, 17, 33)
-	sliderEndMissMarkerColor  = color2.NewIRGB(128, 128, 128)
-)
-
 type sliderJudgmentMarker struct {
-	textureName   string
-	fallbackColor color2.Color
+	textureName string
 }
 
 func NewHitResults(diff *difficulty.Difficulty) *HitResults {
@@ -205,47 +194,23 @@ func (results *HitResults) addSliderJudgmentMarker(judgement osu.JudgementResult
 	position := judgement.Position.Copy64()
 	frames := skin.GetFrames(definition.textureName, true)
 
-	var marker sprite.ISprite
-	if len(frames) > 0 {
-		marker = sprite.NewAnimation(
-			frames,
-			skin.GetInfo().GetFrameTime(max(1, len(frames))),
-			false,
-			startTime+1,
-			position,
-			vector.Centre,
-		)
-		addLegacySliderJudgmentMarkerTransforms(marker, startTime, len(frames))
-	} else {
-		// Lazer's ruleset fallback is a 16-unit additive circle. It is not the
-		// cross used by legacy miss textures, and it inherits the judged
-		// object's circle-size scale from DrawTop. A non-empty custom animation
-		// takes precedence, even when its pixels are intentionally transparent.
-		if graphics.SliderJudgmentMarker == nil || graphics.SliderJudgmentMarker.Width <= 0 {
-			return
-		}
-
-		marker = sprite.NewSpriteSingle(graphics.SliderJudgmentMarker, startTime+1, position, vector.Centre)
-		marker.SetColor(definition.fallbackColor)
-		marker.SetAdditive(true)
-		marker.SetScale(sliderDefaultJudgmentMarkerSize / float64(graphics.SliderJudgmentMarker.Width))
-		marker.AddTransformUnordered(animation.NewSingleTransform(
-			animation.Scale,
-			easing.OutQuad,
-			startTime,
-			startTime+sliderDefaultJudgmentMarkerScaleTime,
-			1.4*marker.GetScale().X,
-			marker.GetScale().X,
-		))
-		marker.AddTransformUnordered(animation.NewSingleTransform(
-			animation.Fade,
-			easing.Linear,
-			startTime,
-			startTime+sliderDefaultJudgmentMarkerFadeOut,
-			1,
-			0,
-		))
+	if len(frames) == 0 {
+		return
 	}
+
+	// Lazer resolves a legacy skin through its embedded DefaultLegacySkin
+	// before it reaches the later Triangles/Argon ruleset fallback. Danser's
+	// default skin carries the same slider miss assets, so a missing custom
+	// animation reaches the correct X here through the normal skin hierarchy.
+	marker := sprite.NewAnimation(
+		frames,
+		skin.GetInfo().GetFrameTime(max(1, len(frames))),
+		false,
+		startTime+1,
+		position,
+		vector.Centre,
+	)
+	addLegacySliderJudgmentMarkerTransforms(marker, startTime, len(frames))
 
 	marker.ShowForever(false)
 	marker.SortTransformations()
@@ -310,8 +275,7 @@ func sliderJudgmentMarkerFor(result osu.HitResult, nested, head bool) (sliderJud
 		// slidertickmiss component for that result, so heads are included for
 		// this result only.
 		return sliderJudgmentMarker{
-			textureName:   "slidertickmiss",
-			fallbackColor: sliderTickMissMarkerColor,
+			textureName: "slidertickmiss",
 		}, true
 	case osu.IgnoreMiss:
 		if !nested {
@@ -319,8 +283,7 @@ func sliderJudgmentMarkerFor(result osu.HitResult, nested, head bool) (sliderJud
 		}
 
 		return sliderJudgmentMarker{
-			textureName:   "sliderendmiss",
-			fallbackColor: sliderEndMissMarkerColor,
+			textureName: "sliderendmiss",
 		}, true
 	default:
 		return sliderJudgmentMarker{}, false
