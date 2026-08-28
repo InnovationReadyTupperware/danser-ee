@@ -113,12 +113,19 @@ const (
 	New
 )
 
+// catalogProgressState is the complete worker-to-renderer progress snapshot.
+// It is stored as one value in atomic.Value so the launcher never observes a
+// partially updated stage, count, or completion flag while drawing a frame.
 type catalogProgressState struct {
 	stage     database.ImportStage
 	processed int
 	target    int
 	active    bool
 }
+
+// catalogProgressVisibilityThreshold hides tiny refreshes from the normal
+// launcher flow while still making a large reconciliation observable.
+const catalogProgressVisibilityThreshold = 128
 
 type launcher struct {
 	bg *common.Background
@@ -135,7 +142,6 @@ type launcher struct {
 
 	newDefault bool
 
-	mapsLoaded      atomic.Bool
 	catalogProgress atomic.Value
 	catalogMu       sync.Mutex
 
@@ -164,7 +170,6 @@ type launcher struct {
 	popupStack       []iPopup
 
 	selectWindow *songSelectPopup
-	splashText   string
 
 	prevMap *beatmap.BeatMap
 
@@ -209,6 +214,7 @@ func StartLauncher() {
 
 	launcher := &launcher{
 		bld:        newBuilder(),
+		catalog:    database.NewCatalogSnapshot(nil),
 		popupStack: make([]iPopup, 0),
 		winter:     (cTime.Month() == 12 && cTime.Day() >= 6) || (cTime.Month() < 2),
 		christmas:  cTime.Month() == 12 && cTime.Day() >= 6,
@@ -373,8 +379,6 @@ func (l *launcher) startContext() {
 	l.coin.DrawVisualiser(true)
 
 	goroutines.RunOS(func() {
-		l.splashText = "Initializing..."
-
 		settings.DefaultsFactory.EncoderOptions() // preload to avoid pauses
 
 		l.loadBeatmaps(nil)
@@ -444,14 +448,16 @@ func (l *launcher) loadBeatmaps(after func()) {
 	closeWatcher()
 	database.Close()
 
-	l.mapsLoaded.Store(false)
-	l.catalogProgress.Store(catalogProgressState{})
-	l.splashText = "Loading cached maps..."
+	l.clearCatalogProgress()
 
 	err := database.Init()
 	if err != nil {
-		showMessage(mError, "Failed to initialize database! Error: %s\nMake sure Song's folder does exist or change it to the correct directory in settings.", err)
-		l.publishCatalog(database.NewCatalogSnapshot(nil), after)
+		// Keep the in-memory catalog visible during a refresh failure. The
+		// database is an accelerator for the launcher, so losing it must not
+		// turn a recoverable refresh error into an empty startup screen.
+		goroutines.CallMain(func() {
+			showMessage(mError, "Failed to initialize database! Error: %s\nMake sure Song's folder does exist or change it to the correct directory in settings.", err)
+		})
 		l.setupWatcher()
 		l.catalogMu.Unlock()
 		return
@@ -465,6 +471,7 @@ func (l *launcher) loadBeatmaps(after func()) {
 		// snapshot only after the durable catalog has been updated.
 		goroutines.RunOS(func() {
 			defer l.catalogMu.Unlock()
+			defer l.clearCatalogProgress()
 
 			// A first launch may have no danser rows yet. Read Stable's optional
 			// database on this worker and publish its provisional metadata before
@@ -480,7 +487,6 @@ func (l *launcher) loadBeatmaps(after func()) {
 			// not hold the selector's first usable catalog hostage to it.
 			starDelta := database.UpdateCatalogStarRating(l.catalogStarRatingListener())
 			l.publishCatalogDelta(starDelta, nil)
-			l.catalogProgress.Store(catalogProgressState{})
 		})
 
 		return
@@ -497,7 +503,6 @@ func (l *launcher) publishCatalog(catalog *database.CatalogSnapshot, after func(
 	// half-installed catalog.
 	goroutines.CallMain(func() {
 		l.catalog = catalog
-		l.mapsLoaded.Store(true)
 
 		if l.selectWindow != nil {
 			l.selectWindow.updateCatalog(catalog)
@@ -526,7 +531,6 @@ func (l *launcher) publishCatalogDelta(delta database.CatalogDelta, after func()
 		}
 
 		l.catalog = l.catalog.ApplyDelta(delta)
-		l.mapsLoaded.Store(true)
 
 		if l.selectWindow != nil {
 			l.selectWindow.updateCatalog(l.catalog)
@@ -539,17 +543,38 @@ func (l *launcher) publishCatalogDelta(delta database.CatalogDelta, after func()
 }
 
 func (l *launcher) catalogImportListener() database.ImportListener {
+	largeScan := false
+
 	return func(stage database.ImportStage, processed, target int) {
 		// Discovery and comparison intentionally stay invisible for small
-		// updates. A large scan gets a lightweight directory counter, while
-		// import and cleanup expose exact work totals once they are known.
-		if stage == database.Discovery && processed >= 128 {
+		// updates. Once discovery crosses the threshold, keep the phase visible
+		// while comparison runs even though comparison has no exact total.
+		switch stage {
+		case database.Discovery:
+			if processed < catalogProgressVisibilityThreshold {
+				return
+			}
+
+			largeScan = true
 			l.catalogProgress.Store(catalogProgressState{
 				stage:     stage,
 				processed: processed,
 				active:    true,
 			})
-		} else if (stage == database.Import || stage == database.Cleanup) && target >= 128 {
+		case database.Comparison:
+			if !largeScan {
+				return
+			}
+
+			l.catalogProgress.Store(catalogProgressState{
+				stage:  database.Comparison,
+				active: true,
+			})
+		case database.Import, database.Cleanup:
+			if target < catalogProgressVisibilityThreshold {
+				return
+			}
+
 			l.catalogProgress.Store(catalogProgressState{
 				stage:     stage,
 				processed: processed,
@@ -560,9 +585,16 @@ func (l *launcher) catalogImportListener() database.ImportListener {
 	}
 }
 
+// clearCatalogProgress publishes the idle state after reconciliation. Keeping
+// this as a named transition makes it harder for a future early return to
+// leave stale worker status in the launcher UI.
+func (l *launcher) clearCatalogProgress() {
+	l.catalogProgress.Store(catalogProgressState{})
+}
+
 func (l *launcher) catalogStarRatingListener() func(processed, target int, message string) {
 	return func(processed, target int, _ string) {
-		if target < 128 {
+		if target < catalogProgressVisibilityThreshold {
 			return
 		}
 
@@ -696,7 +728,7 @@ func (l *launcher) Draw() {
 		l.snow.Draw(t, l.batch)
 	}
 
-	if l.mapsLoaded.Load() {
+	if l.catalog != nil {
 		if l.winter {
 			bSnow := *graphics.Snow[0]
 
@@ -783,11 +815,7 @@ func (l *launcher) drawImgui() {
 
 	imgui.PushStyleVarVec2(imgui.StyleVarWindowPadding, vec2(5, 5))
 
-	if l.mapsLoaded.Load() {
-		l.drawMain()
-	} else {
-		l.drawSplash()
-	}
+	l.drawMain()
 
 	imgui.PopStyleVar()
 
@@ -910,17 +938,8 @@ func (l *launcher) drawCatalogProgress() {
 		return
 	}
 
-	var message string
-	switch progress.stage {
-	case database.Discovery:
-		message = fmt.Sprintf("Scanning beatmaps: %d directories", progress.processed)
-	case database.Import:
-		message = fmt.Sprintf("Indexing beatmaps: %d / %d", progress.processed, progress.target)
-	case database.Cleanup:
-		message = fmt.Sprintf("Removing beatmaps: %d / %d", progress.processed, progress.target)
-	case database.StarRating:
-		message = fmt.Sprintf("Updating star ratings: %d / %d", progress.processed, progress.target)
-	default:
+	message := catalogProgressMessage(progress)
+	if message == "" {
 		return
 	}
 
@@ -930,32 +949,25 @@ func (l *launcher) drawCatalogProgress() {
 	imgui.Dummy(vec2(0, 4))
 }
 
-func (l *launcher) drawSplash() {
-	w, h := contentRegionMax().X, contentRegionMax().Y
-
-	imgui.PushFont(Font, 48)
-
-	splText := strings.Split(l.splashText, "\n")
-
-	var height float32
-
-	for _, sText := range splText {
-		height += imgui.CalcTextSizeV(sText, false, 0).Y
+func catalogProgressMessage(progress catalogProgressState) string {
+	if !progress.active {
+		return ""
 	}
 
-	var dHeight float32
-
-	for _, sText := range splText {
-		tSize := imgui.CalcTextSizeV(sText, false, 0)
-
-		imgui.SetCursorPos(vec2(10+(w-tSize.X)/2, 10+(h-height)/2+dHeight))
-
-		dHeight += tSize.Y
-
-		imgui.TextUnformatted(sText)
+	switch progress.stage {
+	case database.Discovery:
+		return fmt.Sprintf("Scanning beatmaps: %d directories", progress.processed)
+	case database.Comparison:
+		return "Comparing beatmaps..."
+	case database.Import:
+		return fmt.Sprintf("Indexing beatmaps: %d / %d", progress.processed, progress.target)
+	case database.Cleanup:
+		return fmt.Sprintf("Removing beatmaps: %d / %d", progress.processed, progress.target)
+	case database.StarRating:
+		return fmt.Sprintf("Updating star ratings: %d / %d", progress.processed, progress.target)
+	default:
+		return ""
 	}
-
-	imgui.PopFont()
 }
 
 func (l *launcher) drawControls() {
