@@ -7,8 +7,6 @@ import (
 	"math/rand"
 	"path/filepath"
 	"slices"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/AllenDang/cimgui-go/imgui"
@@ -54,74 +52,144 @@ func (s SortBy) String() string {
 	return ""
 }
 
-type mapWithName struct {
-	name    string
-	title   string
-	artist  string
-	creator string
-	dir     string
-	entry   *database.BeatmapEntry
+type searchEntry struct {
+	entry           *database.BeatmapEntry
+	searchKey       string
+	titleKey        string
+	artistKey       string
+	creatorKey      string
+	directoryKey    string
+	mapKey          string
+	md5             string
+	artistCreator   string
+	difficultyLabel string
+	groupIndex      int
 }
 
-func newMapWithName(entry *database.BeatmapEntry) *mapWithName {
-	return &mapWithName{
-		name:    entry.SearchKey(),
-		title:   strings.ToLower(entry.Name),
-		artist:  strings.ToLower(entry.Artist),
-		creator: strings.ToLower(entry.Creator),
-		dir:     strings.ToLower(entry.Dir),
-		entry:   entry,
+func newSearchEntry(entry *database.BeatmapEntry) *searchEntry {
+	if entry == nil {
+		return nil
+	}
+
+	return &searchEntry{
+		entry:           entry,
+		searchKey:       entry.SearchKey(),
+		titleKey:        strings.ToLower(entry.Name),
+		artistKey:       strings.ToLower(entry.Artist),
+		creatorKey:      strings.ToLower(entry.Creator),
+		directoryKey:    normalizeSongDirectory(entry.Dir),
+		mapKey:          normalizeMapKey(entry.MapKey()),
+		md5:             strings.ToLower(entry.MD5),
+		artistCreator:   entry.Artist + " // " + entry.Creator,
+		difficultyLabel: ">   " + entry.Difficulty,
+		groupIndex:      -1,
 	}
 }
 
-type beatmapSet struct {
-	directory string
-	top       float32
-	height    float32
-	measured  bool
-	entries   []*database.BeatmapEntry
-	hovered   bool
+func normalizeSongDirectory(directory string) string {
+	return strings.ToLower(filepath.ToSlash(directory))
 }
 
-type maps []*mapWithName
-
-func (e maps) String(i int) string {
-	return e[i].name
+func normalizeMapKey(mapKey string) string {
+	return strings.ToLower(filepath.ToSlash(mapKey))
 }
 
-func (e maps) Len() int {
+type searchEntries []*searchEntry
+
+func (e searchEntries) String(i int) string {
+	return e[i].searchKey
+}
+
+func (e searchEntries) Len() int {
 	return len(e)
+}
+
+type songSet struct {
+	directory     string
+	title         string
+	artistCreator string
+	groupIndex    int
+	entryStart    int
+	entryEnd      int
+	matchCount    int
+	hovered       bool
+}
+
+// searchResults keeps all matched entries in one flat array. A set stores a
+// half-open range into that array, avoiding one heap allocation and one pointer
+// indirection for every set in a broad query.
+type searchResults struct {
+	sets    []songSet
+	entries []*searchEntry
+}
+
+func (r searchResults) entriesForSet(index int) []*searchEntry {
+	if index < 0 || index >= len(r.sets) {
+		return nil
+	}
+
+	set := r.sets[index]
+	if set.entryStart < 0 || set.entryStart > set.entryEnd || set.entryEnd > len(r.entries) {
+		return nil
+	}
+
+	return r.entries[set.entryStart:set.entryEnd]
+}
+
+func (r searchResults) findSetByGroup(groupIndex int) (int, bool) {
+	left, right := 0, len(r.sets)
+	for left < right {
+		middle := left + (right-left)/2
+		if r.sets[middle].groupIndex < groupIndex {
+			left = middle + 1
+		} else {
+			right = middle
+		}
+	}
+
+	return left, left < len(r.sets) && r.sets[left].groupIndex == groupIndex
+}
+
+type searchMatch struct {
+	entry    *searchEntry
+	setIndex int
 }
 
 type songSelectPopup struct {
 	*popup
 
 	bld      *builder
-	beatmaps maps
+	beatmaps searchEntries
 
-	searchResults []*beatmapSet
-	searchStr     string
+	searchResults    searchResults
+	searchScratch    []searchMatch
+	groupScratch     []int
+	groupByDirectory map[string]int
+	groupCount       int
+	searchStr        string
 
 	prevMap       *beatmap.BeatMap
 	prevEntry     *database.BeatmapEntry
+	previewMapKey string
 	PreviewedSong *bass.TrackBass
 	volume        *animation.Glider
 	stopTime      float64
 	thumbTex      *texture.TextureSingle
 	texRef        *imgui.TextureRef
 	lastThumbPath string
-	drawTex       bool
 	focusTheMap   bool
 
 	comboOpened bool
 	scrolling   bool
 
-	materialize  func(*database.BeatmapEntry) (*beatmap.BeatMap, error)
-	catalog      *database.CatalogSnapshot
-	catalogDirty bool
-	layoutWidth  float32
-	layoutReady  bool
-	layoutDirty  bool
+	materialize          func(*database.BeatmapEntry) (*beatmap.BeatMap, error)
+	catalog              *database.CatalogSnapshot
+	catalogDirty         bool
+	layout               variableHeightLayout
+	layoutWidth          float32
+	layoutReady          bool
+	lastScrollY          float32
+	tooltipDisabledUntil float64
 }
 
 func newSongSelectPopup(bld *builder, catalog *database.CatalogSnapshot, materialize func(*database.BeatmapEntry) (*beatmap.BeatMap, error)) *songSelectPopup {
@@ -133,6 +201,7 @@ func newSongSelectPopup(bld *builder, catalog *database.CatalogSnapshot, materia
 	}
 
 	mP.internalDraw = mP.drawSongSelect
+	mP.setCloseListener(mP.releaseThumbnail)
 
 	mP.setCatalog(catalog)
 
@@ -143,17 +212,20 @@ func (m *songSelectPopup) setCatalog(catalog *database.CatalogSnapshot) {
 	m.catalog = catalog
 	m.catalogDirty = false
 
-	beatmaps := make(maps, 0)
+	beatmaps := make(searchEntries, 0)
 	if catalog != nil {
-		beatmaps = make(maps, 0, catalog.Len())
+		beatmaps = make(searchEntries, 0, catalog.Len())
 		catalog.ForEach(func(entry *database.BeatmapEntry) bool {
-			beatmaps = append(beatmaps, newMapWithName(entry))
+			if searchEntry := newSearchEntry(entry); searchEntry != nil {
+				beatmaps = append(beatmaps, searchEntry)
+			}
 			return true
 		})
 	}
 
 	m.beatmaps = beatmaps
-	sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
+	m.groupByDirectory = sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
+	m.groupCount = len(m.groupByDirectory)
 	m.search()
 	m.focusTheMap = true
 }
@@ -223,7 +295,8 @@ func (m *songSelectPopup) drawSongSelect() {
 			for _, s := range sortMethods {
 				if imgui.SelectableBoolV(s.String(), s == launcherConfig.SortMapsBy, 0, vzero()) && s != launcherConfig.SortMapsBy {
 					launcherConfig.SortMapsBy = s
-					sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
+					m.groupByDirectory = sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
+					m.groupCount = len(m.groupByDirectory)
 					m.search()
 					m.focusTheMap = true
 					saveLauncherConfig()
@@ -244,7 +317,8 @@ func (m *songSelectPopup) drawSongSelect() {
 
 		if imgui.Button(sDir) {
 			launcherConfig.SortAscending = !launcherConfig.SortAscending
-			sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
+			m.groupByDirectory = sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
+			m.groupCount = len(m.groupByDirectory)
 			m.search()
 			m.focusTheMap = true
 			saveLauncherConfig()
@@ -267,34 +341,48 @@ func (m *songSelectPopup) drawSongSelect() {
 
 	imgui.BeginChildStr("##bsets")
 
+	previousScrollY := m.lastScrollY
 	m.scrolling = handleDragScroll()
 
 	imgui.PushStyleVarVec2(imgui.StyleVarFramePadding, vec2(5, 0))
 	listStartY := imgui.CursorPos().Y
 	listWidth := imgui.ContentRegionAvail().X
-	if !m.layoutReady || m.layoutDirty || math.Abs(float64(listWidth-m.layoutWidth)) > 1 {
-		m.prepareLayout(listWidth)
+	if !m.layoutReady || math.Abs(float64(listWidth-m.layoutWidth)) > 1 {
+		m.rebuildLayout(listWidth)
 	}
 
 	if m.focusTheMap {
 		if m.bld.currentMap != nil {
-			currentDirectory := strings.ToLower(m.bld.currentMap.Dir)
-			for _, result := range m.searchResults {
-				if result.directory != currentDirectory {
-					continue
-				}
-				if slices.ContainsFunc(result.entries, func(entry *database.BeatmapEntry) bool {
-					return entryMatchesMap(entry, m.bld.currentMap)
-				}) {
-					imgui.SetScrollYFloat(result.top)
-					break
+			currentDirectory := normalizeSongDirectory(m.bld.currentMap.Dir)
+			if groupIndex, ok := m.groupByDirectory[currentDirectory]; ok {
+				resultIndex, found := m.searchResults.findSetByGroup(groupIndex)
+				if found {
+					currentMap := newMapIdentity(m.bld.currentMap)
+					for _, entry := range m.searchResults.entriesForSet(resultIndex) {
+						if entry.matches(currentMap) {
+							imgui.SetScrollYFloat(m.layout.top(resultIndex))
+							break
+						}
+					}
 				}
 			}
 		}
 		m.focusTheMap = false
 	}
 
-	startIndex, endIndex := m.visibleRange(imgui.ScrollY(), imgui.ContentRegionAvail().Y)
+	scrollY := imgui.ScrollY()
+	now := qpc.GetMilliTimeF()
+	if m.scrolling || math.Abs(float64(scrollY-previousScrollY)) > 0.01 {
+		// Dear ImGui's item-tooltip delay is useful for ordinary hover, but it
+		// does not know that this list's thumbnail load touches the disk and
+		// uploads a texture. Keep that work out of the scroll path explicitly.
+		m.tooltipDisabledUntil = now + 150
+	}
+	tooltipAllowed := now >= m.tooltipDisabledUntil
+	currentMap := newMapIdentity(m.bld.currentMap)
+
+	startIndex, endIndex := m.layout.visibleRange(scrollY, imgui.ContentRegionAvail().Y)
+	var scrollCorrection float32
 
 	if imgui.BeginTableV("bsetstab", 1, imgui.TableFlagsRowBg|imgui.TableFlagsPadOuterX|imgui.TableFlagsBordersH, vec2(-1, 0), -1) {
 		imgui.TableSetBgColor(imgui.TableBgTargetRowBg1, packColor(vec4(0.5, 0.5, 0.5, 1)))
@@ -302,39 +390,47 @@ func (m *songSelectPopup) drawSongSelect() {
 		if startIndex > 0 {
 			imgui.TableNextColumn()
 			currentY := imgui.CursorPos().Y - listStartY
-			top := m.totalLayoutHeight()
-			if startIndex < len(m.searchResults) {
-				top = m.searchResults[startIndex].top
-			}
-			dummyExactY(max(0, top-currentY))
+			dummyExactY(max(0, m.layout.top(startIndex)-currentY))
 		}
 
+		previewKey := m.previewMapKey
+
 		for i := startIndex; i < endIndex; i++ {
-			b := m.searchResults[i]
+			b := &m.searchResults.sets[i]
+			entries := m.searchResults.entriesForSet(i)
+			if len(entries) == 0 {
+				continue
+			}
 
 			imgui.TableNextColumn()
 
-			isPreviewed := slices.ContainsFunc(b.entries, func(entry *database.BeatmapEntry) bool {
-				return m.prevEntry != nil && entry.MapKey() == m.prevEntry.MapKey()
-			})
+			isPreviewed := false
+			if previewKey != "" {
+				for _, entry := range entries {
+					if entry.mapKey == previewKey {
+						isPreviewed = true
+						break
+					}
+				}
+			}
 
 			c1 := imgui.CursorPos().Y
 
-			rId := strconv.Itoa(i)
+			imgui.PushIDInt(int32(i))
 
 			imgui.BeginGroup()
 
-			if imgui.BeginTableV("bsetstab"+rId, 2, imgui.TableFlagsSizingStretchProp, vec2(-1, 0), -1) {
+			if imgui.BeginTableV("bsetstab", 2, imgui.TableFlagsSizingStretchProp, vec2(-1, 0), -1) {
 				imgui.PushFont(Font, 32)
 
-				imgui.TableSetupColumnV("##hhh"+rId, imgui.TableColumnFlagsWidthStretch, 0, imgui.ID(0))
-				imgui.TableSetupColumnV("##hhhg"+rId, imgui.TableColumnFlagsWidthFixed, imgui.FrameHeight()*2+imgui.CurrentStyle().ItemSpacing().X, imgui.ID(1))
+				imgui.TableSetupColumnV("##title", imgui.TableColumnFlagsWidthStretch, 0, imgui.ID(0))
+				imgui.TableSetupColumnV("##actions", imgui.TableColumnFlagsWidthFixed, imgui.FrameHeight()*2+imgui.CurrentStyle().ItemSpacing().X, imgui.ID(1))
 
 				imgui.TableNextColumn()
 
 				imgui.PushTextWrapPos()
 
-				imgui.TextUnformatted(b.entries[0].Name)
+				imgui.TextUnformatted(b.title)
 
 				imgui.PopTextWrapPos()
 
@@ -350,7 +446,7 @@ func (m *songSelectPopup) drawSongSelect() {
 					imgui.PushStyleColorVec4(imgui.ColButtonActive, vec4(0.2, 0.2, 0.2, 1))
 					imgui.PushStyleColorVec4(imgui.ColButtonHovered, vec4(0.4, 0.4, 0.4, 1))
 
-					s := b.entries[0].SetID == 0
+					s := entries[0].entry.SetID == 0
 
 					if s {
 						imgui.BeginDisabled()
@@ -359,8 +455,8 @@ func (m *songSelectPopup) drawSongSelect() {
 					imgui.PushFont(FontAw, 16)
 
 					imgui.AlignTextToFramePadding()
-					if imgui.ButtonV("\uF7A2##"+rId, vec2(imgui.FrameHeight()*2, imgui.FrameHeight()*2)) {
-						platform.OpenURL(fmt.Sprintf("https://osu.ppy.sh/s/%d", b.entries[0].SetID))
+					if imgui.ButtonV("\uF7A2", vec2(imgui.FrameHeight()*2, imgui.FrameHeight()*2)) {
+						platform.OpenURL(fmt.Sprintf("https://osu.ppy.sh/s/%d", entries[0].entry.SetID))
 					}
 
 					if s {
@@ -375,7 +471,7 @@ func (m *songSelectPopup) drawSongSelect() {
 						if s {
 							imgui.TextUnformatted("Not available")
 						} else {
-							imgui.TextUnformatted(fmt.Sprintf("https://osu.ppy.sh/s/%d", b.entries[0].SetID))
+							imgui.TextUnformatted(fmt.Sprintf("https://osu.ppy.sh/s/%d", entries[0].entry.SetID))
 						}
 
 						imgui.EndTooltip()
@@ -391,11 +487,11 @@ func (m *songSelectPopup) drawSongSelect() {
 					imgui.PushFont(FontAw, 16)
 
 					imgui.AlignTextToFramePadding()
-					if imgui.ButtonV(name+"##"+rId, vec2(imgui.FrameHeight()*2, imgui.FrameHeight()*2)) {
+					if imgui.ButtonV(name, vec2(imgui.FrameHeight()*2, imgui.FrameHeight()*2)) {
 						m.stopPreview()
 
 						if name == "\uF04B" {
-							m.startPreview(b.entries[0])
+							m.startPreview(entries[0].entry)
 						}
 					}
 
@@ -424,36 +520,36 @@ func (m *songSelectPopup) drawSongSelect() {
 				imgui.EndTable()
 			}
 
-			imgui.TextUnformatted(fmt.Sprintf("%s // %s", b.entries[0].Artist, b.entries[0].Creator))
+			imgui.TextUnformatted(b.artistCreator)
 
 			imgui.PushFont(Font, 20)
 
-			for j, entry := range b.entries {
-				fDiffName := ">   " + entry.Difficulty
+			for j, entry := range entries {
+				imgui.PushIDInt(int32(j))
 
-				tSiz := imgui.CalcTextSizeV(fDiffName, false, 0)
+				tSiz := imgui.CalcTextSizeV(entry.difficultyLabel, false, 0)
 
 				sPos := imgui.CursorScreenPos()
 
-				if imgui.SelectableBoolV(fDiffName+"##"+rId+"s"+strconv.Itoa(j), entryMatchesMap(entry, m.bld.currentMap), 0, vzero()) {
-					bMap, ok := m.materializeEntry(entry)
-					if !ok {
-						continue
+				if imgui.SelectableBoolV(entry.difficultyLabel, entry.matches(currentMap), 0, vzero()) {
+					if bMap, ok := m.materializeEntry(entry.entry); ok {
+						m.bld.setMap(bMap)
+
+						if !isPreviewed && launcherConfig.PreviewSelected {
+							m.stopPreview()
+							m.startPreview(entry.entry)
+						}
+
+						m.opened = false
 					}
-
-					m.bld.setMap(bMap)
-
-					if !isPreviewed && launcherConfig.PreviewSelected {
-						m.stopPreview()
-						m.startPreview(entry)
-					}
-
-					m.opened = false
 				}
 
-				if imgui.IsItemHovered() && ImIO.MousePos().X <= sPos.X+tSiz.X {
-					m.showMapTooltip(entry)
+				if tooltipAllowed && imgui.IsItemHovered() && ImIO.MousePos().X <= sPos.X+tSiz.X && imgui.BeginItemTooltip() {
+					m.drawMapTooltip(entry.entry)
+					imgui.EndTooltip()
 				}
+
+				imgui.PopID()
 			}
 
 			imgui.PopFont()
@@ -467,17 +563,18 @@ func (m *songSelectPopup) drawSongSelect() {
 
 			c2 := imgui.CursorPos().Y
 			measuredHeight := max(0, c2-c1)
-			if !b.measured || math.Abs(float64(b.height-measuredHeight)) > 0.5 {
-				b.height = measuredHeight
-				b.measured = true
-				m.layoutDirty = true
+			previousBottom := m.layout.top(i) + m.layout.height(i)
+			if delta := m.layout.update(i, measuredHeight); delta != 0 && previousBottom <= scrollY {
+				scrollCorrection += delta
 			}
+
+			imgui.PopID()
 		}
 
-		if endIndex < len(m.searchResults) || startIndex == len(m.searchResults) {
+		if endIndex < len(m.searchResults.sets) || startIndex == len(m.searchResults.sets) {
 			imgui.TableNextColumn()
 			currentY := imgui.CursorPos().Y - listStartY
-			dummyExactY(max(0, m.totalLayoutHeight()-currentY))
+			dummyExactY(max(0, m.layout.total()-currentY))
 		}
 
 		imgui.EndTable()
@@ -485,92 +582,45 @@ func (m *songSelectPopup) drawSongSelect() {
 
 	imgui.PopStyleVar()
 
+	if scrollCorrection != 0 {
+		imgui.SetScrollYFloat(max(0, scrollY+scrollCorrection))
+	}
+	m.lastScrollY = imgui.ScrollY()
+
 	imgui.EndChild()
 
 	imgui.WindowDrawList().AddLine(csPos, csPos.Add(vec2(imgui.ContentRegionAvail().X, 0)), packColor(*imgui.StyleColorVec4(imgui.ColSeparator)))
 }
 
-func (m *songSelectPopup) prepareLayout(width float32) {
-	if math.Abs(float64(width-m.layoutWidth)) > 1 {
-		for _, result := range m.searchResults {
-			result.measured = false
-		}
-	}
-
-	top := float32(0)
-	for _, result := range m.searchResults {
-		if !result.measured {
-			result.height = m.estimateSetHeight(result, width)
-		}
-		result.top = top
-		top += result.height
-	}
-
-	m.layoutWidth = width
-	m.layoutReady = true
-	m.layoutDirty = false
-}
-
-func (m *songSelectPopup) estimateSetHeight(result *beatmapSet, width float32) float32 {
-	if result == nil || len(result.entries) == 0 {
-		return 0
-	}
+func (m *songSelectPopup) rebuildLayout(width float32) {
+	style := imgui.CurrentStyle()
+	spacingY := style.ItemSpacing().Y
 
 	imgui.PushFont(Font, 20)
 	buttonSize := imgui.FrameHeight() * 2
-	buttonWidth := buttonSize + imgui.CurrentStyle().ItemSpacing().X
+	buttonWidth := buttonSize + style.ItemSpacing().X
 	difficultyHeight := imgui.TextLineHeight()
-	imgui.PopFont()
-
-	imgui.PushFont(Font, 32)
-	titleWidth := max(1, width-buttonWidth)
-	titleHeight := imgui.CalcTextSizeV(result.entries[0].Name, false, titleWidth).Y
-	if titleHeight <= 0 {
-		titleHeight = imgui.TextLineHeight()
-	}
 	imgui.PopFont()
 
 	imgui.PushFont(Font, 24)
 	artistHeight := imgui.TextLineHeight()
 	imgui.PopFont()
 
-	return max(titleHeight, buttonSize) + artistHeight + float32(len(result.entries))*difficultyHeight + imgui.CurrentStyle().ItemSpacing().Y*3 + 4
-}
+	titleWidth := max(1, width-buttonWidth)
+	imgui.PushFont(Font, 32)
+	m.layout.rebuild(len(m.searchResults.sets), func(index int) float32 {
+		set := &m.searchResults.sets[index]
+		titleHeight := imgui.CalcTextSizeV(set.title, false, titleWidth).Y
+		if titleHeight <= 0 {
+			titleHeight = imgui.TextLineHeight()
+		}
 
-func (m *songSelectPopup) visibleRange(scrollY, viewportHeight float32) (int, int) {
-	count := len(m.searchResults)
-	if count == 0 {
-		return 0, 0
-	}
-
-	start := sort.Search(count, func(index int) bool {
-		result := m.searchResults[index]
-		return result.top+result.height >= scrollY
+		return max(titleHeight, buttonSize) + artistHeight + float32(set.entryEnd-set.entryStart)*difficultyHeight + spacingY*3 + 4
 	})
-	end := sort.Search(count, func(index int) bool {
-		return m.searchResults[index].top > scrollY+viewportHeight
-	})
+	imgui.PopFont()
 
-	if start > 0 {
-		start--
-	}
-	if end < count {
-		end++
-	}
-	if end < start {
-		end = start
-	}
-
-	return start, end
-}
-
-func (m *songSelectPopup) totalLayoutHeight() float32 {
-	if len(m.searchResults) == 0 {
-		return 0
-	}
-
-	last := m.searchResults[len(m.searchResults)-1]
-	return last.top + last.height
+	m.layoutWidth = width
+	m.layoutReady = true
 }
 
 func (m *songSelectPopup) materializeEntry(entry *database.BeatmapEntry) (*beatmap.BeatMap, bool) {
@@ -591,34 +641,44 @@ func (m *songSelectPopup) materializeEntry(entry *database.BeatmapEntry) (*beatm
 	return bMap, true
 }
 
-func entryMatchesMap(entry *database.BeatmapEntry, bMap *beatmap.BeatMap) bool {
-	if entry == nil || bMap == nil {
+type mapIdentity struct {
+	mapKey string
+	md5    string
+}
+
+func newMapIdentity(bMap *beatmap.BeatMap) mapIdentity {
+	if bMap == nil {
+		return mapIdentity{}
+	}
+
+	return mapIdentity{
+		mapKey: normalizeMapKey(filepath.Join(bMap.Dir, bMap.File)),
+		md5:    strings.ToLower(bMap.MD5),
+	}
+}
+
+func (entry *searchEntry) matches(identity mapIdentity) bool {
+	if entry == nil || identity.mapKey == "" && identity.md5 == "" {
 		return false
 	}
-	if entry.MD5 != "" && bMap.MD5 != "" && strings.EqualFold(entry.MD5, bMap.MD5) {
+	if entry.md5 != "" && identity.md5 != "" && entry.md5 == identity.md5 {
 		return true
 	}
 
-	return strings.EqualFold(entry.MapKey(), strings.ToLower(filepath.ToSlash(filepath.Join(bMap.Dir, bMap.File))))
+	return entry.mapKey == identity.mapKey
 }
 
-func (m *songSelectPopup) showMapTooltip(entry *database.BeatmapEntry) {
+func (m *songSelectPopup) drawMapTooltip(entry *database.BeatmapEntry) {
 	imgui.PushFont(Font, 24)
 
 	const tgAsp = float32(4.0 / 3)
-
-	imgui.BeginTooltip()
 
 	cPos := imgui.CursorPos()
 
 	thumbPath := filepath.Join(settings.General.GetSongsDir(), entry.Dir, entry.Background)
 
 	if m.lastThumbPath != thumbPath {
-		if m.thumbTex != nil {
-			m.thumbTex.Dispose()
-			m.texRef.Destroy()
-			m.thumbTex = nil
-		}
+		m.releaseThumbnail()
 
 		pX, err := texture.NewPixmapFileString(thumbPath)
 		if err == nil {
@@ -630,7 +690,6 @@ func (m *songSelectPopup) showMapTooltip(entry *database.BeatmapEntry) {
 		}
 
 		m.lastThumbPath = thumbPath
-		m.drawTex = false
 	}
 
 	if m.thumbTex != nil {
@@ -644,7 +703,7 @@ func (m *songSelectPopup) showMapTooltip(entry *database.BeatmapEntry) {
 			uvBR.X = 1 - uvTL.X
 		} else {
 			uvTL.Y = (1 - asp/tgAsp) / 2
-			uvBR.Y = 1 - uvTL.X
+			uvBR.Y = 1 - uvTL.Y
 		}
 
 		imgui.ImageWithBgV(*m.texRef, vec2(200*tgAsp, 200), uvTL, uvBR, imgui.Vec4{}, imgui.Vec4{X: 1, Y: 1, Z: 1, W: 0.3})
@@ -698,17 +757,38 @@ func (m *songSelectPopup) showMapTooltip(entry *database.BeatmapEntry) {
 	}
 
 	imgui.PopFont()
-	imgui.EndTooltip()
+}
+
+// releaseThumbnail tears down both sides of the native texture ownership
+// boundary. The ImGui reference must not outlive the OpenGL texture it names,
+// and keeping either object after the popup closes would retain the last map
+// background until process shutdown.
+func (m *songSelectPopup) releaseThumbnail() {
+	if m.texRef != nil {
+		m.texRef.Destroy()
+		m.texRef = nil
+	}
+	if m.thumbTex != nil {
+		m.thumbTex.Dispose()
+		m.thumbTex = nil
+	}
+
+	m.lastThumbPath = ""
 }
 
 func (m *songSelectPopup) selectRandom() {
-	if len(m.searchResults) == 0 {
+	if len(m.searchResults.sets) == 0 {
 		return
 	}
 
-	i := rand.Intn(len(m.searchResults))
+	i := rand.Intn(len(m.searchResults.sets))
 
-	entry := m.searchResults[i].entries[len(m.searchResults[i].entries)-1]
+	entries := m.searchResults.entriesForSet(i)
+	if len(entries) == 0 {
+		return
+	}
+
+	entry := entries[len(entries)-1].entry
 	bMap, ok := m.materializeEntry(entry)
 	if !ok {
 		return
@@ -757,10 +837,12 @@ func (m *songSelectPopup) selectNewest() {
 func (m *songSelectPopup) stopPreview() {
 	if m.PreviewedSong != nil {
 		m.PreviewedSong.Stop()
-		m.PreviewedSong = nil
-		m.prevMap = nil
-		m.prevEntry = nil
 	}
+
+	m.PreviewedSong = nil
+	m.prevMap = nil
+	m.prevEntry = nil
+	m.previewMapKey = ""
 }
 
 func (m *songSelectPopup) startPreview(entry *database.BeatmapEntry) {
@@ -794,37 +876,117 @@ func (m *songSelectPopup) startPreview(entry *database.BeatmapEntry) {
 		m.stopTime = cT + 10000
 		m.prevMap = bMap
 		m.prevEntry = entry
+		m.previewMapKey = normalizeMapKey(entry.MapKey())
 	}
 }
 
 func (m *songSelectPopup) search() {
 	m.layoutReady = false
-	m.layoutDirty = false
-	m.searchResults = searchMapSets(m.beatmaps, m.searchStr)
+	if len(m.beatmaps) > 0 && m.groupCount == 0 {
+		m.groupByDirectory = assignSearchGroupIndices(m.beatmaps)
+		m.groupCount = len(m.groupByDirectory)
+	}
+	m.searchResults, m.searchScratch, m.groupScratch = searchMapSetsWithScratch(m.beatmaps, m.searchStr, m.searchScratch, m.groupCount, m.groupScratch)
 }
 
-func searchMapSets(beatmaps maps, query string) []*beatmapSet {
-	results := make([]*beatmapSet, 0)
-	sString := strings.ToLower(query)
+func searchMapSets(beatmaps searchEntries, query string) searchResults {
+	groupByDir := assignSearchGroupIndices(beatmaps)
+	results, _, _ := searchMapSetsWithScratch(beatmaps, query, nil, len(groupByDir), nil)
+	return results
+}
 
-	for _, mapName := range beatmaps {
-		if sString != "" && !strings.Contains(mapName.name, sString) {
+func assignSearchGroupIndices(beatmaps searchEntries) map[string]int {
+	// Group IDs are assigned after sorting and reused for every query until the
+	// sort order changes. This keeps query-time grouping on integer indexes
+	// instead of rebuilding a string map for every keystroke.
+	groupByDir := make(map[string]int, max(1, len(beatmaps)/4))
+	for _, entry := range beatmaps {
+		if entry == nil {
 			continue
 		}
 
-		entry := mapName.entry
-		entryDirectory := mapName.dir
-		if len(results) == 0 || results[len(results)-1].directory != entryDirectory {
-			results = append(results, &beatmapSet{
-				directory: entryDirectory,
-				entries:   make([]*database.BeatmapEntry, 0, 1),
-			})
+		groupIndex, ok := groupByDir[entry.directoryKey]
+		if !ok {
+			groupIndex = len(groupByDir)
+			groupByDir[entry.directoryKey] = groupIndex
 		}
-
-		results[len(results)-1].entries = append(results[len(results)-1].entries, entry)
+		entry.groupIndex = groupIndex
 	}
 
-	return results
+	return groupByDir
+}
+
+// searchMapSetsWithScratch expects groupIndex values to have been assigned by
+// assignSearchGroupIndices. The popup maintains that invariant across sort
+// changes so this function can keep its query path allocation-light.
+func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []searchMatch, groupCount int, groupScratch []int) (searchResults, []searchMatch, []int) {
+	query = strings.ToLower(query)
+	if groupCount == 0 && len(beatmaps) > 0 {
+		groupCount = len(assignSearchGroupIndices(beatmaps))
+	}
+	groupHint := min(groupCount, max(1, len(beatmaps)/4))
+
+	results := searchResults{
+		sets: make([]songSet, 0, groupHint),
+	}
+	matches := scratch[:0]
+	if cap(groupScratch) < groupCount {
+		groupScratch = make([]int, groupCount)
+	} else {
+		groupScratch = groupScratch[:groupCount]
+		clear(groupScratch)
+	}
+
+	for _, entry := range beatmaps {
+		if entry == nil || query != "" && !strings.Contains(entry.searchKey, query) {
+			continue
+		}
+
+		// Zero means that the group has not appeared in this query. Store the
+		// result index plus one so result index zero remains distinguishable.
+		setIndex := groupScratch[entry.groupIndex]
+		if setIndex == 0 {
+			setIndex = len(results.sets) + 1
+			groupScratch[entry.groupIndex] = setIndex
+			setIndex--
+			results.sets = append(results.sets, songSet{
+				directory:     entry.directoryKey,
+				title:         entry.entry.Name,
+				artistCreator: entry.artistCreator,
+				groupIndex:    entry.groupIndex,
+			})
+		} else {
+			setIndex--
+		}
+
+		results.sets[setIndex].matchCount++
+		matches = append(matches, searchMatch{entry: entry, setIndex: setIndex})
+	}
+
+	if len(matches) > 0 {
+		results.entries = make([]*searchEntry, len(matches))
+		groupOffsets := make([]int, len(results.sets))
+		cursor := 0
+		for index := range results.sets {
+			set := &results.sets[index]
+			set.entryStart = cursor
+			set.entryEnd = set.entryStart + set.matchCount
+			groupOffsets[index] = set.entryStart
+			cursor = set.entryEnd
+		}
+
+		for _, match := range matches {
+			position := groupOffsets[match.setIndex]
+			results.entries[position] = match.entry
+			groupOffsets[match.setIndex]++
+		}
+	}
+
+	// The scratch entries contain pointers into the current catalog. Clear
+	// them before retaining the capacity so a later catalog publication can be
+	// reclaimed even if the selector itself remains alive.
+	clear(matches)
+	return results, matches[:0], groupScratch
 }
 
 func (m *songSelectPopup) open() {
@@ -837,21 +999,21 @@ func (m *songSelectPopup) open() {
 	m.popup.open()
 }
 
-func sortMaps(bMaps maps, sortBy SortBy) {
-	slices.SortStableFunc(bMaps, func(b1, b2 *mapWithName) int {
+func sortMaps(bMaps searchEntries, sortBy SortBy) map[string]int {
+	slices.SortStableFunc(bMaps, func(b1, b2 *searchEntry) int {
 		entry1 := b1.entry
 		entry2 := b2.entry
 		var res int
 
 		switch sortBy {
 		case Title:
-			res = cmp.Compare(b1.title, b2.title)
+			res = cmp.Compare(b1.titleKey, b2.titleKey)
 		case Artist:
-			res = cmp.Compare(b1.artist, b2.artist)
+			res = cmp.Compare(b1.artistKey, b2.artistKey)
 		case Creator:
-			res = cmp.Compare(b1.creator, b2.creator)
+			res = cmp.Compare(b1.creatorKey, b2.creatorKey)
 		case DateAdded:
-			if b1.dir != b2.dir || mutils.Abs(entry1.LastModified/1000-entry2.LastModified/1000) > 10 {
+			if b1.directoryKey != b2.directoryKey || mutils.Abs(entry1.LastModified/1000-entry2.LastModified/1000) > 10 {
 				res = cmp.Compare(entry1.LastModified/1000, entry2.LastModified/1000)
 			} else {
 				res = 0
@@ -868,7 +1030,7 @@ func sortMaps(bMaps maps, sortBy SortBy) {
 			return res
 		}
 
-		res = cmp.Compare(b1.dir, b2.dir)
+		res = cmp.Compare(b1.directoryKey, b2.directoryKey)
 
 		if !launcherConfig.SortAscending {
 			res = -res
@@ -880,4 +1042,6 @@ func sortMaps(bMaps maps, sortBy SortBy) {
 
 		return cmp.Compare(entry1.Stars, entry2.Stars) // Don't flip grouped difficulties
 	})
+
+	return assignSearchGroupIndices(bMaps)
 }

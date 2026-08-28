@@ -61,20 +61,54 @@ Danser Enterprise Edition (danser-ee) is a GUI/CLI visualization tool for osu!st
 
 ## What's the difference between danser-go and danser-ee?
 
-If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience while building on it with bug fixes, quality-of-life improvements, launcher polish, modernization work, and correctness fixes where the upstream version currently falls short.
+If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience while building on it with bug fixes, correctness fixes, launcher polish, and modernization where upstream currently falls short.
 
-This is a high-level snapshot of additions in `danser-ee` since the current fork point (`upstream/dev` at `3eb75a34`), not a complete changelog.
+This is a high-level snapshot of what actually changed since the fork point (`upstream/dev` at `3eb75a34`), not a commit-based summary and not a complete changelog.
 
-| Feature | danser-ee | danser-go (fork base) |
-| --- | :---: | :---: |
-| Core danser experience | ✅ | ✅ |
-| SDL3 native dialogs | ✅ | - |
-| Launcher popup focus fixes | ✅ | - |
-| Offline render timing fixes | ✅ | - |
-| Floating-point realtime audio mixing | ✅ | - |
-| Go 1.27 and refreshed dependencies | ✅ | - |
-| Linux launcher dialog fallback | ✅ | - |
-| Platform policy | Windows-first, Linux best effort | Upstream policy |
+| Feature                            |                                        danser-ee                                        |              danser-go (fork base)              |
+|------------------------------------|:---------------------------------------------------------------------------------------:|:-----------------------------------------------:|
+| Core danser experience             |                                           ✅                                            |                       ✅                        |
+| Refreshed dependencies             |                                           ✅                                            |                        -                        |
+| Native dialogs (SDL3)              |                                           ✅                                            |           sqweek/dialog (Wieku fork)            |
+| Beatmap catalog startup            |                           ✅ Cache-first catalog publication                            | ❌❌❌ Synchronous full-library materialization |
+| Incremental beatmap reconciliation |                       ✅ Fingerprint-driven delta reconciliation                        |             ❌ Full catalog rebuild             |
+| Catalog reconciliation progress    |                               ✅ Reconciliation telemetry                               |                        -                        |
+| Song search pipeline               |                ✅ Precomputed query index and reusable result projection                |   ❌❌❌ Per-query full result reconstruction   |
+| Song-select scrolling              |           ✅ Variable-height virtualized layout with logarithmic range lookup           |      ❌❌❌ Repeated full-list layout work      |
+| Song-set grouping                  |                  ✅ Stable indexed grouping independent of sort order                   |       ❌ Per-result directory regrouping        |
+| Search thumbnail loading           |               ✅ Stationary-hover lazy loading with scroll-safe eviction                |        ❌ Synchronous tooltip asset work        |
+| Optional osu!.db acceleration      |                         ✅ Read-only Stable metadata bootstrap                          |                        -                        |
+| Lazy beatmap and skin assets       |                            ✅ Demand-driven asset resolution                            |             ❌ Eager asset indexing             |
+| Native Classic (CL) mod            |                                           ✅                                            |               synthetic Lazer mod               |
+| Lazer slider result taxonomy       |                                           ✅                                            |      approximate slider tick/tail handling      |
+| Slider miss judgment markers       |                     red/gray X markers, skin-aware and configurable                     |                        -                        |
+| Slider visual timing               |                                 Lazer-style fractional                                  |                  legacy timing                  |
+| Slider snaking                     |                                frame-computed, seek-safe                                |              pre-scheduled gliders              |
+| Slider hit animations              |                               configurable, on by default                               |                        -                        |
+| Slider tail/endpoint visuals       |                                skin-aware; no forced pop                                |               universal fallback                |
+| Slider body fade                   |                                Lazer-compatible default                                 |               instant by default                |
+| Lazer hit-error & UR               |                                           ✅                                            |                 rescan-based UR                 |
+| Legacy hit-error bar profile       |                              centered OD-dependent windows                              |              legacy approximation               |
+| Hit-error timing lines             |                              10 s fade, 50-line pool, EWMA                              |                        -                        |
+| Numeric UR layout                  |                               scales and anchors with bar                               |              fixed-size companion               |
+| Hit-error bar customization        |                             colors, arrow, thickness, fade                              |                        -                        |
+| Positional miss markers            |                                   opt-in diagnostics                                    |                shown by default                 |
+| Fixed spinner HUD layout           |                                           ✅                                            |                        -                        |
+| Spinner completion rate            |                                Lazer model through OD 11                                |                   fixed rate                    |
+| Cursor-dance spinner RPM           |                              optional lowest clearing RPM                               |                        -                        |
+| Spinner shape movement             |                              shared phase and polar paths                               |                 shape-specific                  |
+| Spinner RPM display                |                                Lazer trailing RPM meter                                 |              legacy filtered rate               |
+| Cursor-dance RPM stability         |                               settles to captured target                                |                        -                        |
+| Stable spinner replay behavior     |                                 preserved under Classic                                 |                        -                        |
+| Accurate recording sync            |                                           ✅                                            |                 source-clocked                  |
+| Timestamped hitsound scheduling    | master-mixer output timing for hitobjects, sliders, spinners, storyboards, and overlays |            frame-triggered playback             |
+| Audio lifecycle safety             |     serialized BASS access, cancellable voices, and explicit map/storyboard cleanup     |                        -                        |
+| Offline audio output               |        mixer-clocked rendering with actual output format and zero-filled blocks         |            source-clocked rendering             |
+| BASS core version                  |                                        2.4.18.3                                         |                    older 2.4                    |
+| Floating-point realtime audio      |                                           ✅                                            |                  16-bit mixer                   |
+| Deadline-based frame timing        |                                    ✅ + thread-safe                                     |          unsynchronized, polling-based          |
+| CLI no-argument behavior           |                              ✅ Helpful usage, no rickroll                              |              ❌ Surprise rickroll               |
+| Platform support                   |                            Windows-first, Linux best effort                             |                 Upstream policy                 |
 
 ## About danser-ee
 
