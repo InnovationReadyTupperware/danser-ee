@@ -806,7 +806,11 @@ func (l *launcher) drawMain() {
 	w := contentRegionMax().X
 
 	imgui.PushFont(Font, 24)
-	l.drawCatalogProgress()
+	if launcherConfig.CurrentMode == Play {
+		// Play mode has no output-mode row in the lower panel. Keep catalog
+		// progress visible in its original header position for that mode.
+		l.drawCatalogProgress()
+	}
 
 	if imgui.BeginTableV("ltpanel", 2, imgui.TableFlagsSizingStretchProp, vec2(float32(w)/2, 0), -1) {
 		imgui.TableSetupColumnV("ltpanel1", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(0))
@@ -1321,6 +1325,12 @@ func (l *launcher) drawLowerPanel() {
 		if showProgress {
 			spacing *= 2
 		}
+
+		// Keep library reconciliation status with the output controls. The
+		// extra frame of space leaves the progress line above the Watch,
+		// Record, and Screenshot row in both the normal and encoding layouts.
+		imgui.SetCursorPos(vec2(20, h-spacing-imgui.FrameHeightWithSpacing()))
+		l.drawCatalogProgress()
 
 		imgui.SetCursorPos(vec2(20, h-spacing))
 
