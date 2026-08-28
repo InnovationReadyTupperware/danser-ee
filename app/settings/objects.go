@@ -15,6 +15,7 @@ func initObjects() *objects {
 			DrawEndCircles:         true,
 			DrawReverseArrows:      true,
 			DrawSliderFollowCircle: true,
+			HitAnimations:          true,
 			DrawScorePoints:        true,
 			SliderMerge:            false,
 			BorderWidth:            1.0,
@@ -28,7 +29,7 @@ func initObjects() *objects {
 			Snaking: &snaking{
 				In:                 true,
 				Out:                true,
-				OutFadeInstant:     true,
+				OutFadeInstant:     false,
 				DurationMultiplier: 0,
 				FadeMultiplier:     0,
 			},
@@ -115,6 +116,7 @@ type sliders struct {
 	DrawEndCircles         bool
 	DrawReverseArrows      bool
 	DrawSliderFollowCircle bool
+	HitAnimations          bool `label:"Slider hit animations" tooltip:"Show slider hit, tick, repeat, tail, and break animations"`
 	DrawScorePoints        bool //true
 	SliderMerge            bool
 	BorderWidth            float64      `max:"9"`
@@ -134,9 +136,9 @@ type distortions struct {
 type snaking struct {
 	In                 bool
 	Out                bool
-	OutFadeInstant     bool    `label:"Fade out the slider instantly" showif:"Out=true"`
-	DurationMultiplier float64 `scale:"100" format:"%.0f%%" label:"In duration multiplier" showif:"In=true" tooltip:"How much of slider's duration should be added to snake in time"`
-	FadeMultiplier     float64 `scale:"100" format:"%.0f%%" label:"In fade multiplier" showif:"In=true" tooltip:"How close to slider's start time snake in should end"`
+	OutFadeInstant     bool    `label:"Fade slider body instantly" showif:"Out=true" tooltip:"Danser visualizer override. Skip the short Lazer-compatible body fade after a slider ends"`
+	DurationMultiplier float64 `scale:"100" format:"%.0f%%" label:"Snake-in duration extension" showif:"In=true" tooltip:"Danser visualizer override. Add this percentage of one span to Lazer's normal snake-in duration"`
+	FadeMultiplier     float64 `scale:"100" format:"%.0f%%" label:"Snake-in end-time extension" showif:"In=true" tooltip:"Danser visualizer override. Move snake-in's end toward the slider start by this percentage"`
 }
 
 type objectColors struct {

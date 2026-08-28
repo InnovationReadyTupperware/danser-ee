@@ -47,12 +47,6 @@ type TickPoint struct {
 	EdgeIndex int
 }
 
-var easeBezier = curves.NewMultiCurve([]curves.CurveDef{{CurveType: curves.CBezier, Points: []vector.Vector2f{{X: 0, Y: 0}, {X: 0.1, Y: 1}, {X: 0.5, Y: 0.5}, {X: 1, Y: 1}}}})
-
-var snakeEase = easing.Easing(func(f float64) float64 {
-	return float64(easeBezier.PointAt(float32(f)).Y)
-})
-
 type Slider struct {
 	*HitObject
 
@@ -76,10 +70,8 @@ type Slider struct {
 
 	startCircle *Circle
 
-	sliderSnakeTail *animation.Glider
-	sliderSnakeHead *animation.Glider
-	fade            *animation.Glider
-	bodyFade        *animation.Glider
+	fade     *animation.Glider
+	bodyFade *animation.Glider
 
 	diff     *difficulty.Difficulty
 	body     *sliderrenderer.Body
@@ -119,7 +111,7 @@ func NewSlider(data []string) *Slider {
 	}
 
 	slider.pixelLength = min(slider.pixelLength, maxPathLength)
-	slider.RepeatCount = min(slider.RepeatCount, maxRepeats) // The same limit as in Lazer
+	slider.RepeatCount = max(1, min(slider.RepeatCount, maxRepeats)) // The same limit as in Lazer; malformed maps must still have one span.
 
 	slider.multiCurve = slider.parseCurve(data[5])
 	if slider.multiCurve == nil {
@@ -176,9 +168,6 @@ func NewSlider(data []string) *Slider {
 
 	slider.fade = animation.NewGlider(1)
 	slider.bodyFade = animation.NewGlider(1)
-	slider.sliderSnakeTail = animation.NewGlider(1)
-	slider.sliderSnakeHead = animation.NewGlider(0)
-
 	return slider
 }
 
@@ -311,8 +300,13 @@ func (slider *Slider) PositionAt(time float64) vector.Vector2f {
 }
 
 func (slider *Slider) PositionAtLazer(time float64) vector.Vector2f {
-	if slider.IsRetarded() {
+	if slider.multiCurve == nil || slider.EndTimeLazer <= slider.StartTime ||
+		math.IsNaN(slider.EndTimeLazer) || math.IsInf(slider.EndTimeLazer, 0) ||
+		slider.spanDuration <= 0 || math.IsNaN(slider.spanDuration) || math.IsInf(slider.spanDuration, 0) {
 		return slider.StartPosRaw
+	}
+	if math.IsNaN(time) || math.IsInf(time, 0) {
+		time = slider.StartTime
 	}
 
 	t1 := mutils.Clamp(time, slider.StartTime, slider.EndTimeLazer)
@@ -390,6 +384,10 @@ func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 
 	tickDistance := scoringDistance / slider.Timings.TickRate * tickDistanceMultiplier
 
+	if slider.RepeatCount <= 0 || velocity <= 0 || math.IsNaN(velocity) || math.IsInf(velocity, 0) {
+		return
+	}
+
 	slider.EndTimeLazer = slider.StartTime + float64(slider.RepeatCount)*cLength/velocity
 
 	slider.spanDuration = (slider.EndTimeLazer - slider.StartTime) / float64(slider.RepeatCount)
@@ -401,6 +399,7 @@ func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 	minDistanceFromEnd := velocity * 10
 
 	// Lazer like score point calculations. Clean AF, but not unreliable enough for stable's replay processing. Would need more testing.
+	edgeIndex := 1
 	for span := 0; span < int(slider.RepeatCount); span++ {
 		spanStartTime := slider.StartTime + float64(span)*slider.spanDuration
 		reversed := span%2 == 1
@@ -426,7 +425,9 @@ func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 			Time:      spanStartTime + slider.spanDuration,
 			IsReverse: span < int(slider.RepeatCount)-1,
 			LastPoint: span == int(slider.RepeatCount)-1,
+			EdgeIndex: edgeIndex,
 		})
+		edgeIndex++
 	}
 
 	slices.SortFunc(slider.ScorePointsLazer, func(a, b TickPoint) int { return cmp.Compare(a.Time, b.Time) })
@@ -560,10 +561,68 @@ func copySliderHOData(target, base *HitObject) {
 	target.StackIndexMap = base.StackIndexMap
 }
 
+// visualEndTime is the timeline used by the renderer. Lazer keeps the
+// fractional slider duration while the Stable-compatible HitObject duration
+// is floored for replay and judgement code.
+func (slider *Slider) visualEndTime() float64 {
+	if slider.EndTimeLazer > slider.StartTime && !math.IsNaN(slider.EndTimeLazer) && !math.IsInf(slider.EndTimeLazer, 0) {
+		return slider.EndTimeLazer
+	}
+
+	return slider.EndTime
+}
+
+// visualSpanDuration returns the duration of one Lazer span and falls back to
+// the Stable value for manually constructed sliders and malformed maps.
+func (slider *Slider) visualSpanDuration() float64 {
+	if slider.spanDuration > 0 && !math.IsNaN(slider.spanDuration) && !math.IsInf(slider.spanDuration, 0) {
+		return slider.spanDuration
+	}
+
+	if slider.RepeatCount > 0 {
+		duration := (slider.visualEndTime() - slider.StartTime) / float64(slider.RepeatCount)
+		if duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0) {
+			return duration
+		}
+	}
+
+	return 0
+}
+
+func (slider *Slider) visualBodyRange(time float64) sliderBodyRange {
+	if slider.diff == nil {
+		return sliderBodyRange{}
+	}
+
+	return sliderBodyRangeAt(
+		time,
+		slider.StartTime,
+		slider.visualEndTime(),
+		slider.diff.Preempt,
+		slider.visualSpanDuration(),
+		slider.RepeatCount,
+		sliderSnakeSettings{
+			in:                 settings.Objects.Sliders.Snaking.In,
+			out:                settings.Objects.Sliders.Snaking.Out,
+			durationMultiplier: settings.Objects.Sliders.Snaking.DurationMultiplier,
+			fadeMultiplier:     settings.Objects.Sliders.Snaking.FadeMultiplier,
+		},
+	)
+}
+
 func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 	slider.diff = diff
-	slider.sliderSnakeTail = animation.NewGlider(0)
-	slider.sliderSnakeHead = animation.NewGlider(0)
+	slider.edges = slider.edges[:0]
+	slider.endCircles = slider.endCircles[:0]
+	slider.headEndCircles = slider.headEndCircles[:0]
+	slider.tailEndCircles = slider.tailEndCircles[:0]
+	slider.lastScorePoint = 0
+	slider.lastTime = math.Inf(-1)
+	slider.updatedAtLeastOnce = false
+	slider.isSliding = false
+	slider.Pos = slider.StartPosRaw
+
+	visualEndTime := slider.visualEndTime()
 
 	slider.fade = animation.NewGlider(0)
 	slider.fade.AddEvent(slider.StartTime-diff.Preempt, slider.StartTime-(diff.Preempt-diff.TimeFadeIn), 1)
@@ -572,10 +631,25 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 	slider.bodyFade.AddEvent(slider.StartTime-diff.Preempt, slider.StartTime-(diff.Preempt-diff.TimeFadeIn), 1)
 
 	if diff.CheckModActive(difficulty.Hidden) {
-		slider.bodyFade.AddEventEase(slider.StartTime-diff.Preempt+diff.TimeFadeIn, slider.EndTime, 0, easing.OutQuad)
+		slider.bodyFade.AddEventEase(slider.StartTime-diff.Preempt+diff.TimeFadeIn, visualEndTime, 0, easing.OutQuad)
 	}
 
-	slider.fade.AddEvent(slider.EndTime, slider.EndTime+difficulty.HitFadeOut, 0)
+	slider.fade.AddEvent(visualEndTime, visualEndTime+difficulty.HitFadeOut, 0)
+
+	if !diff.CheckModActive(difficulty.Hidden) {
+		fadeEnd := visualEndTime + difficulty.HitFadeOut
+		if settings.Objects.Sliders.Snaking.Out {
+			if settings.Objects.Sliders.Snaking.OutFadeInstant {
+				fadeEnd = visualEndTime
+			} else {
+				// Lazer gives the slider body a short fade after a snaking-out
+				// tail so the body does not disappear as a hard cut.
+				fadeEnd = visualEndTime + 40
+			}
+		}
+
+		slider.bodyFade.AddEvent(visualEndTime, fadeEnd, 0)
+	}
 
 	slider.startCircle = DummyCircle(slider.StartPosRaw, slider.StartTime)
 	copySliderHOData(slider.startCircle.HitObject, slider.HitObject)
@@ -584,7 +658,11 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 	slider.edges = append(slider.edges, slider.startCircle)
 
 	sixty := 1000.0 / 60
-	frameDelay := max(150/slider.Timings.GetVelocity(slider.TPoint)*sixty, sixty)
+	velocity := slider.Timings.GetVelocity(slider.TPoint)
+	frameDelay := sixty
+	if velocity > 0 && !math.IsNaN(velocity) && !math.IsInf(velocity, 0) {
+		frameDelay = max(150/velocity*sixty, sixty)
+	}
 
 	slider.ball = sprite.NewAnimation(skin.GetFrames("sliderb", false), frameDelay, true, 0.0, vector.NewVec2d(0, 0), vector.Centre)
 
@@ -595,11 +673,12 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 
 	followerFrames := skin.GetFrames("sliderfollowcircle", true)
 
-	slider.follower = sprite.NewAnimation(followerFrames, 1000.0/float64(len(followerFrames)), true, 0.0, vector.NewVec2d(0, 0), vector.Centre)
+	slider.follower = sprite.NewAnimation(followerFrames, skin.GetInfo().GetFrameTime(max(1, len(followerFrames))), true, 0.0, vector.NewVec2d(0, 0), vector.Centre)
 	slider.follower.SetAlpha(0.0)
 
+	spanDuration := slider.visualSpanDuration()
 	for i := 1; i <= slider.RepeatCount; i++ {
-		circleTime := slider.StartTime + math.Floor(slider.partLen*float64(i))
+		circleTime := slider.StartTime + spanDuration*float64(i)
 
 		appearTime := slider.StartTime - math.Floor(slider.diff.Preempt)
 		bounceStartTime := slider.StartTime - min(math.Floor(slider.diff.Preempt), 15000)
@@ -650,10 +729,11 @@ func (slider *Slider) IsRetarded() bool {
 
 func (slider *Slider) Update(time float64) bool {
 	if !slider.updatedAtLeastOnce {
-		slider.initSnake()
-
+		slider.initScorePointAnimations()
 		slider.updatedAtLeastOnce = true
 	}
+
+	visualEndTime := slider.visualEndTime()
 
 	if (!settings.PLAY && !settings.KNOCKOUT) || settings.PLAYERS > 1 {
 		if slider.lastTime < slider.StartTime && time >= slider.StartTime {
@@ -661,14 +741,19 @@ func (slider *Slider) Update(time float64) bool {
 			slider.InitSlide(slider.StartTime)
 		}
 
-		if slider.lastTime < slider.EndTime && time >= slider.EndTime {
+		if slider.lastTime < visualEndTime && time >= visualEndTime {
 			slider.HitEdge(slider.RepeatCount, time, true)
 		}
 	}
 
 	if slider.isSliding {
-		for i := slider.lastScorePoint; i < len(slider.ScorePoints)-1; i++ {
-			p := slider.ScorePoints[i]
+		points := slider.ScorePoints
+		if slider.diff != nil && slider.diff.IsLazer() && len(slider.ScorePointsLazer) > 0 {
+			points = slider.ScorePointsLazer
+		}
+
+		for i := slider.lastScorePoint; i < len(points)-1; i++ {
+			p := points[i]
 
 			if time < p.Time {
 				break
@@ -683,9 +768,6 @@ func (slider *Slider) Update(time float64) bool {
 			slider.lastScorePoint = i + 1
 		}
 	}
-
-	slider.sliderSnakeHead.Update(time)
-	slider.sliderSnakeTail.Update(time)
 
 	if slider.startCircle != nil {
 		slider.startCircle.Update(time)
@@ -702,10 +784,11 @@ func (slider *Slider) Update(time float64) bool {
 	slider.fade.Update(time)
 	slider.bodyFade.Update(time)
 
-	headPos := slider.multiCurve.PointAt(float32(slider.sliderSnakeHead.GetValue()))
-	tailPos := slider.multiCurve.PointAt(float32(slider.sliderSnakeTail.GetValue()))
-	headAngle := slider.multiCurve.GetStartAngleAt(float32(slider.sliderSnakeHead.GetValue())) + math.Pi
-	tailAngle := slider.multiCurve.GetEndAngleAt(float32(slider.sliderSnakeTail.GetValue())) + math.Pi
+	bodyRange := slider.visualBodyRange(time)
+	headPos := slider.multiCurve.PointAt(float32(bodyRange.head))
+	tailPos := slider.multiCurve.PointAt(float32(bodyRange.tail))
+	headAngle := slider.multiCurve.GetStartAngleAt(float32(bodyRange.head)) + math.Pi
+	tailAngle := slider.multiCurve.GetEndAngleAt(float32(bodyRange.tail)) + math.Pi
 
 	mS, mOk := difficulty.GetModConfig[difficulty.MirrorSettings](slider.diff)
 
@@ -735,25 +818,31 @@ func (slider *Slider) Update(time float64) bool {
 	}
 
 	for _, p := range slider.TickPoints {
-		p.fade.Update(time)
-		p.scale.Update(time)
+		if p.fade != nil {
+			p.fade.Update(time)
+		}
+		if p.scale != nil {
+			p.scale.Update(time)
+		}
 	}
 
-	pos := slider.GetStackedPositionAtMod(time, slider.diff)
-
-	if settings.Objects.Sliders.Snaking.Out && slider.RepeatCount%2 == 1 && time >= math.Floor(slider.EndTime-slider.partLen) {
-		snakeTime := slider.EndTime - slider.partLen*(1-slider.sliderSnakeHead.GetValue())
-		p2 := slider.GetStackedPositionAtMod(snakeTime, slider.diff)
-		slider.ball.SetPosition(p2.Copy64())
-		slider.startCircle.StartPosRaw = slider.GetPositionAt(snakeTime)
-	} else {
+	// The slider ball follows the full Lazer path. Snaking changes the body
+	// range, not the ball's gameplay position, so the ball does not jump when
+	// the final span retracts.
+	pos := slider.GetStackedPositionAtModLazer(time, slider.diff)
+	if slider.ball != nil {
 		slider.ball.SetPosition(pos.Copy64())
 	}
 
 	if time-slider.lastTime > 0 && time >= slider.StartTime {
 		angle := pos.AngleRV(slider.Pos)
 
-		reversed := int((time-slider.StartTime)/slider.partLen)%2 == 1
+		reversed := false
+		if spanDuration := slider.visualSpanDuration(); spanDuration > 0 {
+			span := int(math.Floor((time - slider.StartTime) / spanDuration))
+			span = max(0, min(span, slider.RepeatCount-1))
+			reversed = span%2 == 1
+		}
 
 		if reversed {
 			angle -= math32.Pi
@@ -765,13 +854,12 @@ func (slider *Slider) Update(time float64) bool {
 		}
 	}
 
-	if slider.isSliding && time >= slider.StartTime && time <= slider.EndTime {
+	if slider.isSliding && time >= slider.StartTime && time <= visualEndTime {
 		slider.PlaySlideSamples()
 	}
 
-	if slider.lastTime <= slider.EndTime && time > slider.EndTime && slider.isSliding {
-		slider.StopSlideSamples()
-		slider.isSliding = false
+	if slider.lastTime <= visualEndTime && time > visualEndTime && slider.isSliding {
+		slider.StopSlide()
 	}
 
 	slider.Pos = pos
@@ -784,75 +872,36 @@ func (slider *Slider) Update(time float64) bool {
 func (slider *Slider) ArmStart(clicked bool, time float64) {
 	slider.startCircle.Arm(clicked, time)
 
-	slider.ball.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, slider.StartTime, slider.StartTime, 1, 1))
-
-	if settings.Objects.Sliders.Snaking.Out {
-		if time < math.Floor(slider.EndTime-slider.partLen) {
-			if slider.RepeatCount%2 == 1 {
-				slider.sliderSnakeHead.AddEvent(slider.EndTime-slider.partLen, slider.EndTime, 1)
-			} else {
-				slider.sliderSnakeTail.AddEvent(slider.EndTime-slider.partLen, slider.EndTime, 0)
-			}
-		} else {
-			endTime := slider.EndTime
-
-			for _, p := range slider.ScorePoints {
-				if p.Time > time {
-					endTime = p.Time
-					break
-				}
-			}
-
-			partStart := slider.EndTime - slider.partLen
-			remaining := endTime - time
-
-			first := time - partStart
-
-			dur := min(first/2, remaining*0.66)
-			eTime := time + dur
-
-			if slider.RepeatCount%2 == 1 {
-				slider.sliderSnakeHead.AddEventEase(time, eTime, (first+dur)/slider.partLen, snakeEase)
-				slider.sliderSnakeHead.AddEvent(eTime, slider.EndTime, 1)
-			} else {
-				slider.sliderSnakeTail.AddEventEase(time, eTime, 1-(first+dur)/slider.partLen, snakeEase)
-				slider.sliderSnakeTail.AddEvent(eTime, slider.EndTime, 0)
-			}
-		}
-	}
-
-	if !slider.diff.CheckModActive(difficulty.Hidden) {
-		if settings.Objects.Sliders.Snaking.Out && settings.Objects.Sliders.Snaking.OutFadeInstant {
-			slider.bodyFade.AddEvent(slider.EndTime, slider.EndTime, 0)
-		} else {
-			slider.bodyFade.AddEvent(slider.EndTime, slider.EndTime+difficulty.HitFadeOut, 0)
-		}
+	if slider.ball != nil {
+		// The ball is hidden while the body is snaking out. Once the head is
+		// judged, Lazer reveals it at the actual slider start.
+		slider.ball.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, slider.StartTime, slider.StartTime, 1, 1))
 	}
 }
 
-func (slider *Slider) initSnake() {
+// initScorePointAnimations prepares the independent score-point visuals. The
+// slider body itself is not initialized here because its snaking range is a
+// function of the current frame and must remain seek-safe.
+func (slider *Slider) initScorePointAnimations() {
 	slSnInS := slider.StartTime - slider.diff.Preempt
-	slSnInE := slider.StartTime - slider.diff.Preempt*2/3
+	slSnInE := slider.StartTime - slider.diff.Preempt*2/3*(1.0-clampSnakeMultiplier(settings.Objects.Sliders.Snaking.FadeMultiplier)) +
+		slider.visualSpanDuration()*clampSnakeMultiplier(settings.Objects.Sliders.Snaking.DurationMultiplier)
 
-	if settings.Objects.Sliders.Snaking.Out {
+	if slider.ball != nil && settings.Objects.Sliders.Snaking.Out {
 		slider.ball.SetAlpha(0)
-	}
-
-	if settings.Objects.Sliders.Snaking.In {
-		fadeMultiplier := 1.0 - mutils.Clamp(settings.Objects.Sliders.Snaking.FadeMultiplier, 0.0, 1.0)
-		durationMultiplier := mutils.Clamp(settings.Objects.Sliders.Snaking.DurationMultiplier, 0.0, 1.0)
-
-		slSnInE = slider.StartTime - slider.diff.Preempt*2/3*fadeMultiplier + slider.partLen*durationMultiplier
-
-		slider.sliderSnakeTail.AddEvent(slSnInS, slSnInE, 1)
-	} else {
-		slider.sliderSnakeTail.SetValue(1)
 	}
 
 	for i, p := range slider.TickPoints {
 		var startTime, endTime float64
 
-		repeatProgress := (p.Time - slider.StartTime) / slider.partLen
+		partDuration := slider.partLen
+		if partDuration <= 0 {
+			partDuration = slider.visualSpanDuration()
+		}
+		repeatProgress := 0.0
+		if partDuration > 0 {
+			repeatProgress = (p.Time - slider.StartTime) / partDuration
+		}
 
 		if repeatProgress < 1.0 {
 			normalStart := (p.Time-slider.StartTime)/2 + slider.StartTime - slider.diff.Preempt*2/3
@@ -861,94 +910,137 @@ func (slider *Slider) initSnake() {
 
 			endTime = min(startTime+150, p.Time-36)
 		} else {
-			rStart := slider.StartTime + slider.partLen*math.Floor(repeatProgress)
+			rStart := slider.StartTime + partDuration*math.Floor(repeatProgress)
 
 			endTime = rStart + (p.Time-rStart)/2
 			startTime = endTime - 200
 		}
 
-		p.scale.AddEventS(startTime, endTime, 0.5, 1.2)
-		p.scale.AddEventSEase(endTime, endTime+150, 1.2, 1.0, easing.OutQuad)
-		p.fade.AddEventS(startTime, endTime, 0.0, 1.0)
-
-		if slider.diff.CheckModActive(difficulty.Hidden) {
-			p.fade.AddEventS(max(endTime, p.Time-1000), p.Time, 1.0, 0.0)
-		} else {
-			p.fade.AddEventS(p.Time, p.Time, 1.0, 0.0)
+		if endTime < startTime {
+			endTime = startTime
 		}
 
-		p.Pos = slider.GetStackedPositionAtMod(p.Time, slider.diff)
+		if p.scale != nil {
+			p.scale.AddEventS(startTime, endTime, 0.5, 1.2)
+			p.scale.AddEventSEase(endTime, endTime+150, 1.2, 1.0, easing.OutQuad)
+		}
+		if p.fade != nil {
+			p.fade.AddEventS(startTime, endTime, 0.0, 1.0)
+
+			if slider.diff.CheckModActive(difficulty.Hidden) {
+				p.fade.AddEventS(max(endTime, p.Time-1000), p.Time, 1.0, 0.0)
+			} else {
+				p.fade.AddEventS(p.Time, p.Time, 1.0, 0.0)
+			}
+		}
+
+		p.Pos = slider.GetStackedPositionAtModLazer(p.Time, slider.diff)
 
 		slider.TickPoints[i] = p
 	}
 }
 
+// InitSlide starts the Lazer-style follow-circle press animation. Release is
+// intentionally not animated: Lazer keeps the follow circle available until
+// the next nested judgement reports a hit, end, or break.
 func (slider *Slider) InitSlide(time float64) {
-	if time > slider.EndTime {
+	if time > slider.visualEndTime() || slider.follower == nil {
 		return
 	}
 
 	slider.follower.ClearTransformations()
 
-	startTime := time
+	fadeInEnd := min(time+180, slider.visualEndTime())
 
-	fadeInEnd := min(startTime+180, slider.EndTime)
-
-	slider.follower.AddTransformUnordered(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, min(startTime+60, slider.EndTime), 0, 1))
-	slider.follower.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, fadeInEnd, 0.5, 1))
-
-	slider.follower.AddTransformUnordered(animation.NewSingleTransform(animation.Fade, easing.InQuad, slider.EndTime, slider.EndTime+200, 1, 0))
-	slider.follower.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.OutQuad, slider.EndTime, slider.EndTime+200, 1, 0.8))
-
-	fadeBase := 200.0
-
-	fadeTime := fadeBase
-	if len(slider.ScorePoints) >= 2 {
-		fadeTime = min(fadeTime, slider.ScorePoints[1].Time-slider.ScorePoints[0].Time)
-	}
-
-	endValue := 1.1 - (fadeTime/fadeBase)*0.1
-
-	for i := range len(slider.ScorePoints) - 1 {
-		p := slider.ScorePoints[i]
-		endTime := p.Time + fadeTime
-
-		if endTime < fadeInEnd {
-			continue
-		}
-
-		startTime := p.Time
-		startValue := 1.1
-
-		if startTime < fadeInEnd {
-			startValue = (startValue-endValue)*(endTime-startTime)/fadeTime + endValue
-			startTime = fadeInEnd
-		}
-
-		slider.follower.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.Linear, startTime, min(slider.EndTime, endTime), startValue, endValue))
-	}
+	slider.follower.AddTransformUnordered(animation.NewSingleTransform(animation.Fade, easing.Linear, time, min(time+60, slider.visualEndTime()), 0, 1))
+	slider.follower.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.OutQuad, time, fadeInEnd, 0.5, 1))
 
 	slider.follower.SortTransformations()
 
 	slider.isSliding = true
 }
 
-func (slider *Slider) KillSlide(time float64) {
-	slider.follower.ClearTransformations()
-
-	nextPoint := slider.EndTime
-	for _, p := range slider.ScorePoints {
-		if p.Time > time {
-			nextPoint = p.Time
-			break
-		}
-	}
-
-	slider.follower.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, nextPoint-100, nextPoint, 1, 0))
-	slider.follower.AddTransform(animation.NewSingleTransform(animation.Scale, easing.Linear, nextPoint-100, nextPoint, 1, 2))
-
+// StopSlide stops slider-loop samples after tracking is released. Lazer does
+// not play a break animation merely because the cursor leaves the follow
+// radius; the nested event that is actually missed owns that animation.
+func (slider *Slider) StopSlide() {
 	slider.isSliding = false
 	slider.StopSlideSamples()
+}
+
+// AnimateSliderTick applies the legacy follow-circle tick pulse. The pulse is
+// emitted by judged tick and repeat events, not pre-scheduled for every point,
+// so misses cannot produce a false hit animation.
+func (slider *Slider) AnimateSliderTick(time float64) {
+	if slider.follower == nil || !settings.Objects.Sliders.HitAnimations || slider.follower.GetScale().X < 0.999 {
+		return
+	}
+
+	currentScale := slider.follower.GetScale().X
+	slider.follower.AddTransform(animation.NewSingleTransform(animation.Scale, easing.Linear, time, time, currentScale, 1.1))
+	slider.follower.AddTransform(animation.NewSingleTransform(animation.Scale, easing.Linear, time, time+200, 1.1, currentScale))
+}
+
+// AnimateSliderPoint updates a repeat or tail circle and emits the matching
+// follow-circle event. It is separate from PlayEdgeSample because Classic
+// sample policy may request audio without replaying a visual animation.
+func (slider *Slider) AnimateSliderPoint(index int, time float64, isHit bool) {
+	if index <= 0 || index >= len(slider.edges) {
+		return
+	}
+
+	slider.edges[index].Arm(isHit, time)
+	if !isHit {
+		return
+	}
+
+	if index == slider.RepeatCount {
+		slider.AnimateSliderEnd(time)
+	} else {
+		slider.AnimateSliderTick(time)
+	}
+}
+
+// AnimateSliderEnd completes the follow-circle animation after a successful
+// tail judgement. The body itself has an independent Lazer-compatible fade.
+func (slider *Slider) AnimateSliderEnd(time float64) {
+	if slider.follower == nil {
+		slider.StopSlide()
+		return
+	}
+
+	alpha := slider.follower.GetAlpha()
+	if !settings.Objects.Sliders.HitAnimations {
+		slider.follower.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, time, time+60, alpha, 0))
+	} else {
+		currentScale := slider.follower.GetScale().X
+		slider.follower.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, time, time+200, currentScale, 0.8))
+		slider.follower.AddTransform(animation.NewSingleTransform(animation.Fade, easing.InQuad, time, time+200, alpha, 0))
+	}
+
+	slider.StopSlide()
+}
+
+// AnimateSliderBreak plays the follow-circle break animation for a missed
+// nested slider event. A release without a missed event deliberately does not
+// call this method.
+func (slider *Slider) AnimateSliderBreak(time float64) {
+	if slider.follower == nil {
+		slider.StopSlide()
+		return
+	}
+
+	alpha := slider.follower.GetAlpha()
+	slider.follower.ClearTransformations()
+	if !settings.Objects.Sliders.HitAnimations {
+		slider.follower.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, time, time+60, alpha, 0))
+	} else {
+		currentScale := max(1.0, slider.follower.GetScale().X)
+		slider.follower.AddTransform(animation.NewSingleTransform(animation.Scale, easing.Linear, time, time+100, currentScale, 2))
+		slider.follower.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, time, time+100, alpha, 0))
+	}
+
+	slider.StopSlide()
 }
 
 func (slider *Slider) PlaySlideSamples() {
@@ -978,21 +1070,30 @@ func (slider *Slider) PlayEdgeSample(index int) {
 	if slider.audioSubmissionDisabled {
 		return
 	}
+	if index < 0 || index >= len(slider.sampleSets) || index >= len(slider.additionSets) || index >= len(slider.samples) {
+		return
+	}
 
 	sampleSet := slider.sampleSets[index]
 	if sampleSet == 0 && index == 0 {
 		sampleSet = slider.BasicHitSound.SampleSet
 	}
 
-	slider.playSampleT(sampleSet, slider.additionSets[index], slider.samples[index], slider.Timings.GetPointAt(slider.StartTime+math.Floor(float64(index)*slider.partLen)+5), slider.GetStackedPositionAtMod(slider.StartTime+math.Floor(float64(index)*slider.partLen), slider.diff))
+	edgeTime := slider.StartTime + math.Floor(float64(index)*slider.partLen) + 5
+	edgePosition := slider.GetStackedPositionAtMod(slider.StartTime+math.Floor(float64(index)*slider.partLen), slider.diff)
+	if slider.diff != nil && slider.diff.IsLazer() {
+		edgeTime = slider.StartTime + float64(index)*slider.visualSpanDuration() + 5
+		edgePosition = slider.GetStackedPositionAtModLazer(edgeTime-5, slider.diff)
+	}
+
+	slider.playSampleT(sampleSet, slider.additionSets[index], slider.samples[index], slider.Timings.GetPointAt(edgeTime), edgePosition)
 }
 
 func (slider *Slider) HitEdge(index int, time float64, isHit bool) {
 	if index == 0 {
 		slider.ArmStart(isHit, time)
-	} else {
-		e := slider.edges[index]
-		e.Arm(isHit, time)
+	} else if index > 0 {
+		slider.AnimateSliderPoint(index, time, isHit)
 	}
 
 	if isHit && (index == 0 || index == slider.RepeatCount || !slider.IsRetarded()) {
@@ -1024,8 +1125,13 @@ func (slider *Slider) GetPosition() vector.Vector2f {
 	return slider.Pos
 }
 
-func (slider *Slider) DrawBodyBase(_ float64, projection mgl32.Mat4) {
-	slider.body.DrawBase(slider.sliderSnakeHead.GetValue(), slider.sliderSnakeTail.GetValue(), projection)
+func (slider *Slider) DrawBodyBase(time float64, projection mgl32.Mat4) {
+	if slider.body == nil || slider.diff == nil {
+		return
+	}
+
+	rangeAtTime := slider.visualBodyRange(time)
+	slider.body.DrawBase(rangeAtTime.head, rangeAtTime.tail, projection)
 }
 
 func (slider *Slider) DrawBody(_ float64, circleColor, bodyColor, innerBorder, outerBorder color2.Color, projection mgl32.Mat4, scale float32) {
@@ -1095,6 +1201,8 @@ func (slider *Slider) Draw(time float64, color color2.Color, batch *batch.QuadBa
 		return true
 	}
 
+	visualEndTime := slider.visualEndTime()
+
 	alpha := slider.fade.GetValue() * float64(color.A)
 
 	if settings.DIVIDES >= settings.Objects.Colors.MandalaTexturesTrigger {
@@ -1104,13 +1212,17 @@ func (slider *Slider) Draw(time float64, color color2.Color, batch *batch.QuadBa
 	batch.SetColor(float64(color.R), float64(color.G), float64(color.B), alpha)
 
 	if settings.DIVIDES < settings.Objects.Colors.MandalaTexturesTrigger {
-		if time < slider.EndTime {
+		if time < visualEndTime {
 			if settings.Objects.Sliders.DrawScorePoints {
 				shifted := color.Shift(float32(settings.Objects.Colors.Sliders.ScorePointColorOffset), 0, 0)
 
 				scorePoint := skin.GetTexture("sliderscorepoint")
 
 				for _, p := range slider.TickPoints {
+					if scorePoint == nil || p.fade == nil || p.scale == nil {
+						continue
+					}
+
 					al := p.fade.GetValue()
 
 					if al > 0.001 {
@@ -1139,7 +1251,7 @@ func (slider *Slider) Draw(time float64, color color2.Color, batch *batch.QuadBa
 	batch.SetColor(1, 1, 1, 1)
 	slider.startCircle.Draw(time, color, batch)
 
-	if time >= slider.StartTime && time <= slider.EndTime {
+	if time >= slider.StartTime && time <= visualEndTime {
 		slider.drawBall(time, batch, color, alpha, settings.Objects.Sliders.ForceSliderBallTexture || settings.DIVIDES < settings.Objects.Colors.MandalaTexturesTrigger)
 	}
 
@@ -1152,7 +1264,7 @@ func (slider *Slider) Draw(time float64, color color2.Color, batch *batch.QuadBa
 	batch.SetSubScale(1, 1)
 	batch.SetTranslation(vector.NewVec2d(0, 0))
 
-	return time >= slider.EndTime && slider.fade.GetValue() <= 0.001
+	return time >= visualEndTime && slider.fade.GetValue() <= 0.001
 }
 
 func (slider *Slider) Finalize() {

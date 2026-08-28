@@ -263,7 +263,7 @@ func (slider *Slider) UpdateFor(player *difficultyPlayer, time int64, processSli
 
 		if !allowable && state.sliding && hasUnjudgedSliderEvents(state.points) {
 			if len(slider.players) == 1 {
-				slider.hitSlider.KillSlide(float64(time))
+				slider.hitSlider.StopSlide()
 			}
 
 			state.sliding = false
@@ -271,6 +271,34 @@ func (slider *Slider) UpdateFor(player *difficultyPlayer, time int64, processSli
 	}
 
 	return true
+}
+
+// animateSliderEvent keeps rendering side effects separate from judgement and
+// sample playback. Lazer may resolve several nested events in one frame, and
+// the renderer must receive each event exactly once without using animation
+// as a proxy for audio policy.
+func (slider *Slider) animateSliderEvent(point sliderEvent, time int64) {
+	if len(slider.players) != 1 {
+		return
+	}
+
+	if point.hitResult.IsHit() {
+		if point.kind == sliderPointTick {
+			slider.hitSlider.AnimateSliderTick(float64(time))
+		} else {
+			slider.hitSlider.AnimateSliderPoint(point.edgeIndex, float64(time), true)
+		}
+		return
+	}
+
+	if point.kind != sliderPointTick {
+		slider.hitSlider.AnimateSliderPoint(point.edgeIndex, float64(time), false)
+	}
+
+	// IgnoreMiss still represents a dropped tail in the visual state. Lazer
+	// suppresses its score result, but the follow circle must not remain in its
+	// pressed state after the slider has broken.
+	slider.hitSlider.AnimateSliderBreak(float64(time))
 }
 
 func (slider *Slider) processTicksStable(player *difficultyPlayer, state *sliderstate, time int64, allowable bool, sliderPosition vector.Vector2f, processSliderEndsAhead bool) {
@@ -314,6 +342,8 @@ func (slider *Slider) processTicksStable(player *difficultyPlayer, state *slider
 				combo = Hold
 			}
 		}
+
+		slider.animateSliderEvent(*point, time)
 
 		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(point.hitResult, point.maxResult, combo, time, sliderPosition, slider, point.resultPart()))
 		break
@@ -380,8 +410,10 @@ func (slider *Slider) processTicksLazer(player *difficultyPlayer, state *sliders
 			}
 		}
 
+		slider.animateSliderEvent(*point, time)
+
 		if point.isTail() && point.hitResult.IsHit() && !player.classicAlwaysPlayTailSample && len(slider.players) == 1 {
-			slider.hitSlider.HitEdge(point.edgeIndex, float64(time), true)
+			slider.hitSlider.PlayEdgeSample(point.edgeIndex)
 			state.tailSamplePlayed = true
 		}
 
@@ -420,12 +452,12 @@ func (slider *Slider) UpdatePostFor(player *difficultyPlayer, time int64, proces
 
 			if !lazerMode {
 				if sliderResult != Miss {
-					slider.hitSlider.HitEdge(len(slider.hitSlider.TickReverse), float64(time), true)
+					slider.hitSlider.PlayEdgeSample(len(slider.hitSlider.TickReverse))
 				}
 			} else if player.classicAlwaysPlayTailSample && sliderResult != Miss {
-				slider.hitSlider.HitEdge(len(slider.hitSlider.TickReverse), float64(time), true)
+				slider.hitSlider.PlayEdgeSample(len(slider.hitSlider.TickReverse))
 			} else if state.endScored && !state.tailSamplePlayed && !player.classicAlwaysPlayTailSample {
-				slider.hitSlider.HitEdge(len(slider.hitSlider.TickReverse), float64(time), true)
+				slider.hitSlider.PlayEdgeSample(len(slider.hitSlider.TickReverse))
 			}
 		}
 
