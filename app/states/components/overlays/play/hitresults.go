@@ -28,10 +28,14 @@ type HitResults struct {
 }
 
 const (
-	sliderJudgmentMarkerFadeIn       = 120.0
-	sliderJudgmentMarkerFadeOutDelay = 250.0
-	sliderJudgmentMarkerFadeOut      = 600.0
-	sliderJudgmentMarkerScaleTime    = 100.0
+	sliderDefaultJudgmentMarkerSize      = 16.0
+	sliderDefaultJudgmentMarkerScaleTime = 150.0
+	sliderDefaultJudgmentMarkerFadeOut   = 600.0
+
+	sliderLegacyJudgmentMarkerFadeIn       = 120.0
+	sliderLegacyJudgmentMarkerFadeOutDelay = 250.0
+	sliderLegacyJudgmentMarkerFadeOut      = 600.0
+	sliderLegacyJudgmentMarkerScaleTime    = 100.0
 )
 
 var (
@@ -211,45 +215,70 @@ func (results *HitResults) addSliderJudgmentMarker(judgement osu.JudgementResult
 			position,
 			vector.Centre,
 		)
+		addLegacySliderJudgmentMarkerTransforms(marker, startTime, len(frames))
 	} else {
-		// The default skin does not provide these legacy judgement animations.
-		// Reuse the already loaded built-in cross as a visible fallback and
-		// rotate it into an X. A non-empty custom animation takes precedence,
-		// even when its pixels are intentionally transparent.
-		if graphics.Cross == nil || graphics.Cross.Width <= 0 {
+		// Lazer's ruleset fallback is a 16-unit additive circle. It is not the
+		// cross used by legacy miss textures, and it inherits the judged
+		// object's circle-size scale from DrawTop. A non-empty custom animation
+		// takes precedence, even when its pixels are intentionally transparent.
+		if graphics.SliderJudgmentMarker == nil || graphics.SliderJudgmentMarker.Width <= 0 {
 			return
 		}
 
-		marker = sprite.NewSpriteSingle(graphics.Cross, startTime+1, position, vector.Centre)
+		marker = sprite.NewSpriteSingle(graphics.SliderJudgmentMarker, startTime+1, position, vector.Centre)
 		marker.SetColor(definition.fallbackColor)
-		marker.SetScale(64 / (float64(graphics.Cross.Width) * math.Sqrt2))
-		marker.SetRotation(math.Pi / 4)
+		marker.SetAdditive(true)
+		marker.SetScale(sliderDefaultJudgmentMarkerSize / float64(graphics.SliderJudgmentMarker.Width))
+		marker.AddTransformUnordered(animation.NewSingleTransform(
+			animation.Scale,
+			easing.OutQuad,
+			startTime,
+			startTime+sliderDefaultJudgmentMarkerScaleTime,
+			1.4*marker.GetScale().X,
+			marker.GetScale().X,
+		))
+		marker.AddTransformUnordered(animation.NewSingleTransform(
+			animation.Fade,
+			easing.Linear,
+			startTime,
+			startTime+sliderDefaultJudgmentMarkerFadeOut,
+			1,
+			0,
+		))
 	}
 
 	marker.ShowForever(false)
+	marker.SortTransformations()
+	marker.AdjustTimesToTransformations()
+	marker.ResetValuesToTransforms()
+
+	results.top.Add(marker)
+}
+
+func addLegacySliderJudgmentMarkerTransforms(marker sprite.ISprite, startTime float64, frameCount int) {
 	marker.AddTransformUnordered(animation.NewSingleTransform(
 		animation.Fade,
 		easing.Linear,
 		startTime,
-		startTime+sliderJudgmentMarkerFadeIn,
+		startTime+sliderLegacyJudgmentMarkerFadeIn,
 		0,
 		1,
 	))
 
-	if len(frames) <= 1 {
+	if frameCount <= 1 {
 		marker.AddTransformUnordered(animation.NewSingleTransform(
 			animation.Scale,
 			easing.InQuad,
 			startTime,
-			startTime+sliderJudgmentMarkerScaleTime,
+			startTime+sliderLegacyJudgmentMarkerScaleTime,
 			1.2,
 			1,
 		))
 		marker.AddTransformUnordered(animation.NewSingleTransform(
 			animation.Fade,
 			easing.Linear,
-			startTime+sliderJudgmentMarkerFadeOutDelay,
-			startTime+sliderJudgmentMarkerFadeOutDelay+sliderJudgmentMarkerFadeOut,
+			startTime+sliderLegacyJudgmentMarkerFadeOutDelay,
+			startTime+sliderLegacyJudgmentMarkerFadeOutDelay+sliderLegacyJudgmentMarkerFadeOut,
 			1,
 			0,
 		))
@@ -262,17 +291,11 @@ func (results *HitResults) addSliderJudgmentMarker(judgement osu.JudgementResult
 			animation.Fade,
 			easing.Linear,
 			startTime+500,
-			startTime+500+sliderJudgmentMarkerFadeOut,
+			startTime+500+sliderLegacyJudgmentMarkerFadeOut,
 			1,
 			0,
 		))
 	}
-
-	marker.SortTransformations()
-	marker.AdjustTimesToTransformations()
-	marker.ResetValuesToTransforms()
-
-	results.top.Add(marker)
 }
 
 func sliderJudgmentMarkerFor(result osu.HitResult, nested, head bool) (sliderJudgmentMarker, bool) {
