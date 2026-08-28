@@ -85,34 +85,77 @@ func TestMedianReturnsSignedMiddleValue(t *testing.T) {
 	}
 }
 
-func TestHitErrorBandPositionsUseFixedPhysicalSpan(t *testing.T) {
-	stableOD0 := difficulty.NewDifficulty(5, 5, 0, 5)
-	stableOD0.SetGameplayMode(difficulty.GameplayStable)
-	stableOD10 := difficulty.NewDifficulty(5, 5, 10, 5)
-	stableOD10.SetGameplayMode(difficulty.GameplayStable)
-	lazerOD5 := difficulty.NewDifficulty(5, 5, 5, 5)
-	lazerOD5.SetGameplayMode(difficulty.GameplayLazer)
-
-	const halfWidth = 160.0
-	od0 := hitErrorBandPositions(stableOD0, halfWidth)
-	od10 := hitErrorBandPositions(stableOD10, halfWidth)
-	lazer := hitErrorBandPositions(lazerOD5, halfWidth)
-
-	if od0[2] != halfWidth || od10[2] != halfWidth || lazer[2] != halfWidth {
-		t.Fatalf("maximum band positions = %v, %v, %v; want fixed half-width %g", od0[2], od10[2], lazer[2], halfWidth)
+func TestHitErrorLayoutUsesActiveMaximumWindow(t *testing.T) {
+	tests := []struct {
+		name string
+		diff *difficulty.Difficulty
+	}{
+		{name: "stable OD0", diff: stableDifficulty(0)},
+		{name: "stable OD10", diff: stableDifficulty(10)},
+		{name: "lazer OD5", diff: lazerDifficulty(5)},
 	}
 
-	if math.Abs(od0[0]/od0[2]-0.4) > 1e-12 || math.Abs(od0[1]/od0[2]-0.7) > 1e-12 {
-		t.Fatalf("OD0 band ratios = %v, want 0.4 and 0.7", od0)
-	}
-	if math.Abs(od10[0]/od10[2]-0.2) > 1e-12 || math.Abs(od10[1]/od10[2]-0.6) > 1e-12 {
-		t.Fatalf("OD10 band ratios = %v, want 0.2 and 0.6", od10)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			layout := newHitErrorLayout(test.diff, false)
+			windows := hitErrorWindowsFor(test.diff)
+
+			if got, want := layout.barHalfWidth, windows.meh*legacyHitErrorOffsetScale; math.Abs(got-want) > 1e-12 {
+				t.Fatalf("bar half-width = %g, want active Meh half-width %g", got, want)
+			}
+
+			positions := layout.bandPositions()
+			want := [3]float64{
+				windows.great * legacyHitErrorOffsetScale,
+				windows.ok * legacyHitErrorOffsetScale,
+				windows.meh * legacyHitErrorOffsetScale,
+			}
+			for i := range positions {
+				if math.Abs(positions[i]-want[i]) > 1e-12 {
+					t.Fatalf("band position %d = %g, want %g", i, positions[i], want[i])
+				}
+			}
+		})
 	}
 
-	windows := hitErrorWindowsFor(lazerOD5)
-	if math.Abs(lazer[0]/lazer[2]-windows.great/windows.meh) > 1e-12 ||
-		math.Abs(lazer[1]/lazer[2]-windows.good/windows.meh) > 1e-12 {
-		t.Fatalf("Lazer band ratios = %v, want ratios from %v", lazer, windows)
+	if got, want := newHitErrorLayout(stableDifficulty(0), false).barHalfWidth, 160.0; got != want {
+		t.Fatalf("Stable OD0 half-width = %g, want %g", got, want)
+	}
+	if got, want := newHitErrorLayout(stableDifficulty(10), false).barHalfWidth, 80.0; got != want {
+		t.Fatalf("Stable OD10 half-width = %g, want %g", got, want)
+	}
+}
+
+func TestHitErrorLayoutNormalizesAndClampsOffsets(t *testing.T) {
+	layout := newHitErrorLayout(stableDifficulty(5), false)
+
+	if got, want := layout.displayOffset(layout.maxHitWindow), layout.barHalfWidth; got != want {
+		t.Fatalf("Meh offset = %g, want %g", got, want)
+	}
+	if got, want := layout.displayOffset(layout.maxHitWindow*2), layout.barHalfWidth; got != want {
+		t.Fatalf("out-of-range offset = %g, want %g", got, want)
+	}
+	if got, want := layout.relativePosition(layout.maxHitWindow), 0.5; got != want {
+		t.Fatalf("relative Meh position = %g, want %g", got, want)
+	}
+	if got, want := layout.relativePosition(-layout.maxHitWindow*2), -0.5; got != want {
+		t.Fatalf("relative negative position = %g, want %g", got, want)
+	}
+}
+
+func TestHitErrorLayoutSpeedScalingIsOptIn(t *testing.T) {
+	diff := lazerDifficulty(5)
+	diff.SetMods(difficulty.DoubleTime)
+
+	withoutSpeed := newHitErrorLayout(diff, false)
+	withSpeed := newHitErrorLayout(diff, true)
+	want := withoutSpeed.barHalfWidth / diff.Speed
+
+	if math.Abs(withSpeed.barHalfWidth-want) > 1e-12 {
+		t.Fatalf("speed-scaled half-width = %g, want %g", withSpeed.barHalfWidth, want)
+	}
+	if withSpeed.barHalfWidth == withoutSpeed.barHalfWidth {
+		t.Fatal("speed scaling did not change the layout")
 	}
 }
 
@@ -164,4 +207,16 @@ func populationStandardDeviation(values []float64) float64 {
 	}
 
 	return math.Sqrt(variance / float64(len(values)))
+}
+
+func stableDifficulty(overallDifficulty float64) *difficulty.Difficulty {
+	diff := difficulty.NewDifficulty(5, 5, overallDifficulty, 5)
+	diff.SetGameplayMode(difficulty.GameplayStable)
+	return diff
+}
+
+func lazerDifficulty(overallDifficulty float64) *difficulty.Difficulty {
+	diff := difficulty.NewDifficulty(5, 5, overallDifficulty, 5)
+	diff.SetGameplayMode(difficulty.GameplayLazer)
+	return diff
 }

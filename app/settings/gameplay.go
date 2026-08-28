@@ -14,14 +14,17 @@ func initGameplay() *gameplay {
 				XOffset: 0,
 				YOffset: 0,
 			},
-			PointFadeOutTime:     10,
-			ShowPositionalMisses: false,
-			PositionalMissScale:  1.5,
-			ShowUnstableRate:     true,
-			UnstableRateDecimals: 0,
-			UnstableRateScale:    1.0,
-			StaticUnstableRate:   false,
-			ScaleWithSpeed:       false,
+			ShowColorBar:            true,
+			ShowMovingAverage:       true,
+			JudgmentLineThickness:   3,
+			JudgmentLineFadeOutTime: 10,
+			ShowPositionalMisses:    false,
+			PositionalMissScale:     1.5,
+			ShowUnstableRate:        true,
+			UnstableRateDecimals:    0,
+			UnstableRateScale:       1.0,
+			StaticUnstableRate:      false,
+			ScaleTimingWithSpeed:    false,
 		},
 		AimErrorMeter: &aimError{
 			hudElementPosition: &hudElementPosition{
@@ -310,14 +313,26 @@ type hudElementPosition struct {
 
 type hitError struct {
 	*hudElementOffset
-	PointFadeOutTime     float64 `max:"10" format:"%.1fs"`
+	// The defaults in this group reproduce osu!lazer's legacy horizontal bar.
+	ShowColorBar            bool    `label:"Show colored hit-window bands" tooltip:"Show the Great, Ok, and Meh bands on the hit-error bar"`
+	ShowMovingAverage       bool    `label:"Show moving-average arrow" tooltip:"Show the arrow that follows your recent hit errors"`
+	JudgmentLineThickness   float64 `min:"1" max:"8" format:"%.1f o!px" tooltip:"Set the thickness of each timing line; 3 o!px matches osu!lazer's legacy bar"`
+	JudgmentLineFadeOutTime float64 `json:"PointFadeOutTime" label:"Timing-line fade-out time" min:"0" max:"10" format:"%.1fs" tooltip:"Set how long timing lines stay visible; 10 seconds matches osu!lazer's legacy bar"`
+
+	// Positional misses are a danser diagnostic and never affect UR results.
 	ShowPositionalMisses bool
 	PositionalMissScale  float64 `min:"1" max:"2" scale:"100" format:"%.0f%%"`
-	ShowUnstableRate     bool
-	UnstableRateDecimals int     `max:"5"`
-	UnstableRateScale    float64 `min:"0.1" max:"5" scale:"100" format:"%.0f%%"`
+
+	// Numeric UR remains a separate companion display rather than part of the
+	// legacy bar's static geometry.
+	ShowUnstableRate     bool    `label:"Show numeric unstable rate"`
+	UnstableRateDecimals int     `min:"0" max:"5"`
+	UnstableRateScale    float64 `min:"0.1" max:"5" scale:"100" format:"%.0f%%" label:"Numeric UR size" tooltip:"Set the size of the UR number relative to the hit-error bar"`
 	StaticUnstableRate   bool
-	ScaleWithSpeed       bool
+
+	// This is an optional danser visualizer customization. It is disabled by
+	// default so the legacy bar uses the same timing-space scale at every rate.
+	ScaleTimingWithSpeed bool `json:"ScaleWithSpeed" label:"Scale hit errors with gameplay speed" tooltip:"Make the bar and timing marks scale with DT or HT speed changes"`
 }
 
 type aimError struct {

@@ -14,12 +14,12 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 	spinner := &objects.Spinner{HitObject: &objects.HitObject{StartTime: 100, EndTime: 500}}
 
 	tests := []struct {
-		name           string
-		object         objects.IHitObject
-		result         osu.JudgementResult
-		wantOK         bool
-		wantOffset     float64
-		wantPositional bool
+		name       string
+		object     objects.IHitObject
+		result     osu.JudgementResult
+		wantOK     bool
+		wantOffset float64
+		wantResult osu.HitResult
 	}{
 		{
 			name:       "circle hit",
@@ -27,6 +27,7 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 			result:     osu.JudgementResult{HitResult: osu.Hit300, Time: 110},
 			wantOK:     true,
 			wantOffset: 10,
+			wantResult: osu.Hit300,
 		},
 		{
 			name:   "circle miss",
@@ -35,12 +36,12 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name:           "circle positional miss",
-			object:         circle,
-			result:         osu.JudgementResult{HitResult: osu.PositionalMiss, Time: 1000},
-			wantOK:         true,
-			wantOffset:     400,
-			wantPositional: true,
+			name:       "circle positional miss",
+			object:     circle,
+			result:     osu.JudgementResult{HitResult: osu.PositionalMiss, Time: 1000},
+			wantOK:     true,
+			wantOffset: 400,
+			wantResult: osu.PositionalMiss,
 		},
 		{
 			name:       "stable slider head",
@@ -48,14 +49,23 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 			result:     osu.JudgementResult{HitResult: osu.SliderStart, MaxResult: osu.SliderStart, Time: 125},
 			wantOK:     true,
 			wantOffset: 25,
+			wantResult: osu.SliderStart,
 		},
 		{
-			name:           "slider positional miss",
-			object:         slider,
-			result:         osu.JudgementResult{HitResult: osu.PositionalMiss, MaxResult: osu.SliderStart, Time: -1000},
-			wantOK:         true,
-			wantOffset:     -400,
-			wantPositional: true,
+			name:       "slider positional miss",
+			object:     slider,
+			result:     osu.JudgementResult{HitResult: osu.PositionalMiss, MaxResult: osu.SliderStart, Time: -1000},
+			wantOK:     true,
+			wantOffset: -400,
+			wantResult: osu.PositionalMiss,
+		},
+		{
+			name:       "lazer slider head",
+			object:     slider,
+			result:     osu.JudgementResult{HitResult: osu.Hit300, MaxResult: osu.SliderStart, Time: 125},
+			wantOK:     true,
+			wantOffset: 25,
+			wantResult: osu.Hit300,
 		},
 		{
 			name:   "slider summary base hit",
@@ -89,8 +99,8 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 			if got.offset != test.wantOffset {
 				t.Fatalf("event offset = %g, want %g", got.offset, test.wantOffset)
 			}
-			if got.positionalMiss != test.wantPositional {
-				t.Fatalf("event positionalMiss = %t, want %t", got.positionalMiss, test.wantPositional)
+			if got.result != test.wantResult {
+				t.Fatalf("event result = %v, want %v", got.result, test.wantResult)
 			}
 		})
 	}

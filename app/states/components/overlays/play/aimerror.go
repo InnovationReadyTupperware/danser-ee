@@ -13,12 +13,20 @@ import (
 	"github.com/wieku/danser-go/framework/graphics/texture"
 	"github.com/wieku/danser-go/framework/math/animation"
 	"github.com/wieku/danser-go/framework/math/animation/easing"
+	color2 "github.com/wieku/danser-go/framework/math/color"
 	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
 	"strconv"
 )
 
 const baseSpaceSize = 64.0
+
+var aimErrorColors = []color2.Color{
+	color2.NewRGBA(0.2, 0.8, 1, 1),
+	color2.NewRGBA(0.44, 0.98, 0.18, 1),
+	color2.NewRGBA(0.85, 0.68, 0.27, 1),
+	color2.NewRGBA(0.98, 0.11, 0.011, 1),
+}
 
 type AimErrorMeter struct {
 	diff             *difficulty.Difficulty
@@ -108,13 +116,13 @@ func (meter *AimErrorMeter) Add(time float64, hitPosition vector.Vector2f, start
 
 	switch {
 	case errorA < 0.33:
-		middle.SetColor(colors[0])
+		middle.SetColor(aimErrorColors[0])
 	case errorA < 0.66:
-		middle.SetColor(colors[1])
+		middle.SetColor(aimErrorColors[1])
 	case errorA <= 1:
-		middle.SetColor(colors[2])
+		middle.SetColor(aimErrorColors[2])
 	case errorA > 1:
-		middle.SetColor(colors[3])
+		middle.SetColor(aimErrorColors[3])
 	}
 
 	dotSize := settings.Gameplay.AimErrorMeter.DotScale / (float64(graphics.Cross.Height) / math.Sqrt(2)) / 8

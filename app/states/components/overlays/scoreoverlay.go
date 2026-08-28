@@ -392,7 +392,11 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 	playerDiff := overlay.ruleset.GetPlayerDifficulty(c)
 	hitErrorEvent, includeInHitError := buildHitErrorEvent(object, judgementResult)
 	if includeInHitError {
-		overlay.hitErrorMeter.Add(hitErrorEvent.time, hitErrorEvent.offset, hitErrorEvent.positionalMiss)
+		overlay.hitErrorMeter.Add(play.HitErrorSample{
+			Time:   hitErrorEvent.time,
+			Offset: hitErrorEvent.offset,
+			Result: hitErrorEvent.result,
+		})
 
 		var startPos *vector.Vector2f
 		if judgementResult.Number > 0 {

@@ -7,9 +7,9 @@ import (
 )
 
 type hitErrorEvent struct {
-	time           float64
-	offset         float64
-	positionalMiss bool
+	time   float64
+	offset float64
+	result osu.HitResult
 }
 
 // buildHitErrorEvent keeps the hit-error meter's object and result filter in
@@ -64,9 +64,9 @@ func buildHitErrorEvent(object objects.IHitObject, result osu.JudgementResult) (
 	offset = max(-difficulty.HittableRange, min(offset, difficulty.HittableRange))
 
 	return hitErrorEvent{
-		time:           float64(result.Time),
-		offset:         offset,
-		positionalMiss: positionalMiss,
+		time:   float64(result.Time),
+		offset: offset,
+		result: result.HitResult,
 	}, true
 }
 
