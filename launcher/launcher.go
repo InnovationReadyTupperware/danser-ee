@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -112,6 +113,13 @@ const (
 	New
 )
 
+type catalogProgressState struct {
+	stage     database.ImportStage
+	processed int
+	target    int
+	active    bool
+}
+
 type launcher struct {
 	bg *common.Background
 
@@ -120,14 +128,16 @@ type launcher struct {
 
 	bld *builder
 
-	beatmaps []*beatmap.BeatMap
+	catalog *database.CatalogSnapshot
 
 	configList    []string
 	currentConfig *settings.Config
 
 	newDefault bool
 
-	mapsLoaded bool
+	mapsLoaded      atomic.Bool
+	catalogProgress atomic.Value
+	catalogMu       sync.Mutex
 
 	newCloneOpened bool
 
@@ -367,7 +377,7 @@ func (l *launcher) startContext() {
 
 		settings.DefaultsFactory.EncoderOptions() // preload to avoid pauses
 
-		l.loadBeatmaps()
+		l.loadBeatmaps(nil)
 
 		gcontext.RegisterListener(func(event gcontext.DropEvent) {
 			if l.danserRunning {
@@ -425,64 +435,165 @@ func (l *launcher) startContext() {
 	})
 }
 
-func (l *launcher) loadBeatmaps() {
+func (l *launcher) loadBeatmaps(after func()) {
+	// SQLite and the database manager intentionally have one active catalog
+	// operation at a time. A second refresh must wait before closing or
+	// replacing the shared connection used by reconciliation.
+	l.catalogMu.Lock()
+
 	closeWatcher()
 	database.Close()
 
-	l.splashText = "Loading maps...\nThis may take a while..."
-
-	l.beatmaps = make([]*beatmap.BeatMap, 0)
+	l.mapsLoaded.Store(false)
+	l.catalogProgress.Store(catalogProgressState{})
+	l.splashText = "Loading cached maps..."
 
 	err := database.Init()
 	if err != nil {
 		showMessage(mError, "Failed to initialize database! Error: %s\nMake sure Song's folder does exist or change it to the correct directory in settings.", err)
-		l.beatmaps = make([]*beatmap.BeatMap, 0)
+		l.publishCatalog(database.NewCatalogSnapshot(nil), after)
+		l.setupWatcher()
+		l.catalogMu.Unlock()
+		return
 	} else {
-		bSplash := "Loading maps...\nThis may take a while...\n\n"
+		cached := database.LoadCachedCatalog()
+		l.publishCatalog(cached, nil)
+		l.setupWatcher()
 
-		beatmaps := database.LoadBeatmaps(launcherConfig.SkipMapUpdate, func(stage database.ImportStage, processed, target int) {
-			switch stage {
-			case database.Discovery:
-				l.splashText = bSplash + "Searching for .osu files...\n\n"
-			case database.Comparison:
-				l.splashText = bSplash + "Comparing files with database...\n\n"
-			case database.Cleanup:
-				l.splashText = bSplash + "Removing leftover maps from database...\n\n"
-			case database.Import:
-				percent := float64(processed) / float64(target) * 100
-				l.splashText = bSplash + fmt.Sprintf("Importing maps...\n%d / %d\n%.0f%%", processed, target, percent)
-			case database.Finished:
-				l.splashText = bSplash + "Finished!\n\n"
-			}
+		// The cached snapshot is enough to make the launcher usable. Reconcile
+		// the filesystem on a separate OS thread and publish the replacement
+		// snapshot only after the durable catalog has been updated.
+		goroutines.RunOS(func() {
+			defer l.catalogMu.Unlock()
+
+			// A first launch may have no danser rows yet. Read Stable's optional
+			// database on this worker and publish its provisional metadata before
+			// walking the Songs tree, so even a large library can become browsable
+			// while the authoritative filesystem reconciliation continues.
+			stableDelta := database.SeedCatalogFromStableDatabase()
+			l.publishCatalogDelta(stableDelta, nil)
+
+			delta := database.ReconcileCatalog(launcherConfig.SkipMapUpdate, l.catalogImportListener())
+			l.publishCatalogDelta(delta, after)
+
+			// Star ratings are a separate, potentially large background pass. Do
+			// not hold the selector's first usable catalog hostage to it.
+			starDelta := database.UpdateCatalogStarRating(l.catalogStarRatingListener())
+			l.publishCatalogDelta(starDelta, nil)
+			l.catalogProgress.Store(catalogProgressState{})
 		})
 
-		slices.SortFunc(beatmaps, func(a, b *beatmap.BeatMap) int {
-			return cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-		})
+		return
+	}
+}
 
-		bSplash = "Calculating Star Rating...\nThis may take a while...\n\n\n"
-
-		l.splashText = bSplash + "\n"
-
-		database.UpdateStarRating(beatmaps, func(processed, target int, message string) {
-			percent := float64(processed) / float64(target) * 100
-			l.splashText = bSplash + fmt.Sprintf("%d / %d\n%.0f%%", processed, target, percent)
-
-			if message != "" {
-				l.splashText += "\n" + message
-			}
-		})
-
-		for _, bMap := range beatmaps {
-			l.beatmaps = append(l.beatmaps, bMap)
-		}
-
-		//database.Close()
+func (l *launcher) publishCatalog(catalog *database.CatalogSnapshot, after func()) {
+	if catalog == nil {
+		catalog = database.NewCatalogSnapshot(nil)
 	}
 
-	l.setupWatcher()
+	// The initial publication is synchronous so command-line replay/map
+	// selection, which runs immediately after startup, cannot observe a nil or
+	// half-installed catalog.
+	goroutines.CallMain(func() {
+		l.catalog = catalog
+		l.mapsLoaded.Store(true)
 
-	l.mapsLoaded = true
+		if l.selectWindow != nil {
+			l.selectWindow.updateCatalog(catalog)
+		}
+
+		if after != nil {
+			after()
+		}
+	})
+}
+
+func (l *launcher) publishCatalogDelta(delta database.CatalogDelta, after func()) {
+	// Publish synchronously before releasing catalogMu. A queued callback
+	// could otherwise apply an old reconciliation result after a subsequent
+	// reload has opened a new database connection.
+	goroutines.CallMain(func() {
+		if len(delta.Upserts) == 0 && len(delta.Removals) == 0 {
+			if after != nil {
+				after()
+			}
+			return
+		}
+
+		if l.catalog == nil {
+			l.catalog = database.NewCatalogSnapshot(nil)
+		}
+
+		l.catalog = l.catalog.ApplyDelta(delta)
+		l.mapsLoaded.Store(true)
+
+		if l.selectWindow != nil {
+			l.selectWindow.updateCatalog(l.catalog)
+		}
+
+		if after != nil {
+			after()
+		}
+	})
+}
+
+func (l *launcher) catalogImportListener() database.ImportListener {
+	return func(stage database.ImportStage, processed, target int) {
+		// Discovery and comparison intentionally stay invisible for small
+		// updates. A large scan gets a lightweight directory counter, while
+		// import and cleanup expose exact work totals once they are known.
+		if stage == database.Discovery && processed >= 128 {
+			l.catalogProgress.Store(catalogProgressState{
+				stage:     stage,
+				processed: processed,
+				active:    true,
+			})
+		} else if (stage == database.Import || stage == database.Cleanup) && target >= 128 {
+			l.catalogProgress.Store(catalogProgressState{
+				stage:     stage,
+				processed: processed,
+				target:    target,
+				active:    true,
+			})
+		}
+	}
+}
+
+func (l *launcher) catalogStarRatingListener() func(processed, target int, message string) {
+	return func(processed, target int, _ string) {
+		if target < 128 {
+			return
+		}
+
+		l.catalogProgress.Store(catalogProgressState{
+			stage:     database.StarRating,
+			processed: processed,
+			target:    target,
+			active:    true,
+		})
+	}
+}
+
+func (l *launcher) materializeCatalogEntry(entry *database.BeatmapEntry) (*beatmap.BeatMap, error) {
+	return database.LoadRuntimeBeatMap(entry)
+}
+
+func (l *launcher) findCatalogEntryByMD5(md5 string) *database.BeatmapEntry {
+	if l.catalog == nil || md5 == "" {
+		return nil
+	}
+
+	var found *database.BeatmapEntry
+	l.catalog.ForEach(func(entry *database.BeatmapEntry) bool {
+		if strings.EqualFold(entry.MD5, md5) {
+			found = entry
+			return false
+		}
+		return true
+	})
+
+	return found
 }
 
 func (l *launcher) loadLatestReplay() {
@@ -585,7 +696,7 @@ func (l *launcher) Draw() {
 		l.snow.Draw(t, l.batch)
 	}
 
-	if l.mapsLoaded {
+	if l.mapsLoaded.Load() {
 		if l.winter {
 			bSnow := *graphics.Snow[0]
 
@@ -672,7 +783,7 @@ func (l *launcher) drawImgui() {
 
 	imgui.PushStyleVarVec2(imgui.StyleVarWindowPadding, vec2(5, 5))
 
-	if l.mapsLoaded {
+	if l.mapsLoaded.Load() {
 		l.drawMain()
 	} else {
 		l.drawSplash()
@@ -695,6 +806,7 @@ func (l *launcher) drawMain() {
 	w := contentRegionMax().X
 
 	imgui.PushFont(Font, 24)
+	l.drawCatalogProgress()
 
 	if imgui.BeginTableV("ltpanel", 2, imgui.TableFlagsSizingStretchProp, vec2(float32(w)/2, 0), -1) {
 		imgui.TableSetupColumnV("ltpanel1", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(0))
@@ -781,6 +893,37 @@ func (l *launcher) drawMain() {
 			l.reloadMaps(nil)
 		}
 	}
+}
+
+func (l *launcher) drawCatalogProgress() {
+	value := l.catalogProgress.Load()
+	if value == nil {
+		return
+	}
+
+	progress, ok := value.(catalogProgressState)
+	if !ok || !progress.active {
+		return
+	}
+
+	var message string
+	switch progress.stage {
+	case database.Discovery:
+		message = fmt.Sprintf("Scanning beatmaps: %d directories", progress.processed)
+	case database.Import:
+		message = fmt.Sprintf("Indexing beatmaps: %d / %d", progress.processed, progress.target)
+	case database.Cleanup:
+		message = fmt.Sprintf("Removing beatmaps: %d / %d", progress.processed, progress.target)
+	case database.StarRating:
+		message = fmt.Sprintf("Updating star ratings: %d / %d", progress.processed, progress.target)
+	default:
+		return
+	}
+
+	imgui.PushFont(Font, 18)
+	imgui.TextUnformatted(message)
+	imgui.PopFont()
+	imgui.Dummy(vec2(0, 4))
 }
 
 func (l *launcher) drawSplash() {
@@ -967,14 +1110,17 @@ func (l *launcher) trySelectReplaysFromPaths(p []string) {
 		found := false
 
 		for _, replay := range replays {
-			for _, bMap := range l.beatmaps {
-				if strings.ToLower(bMap.MD5) == strings.ToLower(replay.parsedReplay.BeatmapMD5) {
-					launcherConfig.CurrentMode = Knockout
-					l.bld.setMap(bMap)
-
-					found = true
+			entry := l.findCatalogEntryByMD5(replay.parsedReplay.BeatmapMD5)
+			if entry != nil {
+				bMap, err := l.materializeCatalogEntry(entry)
+				if err != nil {
+					showMessage(mError, "Failed to load replay map: %s", err)
 					break
 				}
+
+				launcherConfig.CurrentMode = Knockout
+				l.bld.setMap(bMap)
+				found = true
 			}
 
 			if found {
@@ -1004,15 +1150,20 @@ func (l *launcher) trySelectReplaysFromPaths(p []string) {
 }
 
 func (l *launcher) trySelectReplay(replay *knockoutReplay) {
-	for _, bMap := range l.beatmaps {
-		if strings.ToLower(bMap.MD5) == strings.ToLower(replay.parsedReplay.BeatmapMD5) {
-			launcherConfig.CurrentMode = Replay
-			l.bld.replayPath = replay.path
-			l.bld.setMap(bMap)
-			l.bld.setReplay(replay.parsedReplay)
-
+	entry := l.findCatalogEntryByMD5(replay.parsedReplay.BeatmapMD5)
+	if entry != nil {
+		bMap, err := l.materializeCatalogEntry(entry)
+		if err != nil {
+			showMessage(mError, "Failed to load replay map: %s", err)
 			return
 		}
+
+		launcherConfig.CurrentMode = Replay
+		l.bld.replayPath = replay.path
+		l.bld.setMap(bMap)
+		l.bld.setReplay(replay.parsedReplay)
+
+		return
 	}
 
 	showMessage(mError, "Replay uses an unknown map. Please download the map beforehand.")
@@ -1130,7 +1281,7 @@ func (l *launcher) showSelect() {
 
 	if imgui.ButtonV("Select map", bSize) {
 		if l.selectWindow == nil {
-			l.selectWindow = newSongSelectPopup(l.bld, l.beatmaps)
+			l.selectWindow = newSongSelectPopup(l.bld, l.catalog, l.materializeCatalogEntry)
 		}
 
 		l.selectWindow.open()
@@ -1907,7 +2058,9 @@ func (l *launcher) loadOSZs(names []string) {
 	if reload {
 		l.reloadMaps(func() {
 			if l.selectWindow == nil {
-				l.selectWindow = newSongSelectPopup(l.bld, l.beatmaps)
+				l.selectWindow = newSongSelectPopup(l.bld, l.catalog, l.materializeCatalogEntry)
+			} else {
+				l.selectWindow.refreshCatalog()
 			}
 
 			if l.bld.knockoutReplays == nil && l.bld.currentReplay == nil {
@@ -1921,28 +2074,7 @@ func (l *launcher) loadOSZs(names []string) {
 
 func (l *launcher) reloadMaps(after func()) {
 	goroutines.RunOS(func() {
-		l.mapsLoaded = false
-		l.loadBeatmaps()
-
-		// Add to main thread scheduler to avoid race conditions
-		goroutines.CallNonBlockMain(func() {
-			if l.bld.currentMap != nil {
-				for _, b := range l.beatmaps {
-					if b.MD5 == l.bld.currentMap.MD5 {
-						l.bld.currentMap = b
-						break
-					}
-				}
-			}
-
-			if l.selectWindow != nil {
-				l.selectWindow.setBeatmaps(l.beatmaps)
-			}
-
-			if after != nil {
-				after()
-			}
-		})
+		l.loadBeatmaps(after)
 	})
 }
 
