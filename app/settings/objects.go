@@ -7,6 +7,7 @@ func initObjects() *objects {
 		DrawApproachCircles: true,
 		DrawComboNumbers:    true,
 		DrawFollowPoints:    true,
+		HitAnimations:       true,
 		LoadSpinners:        true,
 		ScaleToTheBeat:      false,
 		StackEnabled:        true,
@@ -106,11 +107,15 @@ type objects struct {
 	DrawApproachCircles bool //true
 	DrawComboNumbers    bool
 	DrawFollowPoints    bool
-	LoadSpinners        bool `liveedit:"false"`
-	ScaleToTheBeat      bool //true, objects size is changing with music peak amplitude
-	StackEnabled        bool `label:"Enable stack leniency" liveedit:"false"` //true, stack leniency
-	Sliders             *sliders
-	Colors              *objectColors
+	// HitAnimations matches osu!lazer's osu!standard setting. When disabled,
+	// successful hit circles use the short fade instead of the normal hit
+	// animation; miss presentation and unrelated slider effects stay separate.
+	HitAnimations  bool `label:"Hit animations" tooltip:"When enabled, hit circles play an animation when hit. When disabled, they disappear almost immediately"`
+	LoadSpinners   bool `liveedit:"false"`
+	ScaleToTheBeat bool //true, objects size is changing with music peak amplitude
+	StackEnabled   bool `label:"Enable stack leniency" liveedit:"false"` //true, stack leniency
+	Sliders        *sliders
+	Colors         *objectColors
 }
 
 type sliders struct {

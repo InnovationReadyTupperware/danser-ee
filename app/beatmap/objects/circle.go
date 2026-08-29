@@ -298,7 +298,7 @@ func (circle *Circle) Arm(clicked bool, time float64) {
 	// animation when the skin supplied a visible endpoint component. A nil
 	// endpoint texture is meaningful: applying the transform anyway used to
 	// make every skin behave as if it had a slider tail.
-	if clicked && (!circle.SliderPoint || (circle.hitCircleTexture != nil && settings.Objects.Sliders.HitAnimations)) && !circle.diff.CheckModActive(difficulty.Hidden) && !circle.diff.CheckModActive(difficulty.Traceable) {
+	if circle.shouldAnimateHit(clicked) {
 		endTime := startTime + difficulty.HitFadeOut
 		circle.hitCircle.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
 		circle.hitCircleOverlay.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
@@ -329,6 +329,26 @@ func (circle *Circle) Arm(clicked bool, time float64) {
 		circle.hitCircleOverlay.AddTransform(animation.NewSingleTransform(animation.Fade, easing.OutQuad, startTime, endTime, circle.hitCircleOverlay.GetAlpha(), 0.0))
 		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, circle.comboText.GetAlpha(), 0.0))
 	}
+}
+
+// shouldAnimateHit keeps the Lazer hit-animation switch separate from the
+// slider-specific follow-circle and endpoint animation switch. A slider head
+// or legacy endpoint must satisfy both settings, while ordinary hit circles
+// only depend on the global setting.
+func (circle *Circle) shouldAnimateHit(clicked bool) bool {
+	if !clicked || !settings.Objects.HitAnimations {
+		return false
+	}
+
+	if circle.diff.CheckModActive(difficulty.Hidden) || circle.diff.CheckModActive(difficulty.Traceable) {
+		return false
+	}
+
+	if !circle.SliderPoint {
+		return true
+	}
+
+	return circle.hitCircleTexture != nil && settings.Objects.Sliders.HitAnimations
 }
 
 func (circle *Circle) Shake(time float64) {

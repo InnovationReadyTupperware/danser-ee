@@ -13,6 +13,26 @@ func TestDefaultSliderJudgmentMarkersAreEnabled(t *testing.T) {
 	}
 }
 
+func TestDefaultHitAnimationsMatchLazer(t *testing.T) {
+	config := NewConfigFile()
+
+	if !config.Objects.HitAnimations {
+		t.Fatal("HitAnimations default = false, want true")
+	}
+}
+
+func TestHitAnimationsCanBeDisabledInConfig(t *testing.T) {
+	config := NewConfigFile()
+	data := []byte(`{"Objects":{"HitAnimations":false}}`)
+
+	if err := json.Unmarshal(data, config); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if config.Objects.HitAnimations {
+		t.Fatal("HitAnimations after config load = true, want false")
+	}
+}
+
 func TestDefaultComboColorNormalizationMatchesLazer(t *testing.T) {
 	config := NewConfigFile()
 
