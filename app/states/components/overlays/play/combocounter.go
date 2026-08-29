@@ -102,6 +102,29 @@ func (counter *ComboCounter) GetCombo() int {
 	return counter.combo
 }
 
+// SetCombo synchronizes the counter without playing a combo animation or
+// submitting a combo-break sound. Initial seek reconstruction uses this to
+// retain the ruleset's persistent combo while omitting presentation events
+// from the skipped interval.
+func (counter *ComboCounter) SetCombo(combo int) {
+	combo = max(0, combo)
+	counter.combo = combo
+	counter.comboDisplay = combo
+	counter.nextTransfer = math.MaxFloat64
+
+	text := fmt.Sprintf("%dx", combo)
+	counter.mainCounter.SetText(text)
+	counter.popCounter.SetText(text)
+	counter.popCounter.ClearTransformations()
+	counter.popCounter.SetAlpha(0)
+	counter.mainCounter.ClearTransformationsOfType(animation.Scale)
+	if combo > 0 {
+		counter.mainCounter.SetAlpha(1)
+	} else {
+		counter.mainCounter.SetAlpha(0)
+	}
+}
+
 func (counter *ComboCounter) DisableAudioSubmission(b bool) {
 	counter.audioDisabled = b
 }

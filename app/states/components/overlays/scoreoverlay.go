@@ -384,46 +384,54 @@ func (overlay *ScoreOverlay) initUnderlay() {
 
 func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu.JudgementResult, score osu.Score) {
 	object := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number]
+	presentJudgement := !judgementResult.IsCatchUp()
 
-	if judgementResult.HitResult&(osu.BaseHitsM) > 0 || judgementResult.IsSliderNested() || judgementResult.IsSliderHead() {
+	if presentJudgement && (judgementResult.HitResult&(osu.BaseHitsM) > 0 || judgementResult.IsSliderNested() || judgementResult.IsSliderHead()) {
 		overlay.results.AddJudgmentResult(judgementResult, object)
 	}
 
-	playerDiff := overlay.ruleset.GetPlayerDifficulty(c)
-	hitErrorEvent, includeInHitError := buildHitErrorEvent(object, judgementResult)
-	if includeInHitError {
-		overlay.hitErrorMeter.Add(play.HitErrorSample{
-			Time:   hitErrorEvent.time,
-			Offset: hitErrorEvent.offset,
-			Result: hitErrorEvent.result,
-		})
+	if presentJudgement {
+		playerDiff := overlay.ruleset.GetPlayerDifficulty(c)
+		hitErrorEvent, includeInHitError := buildHitErrorEvent(object, judgementResult)
+		if includeInHitError {
+			overlay.hitErrorMeter.Add(play.HitErrorSample{
+				Time:   hitErrorEvent.time,
+				Offset: hitErrorEvent.offset,
+				Result: hitErrorEvent.result,
+			})
 
-		var startPos *vector.Vector2f
-		if judgementResult.Number > 0 {
-			pos := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number-1].GetStackedEndPositionMod(playerDiff)
-			startPos = &pos
+			var startPos *vector.Vector2f
+			if judgementResult.Number > 0 {
+				pos := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number-1].GetStackedEndPositionMod(playerDiff)
+				startPos = &pos
+			}
+
+			endPos := object.GetStackedStartPositionMod(playerDiff)
+
+			overlay.aimErrorMeter.Add(float64(judgementResult.Time), c.Position, startPos, &endPos)
 		}
-
-		endPos := object.GetStackedStartPositionMod(playerDiff)
-
-		overlay.aimErrorMeter.Add(float64(judgementResult.Time), c.Position, startPos, &endPos)
 	}
 
 	if judgementResult.HitResult == osu.PositionalMiss {
 		return
 	}
 
-	if judgementResult.ComboResult == osu.Increase {
-		overlay.comboCounter.Increase()
-	} else if judgementResult.ComboResult == osu.Reset {
-		overlay.comboCounter.Reset()
+	sc := overlay.ruleset.GetScore(overlay.cursor)
+	if presentJudgement {
+		if judgementResult.ComboResult == osu.Increase {
+			overlay.comboCounter.Increase()
+		} else if judgementResult.ComboResult == osu.Reset {
+			overlay.comboCounter.Reset()
+		}
+	} else {
+		// Fast seek resolves overdue objects in one ruleset update. Synchronize
+		// persistent HUD state without replaying every skipped combo animation.
+		overlay.comboCounter.SetCombo(int(sc.CurrentCombo))
 	}
 
 	if overlay.flashlight != nil {
 		overlay.flashlight.UpdateCombo(int64(overlay.comboCounter.GetCombo()))
 	}
-
-	sc := overlay.ruleset.GetScore(overlay.cursor)
 
 	overlay.entry.UpdatePlayer(sc.Score, int64(sc.Combo))
 
@@ -432,7 +440,9 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 
 	overlay.ppDisplay.Add(score.PP)
 
-	overlay.hpSections = append(overlay.hpSections, vector.NewVec2d(float64(judgementResult.Time), overlay.ruleset.GetHP(overlay.cursor)))
+	if presentJudgement {
+		overlay.hpSections = append(overlay.hpSections, vector.NewVec2d(float64(judgementResult.Time), overlay.ruleset.GetHP(overlay.cursor)))
+	}
 
 	if overlay.oldGrade != sc.Grade {
 		goroutines.Run(func() {

@@ -283,6 +283,14 @@ func (overlay *KnockoutOverlay) hitReceived(cursor *graphics.Cursor, judgementRe
 
 	player.accDisp.SetValue(score.Accuracy*100, false)
 
+	if judgementResult.IsCatchUp() {
+		// Keep sortable score state coherent at a late start, but do not turn
+		// skipped judgments into hit flashes, bubbles, or eliminations at the
+		// first rendered frame.
+		player.sCombo = int64(score.CurrentCombo)
+		return
+	}
+
 	if judgementResult.ComboResult == osu.Increase {
 		player.sCombo++
 	}

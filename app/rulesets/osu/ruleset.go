@@ -138,6 +138,7 @@ type OsuRuleSet struct {
 	failListener       failListener
 	playerFailListener failListener
 	clickListener      clickListener
+	catchUp           bool
 }
 
 func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs []*difficulty.Difficulty) *OsuRuleSet {
@@ -511,6 +512,7 @@ func (set *OsuRuleSet) UpdatePostFor(cursor *graphics.Cursor, time int64, proces
 
 func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult JudgementResult) {
 	subSet := set.cursors[cursor]
+	judgementResult.catchUp = set.catchUp
 
 	if judgementResult.HitResult == Ignore || judgementResult.HitResult == PositionalMiss {
 		if judgementResult.HitResult == PositionalMiss && set.hitListener != nil && !subSet.player.diff.Mods.Active(difficulty.Relax) {
@@ -585,6 +587,16 @@ func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult Judge
 			subSet.score.PP.Total,
 		))
 	}
+}
+
+// SetCatchUp marks subsequently emitted judgments as timeline reconstruction
+// rather than live play. The previous value is returned so a seek owner can
+// restore the ruleset even if its reconstruction path exits early.
+func (set *OsuRuleSet) SetCatchUp(catchUp bool) bool {
+	previous := set.catchUp
+	set.catchUp = catchUp
+
+	return previous
 }
 
 func (set *OsuRuleSet) processGekiKatu(sSet *subSet, judgementResult *JudgementResult) {

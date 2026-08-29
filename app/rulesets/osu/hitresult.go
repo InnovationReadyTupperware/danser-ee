@@ -243,6 +243,7 @@ type JudgementResult struct {
 	object HitObject
 
 	sliderPart sliderJudgementPart
+	catchUp    bool
 }
 
 type sliderJudgementPart uint8
@@ -273,6 +274,14 @@ func (result JudgementResult) IsSliderNested() bool {
 // result, rather than one of the nested slider events.
 func (result JudgementResult) IsSliderSummary() bool {
 	return result.sliderPart == sliderPartSummary
+}
+
+// IsCatchUp reports whether the result was produced while reconstructing
+// ruleset state after an initial timeline seek. Catch-up results still own
+// score, health, and statistics, but presentation consumers must not replay
+// their short-lived hit animations at the seek target.
+func (result JudgementResult) IsCatchUp() bool {
+	return result.catchUp
 }
 
 func createJudgementResult(result HitResult, maxResult HitResult, comboResult ComboResult, time int64, position vector.Vector2f, obj HitObject) JudgementResult {

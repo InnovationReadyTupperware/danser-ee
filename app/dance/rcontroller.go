@@ -424,7 +424,18 @@ func (controller *ReplayController) Seek(time float64) bool {
 		}
 	}
 
+	// The ruleset still resolves overdue objects so score, health, and future
+	// object state are coherent at the target. Tag those results as catch-up so
+	// overlays do not present the entire skipped interval as one live frame.
+	previousCatchUp := controller.ruleset.SetCatchUp(true)
+	defer controller.ruleset.SetCatchUp(previousCatchUp)
+
 	controller.bMap.Update(time)
+	// Normal frame processing activates objects after cursor processing because
+	// they only need to become available for the following millisecond. A seek
+	// has no preceding frame at the target, so activate the overdue queue first;
+	// otherwise its misses escape catch-up mode on the first live update.
+	controller.ruleset.Update(int64(time))
 
 	for i, control := range controller.controllers {
 		seeker := control.danceController.(InitialSeeker)
