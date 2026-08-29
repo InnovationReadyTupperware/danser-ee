@@ -421,7 +421,7 @@ func (body *Body) modifyBuffer(index int, point vector.Vector2f, length float32)
 }
 
 func (body *Body) DrawNormal(projection mgl32.Mat4, stackOffset vector.Vector2f, scale float32, bodyInner, bodyOuter, borderInner, borderOuter color2.Color) {
-	if body.framebuffer == nil || body.disposed || len(body.sections) == 0 {
+	if body == nil || body.framebuffer == nil || body.disposed || len(body.sections) == 0 {
 		return
 	}
 

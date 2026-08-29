@@ -84,3 +84,17 @@ func TestSliderBodyRangeAtHandlesInvalidSpanCount(t *testing.T) {
 		t.Fatalf("invalid span count range = (%g, %g), want (0, 0)", got.head, got.tail)
 	}
 }
+
+func TestSliderBodyRangeAtHandlesInstantaneousSlider(t *testing.T) {
+	settings := sliderSnakeSettings{out: true}
+
+	beforeStart := sliderBodyRangeAt(900, 1000, 1000, 300, 0, 1, settings)
+	if !closeEnough(beforeStart.head, 0) || !closeEnough(beforeStart.tail, 1) {
+		t.Fatalf("instantaneous slider before start = (%g, %g), want (0, 1)", beforeStart.head, beforeStart.tail)
+	}
+
+	atStart := sliderBodyRangeAt(1000, 1000, 1000, 300, 0, 1, settings)
+	if !closeEnough(atStart.head, 1) || !closeEnough(atStart.tail, 1) {
+		t.Fatalf("instantaneous slider at start = (%g, %g), want (1, 1)", atStart.head, atStart.tail)
+	}
+}

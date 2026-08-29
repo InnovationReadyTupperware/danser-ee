@@ -1161,10 +1161,26 @@ func (slider *Slider) DrawBodyBase(time float64, projection mgl32.Mat4) {
 	}
 
 	rangeAtTime := slider.visualBodyRange(time)
+	// A collapsed range represents a fully retracted body. Avoid submitting
+	// a cap-only draw for zero-duration sliders and the final frame of a
+	// snaking-out slider.
+	if rangeAtTime.head == rangeAtTime.tail {
+		return
+	}
 	slider.body.DrawBase(rangeAtTime.head, rangeAtTime.tail, projection)
 }
 
-func (slider *Slider) DrawBody(_ float64, circleColor, bodyColor, innerBorder, outerBorder color2.Color, projection mgl32.Mat4, scale float32) {
+func (slider *Slider) DrawBody(time float64, circleColor, bodyColor, innerBorder, outerBorder color2.Color, projection mgl32.Mat4, scale float32) {
+	// The beatmap can finalize the slider in the same update that advances past
+	// its body proxy. Treat a missing render resource as an already-faded body
+	// so a late frame or seek cannot crash the draw path.
+	if slider.body == nil || slider.bodyFade == nil || slider.diff == nil {
+		return
+	}
+	if rangeAtTime := slider.visualBodyRange(time); rangeAtTime.head == rangeAtTime.tail {
+		return
+	}
+
 	colorAlpha := slider.bodyFade.GetValue() * float64(bodyColor.A)
 
 	bodyOpacityInner := mutils.Clamp(float32(settings.Objects.Colors.Sliders.Body.InnerAlpha), 0.0, 1.0)

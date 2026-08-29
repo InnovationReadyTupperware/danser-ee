@@ -31,11 +31,23 @@ type sliderBodyRange struct {
 // rather than queueing one-shot animations which can become stale after a
 // seek, late hit, or frame skip.
 func sliderBodyRangeAt(time, startTime, endTime, preempt, spanDuration float64, spanCount int, settings sliderSnakeSettings) sliderBodyRange {
-	if spanCount <= 0 || !isFinite(time) || !isFinite(startTime) || !isFinite(endTime) || endTime <= startTime {
+	if spanCount <= 0 || !isFinite(time) || !isFinite(startTime) || !isFinite(endTime) || endTime < startTime {
 		return sliderBodyRange{}
 	}
 
-	completion := mutils.Clamp((time-startTime)/(endTime-startTime), 0.0, 1.0)
+	// A valid beatmap can still contain an effectively instantaneous slider
+	// when its timing point has an extremely small beat length. Lazer keeps
+	// the complete body visible while the object is approaching and collapses
+	// it when the zero-duration object starts. Returning an empty range for
+	// the whole lifetime makes the body disappear even though its render
+	// proxy is active.
+	completion := 0.0
+	if endTime > startTime {
+		completion = mutils.Clamp((time-startTime)/(endTime-startTime), 0.0, 1.0)
+	} else if time >= startTime {
+		completion = 1.0
+	}
+
 	span, spanProgress := sliderSpanProgress(completion, spanCount)
 
 	snakeInProgress := 1.0
