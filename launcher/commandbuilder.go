@@ -150,18 +150,6 @@ func (b *builder) removeReplay() {
 	b.diff.SetGameplayMode(difficulty.GameplayLazer)
 }
 
-func (b *builder) numKnockoutReplays() (ret int) {
-	if b.knockoutReplays != nil {
-		for _, r := range b.knockoutReplays {
-			if r.included {
-				ret++
-			}
-		}
-	}
-
-	return
-}
-
 func (b *builder) getArguments() (args []string) {
 	currentMode := launcherConfig.CurrentMode
 	currentPMode := launcherConfig.CurrentPMode
@@ -188,7 +176,10 @@ func (b *builder) getArguments() (args []string) {
 		if currentMode == Play {
 			args = append(args, "-play")
 		} else if currentMode == Knockout {
-			var list []string
+			// Keep an empty selection as an explicit empty JSON array. A nil
+			// slice would become JSON null, which the gameplay process treats as
+			// legacy knockout and may replace with an on-disk replay scan.
+			list := make([]string, 0, len(b.knockoutReplays))
 
 			for _, r := range b.knockoutReplays {
 				if r.included {

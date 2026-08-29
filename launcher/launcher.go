@@ -1234,7 +1234,7 @@ func (l *launcher) newKnockout() {
 			l.openPopup(l.knockoutManager)
 		}
 	} else {
-		imgui.TextUnformatted("No replays selected")
+		imgui.TextUnformatted("No replays selected - Danser will be added automatically")
 	}
 
 	imgui.UnindentV(5)
@@ -1427,8 +1427,7 @@ func (l *launcher) drawLowerPanel() {
 			dRun := l.danserRunning && launcherConfig.CurrentPMode == Record
 
 			s := (launcherConfig.CurrentMode == Replay && l.bld.currentReplay == nil) ||
-				(launcherConfig.CurrentMode != Replay && l.bld.currentMap == nil) ||
-				(launcherConfig.CurrentMode == Knockout && l.bld.numKnockoutReplays() == 0)
+				(launcherConfig.CurrentMode != Replay && l.bld.currentMap == nil)
 
 			if !dRun {
 				if s {
