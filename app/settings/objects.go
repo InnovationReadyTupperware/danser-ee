@@ -52,8 +52,9 @@ func initObjects() *objects {
 			ComboColors: []*HSV{
 				DefaultsFactory.InitHSV(),
 			},
-			UseSkinComboColors:    false,
-			UseBeatmapComboColors: false,
+			ComboColorNormalization: 0.2,
+			UseSkinComboColors:      false,
+			UseBeatmapComboColors:   false,
 			Sliders: &sliderColors{
 				WhiteScorePoints:      true,
 				ScorePointColorOffset: 0,
@@ -144,14 +145,15 @@ type snaking struct {
 }
 
 type objectColors struct {
-	MandalaTexturesTrigger int     `label:"Use Mandala textures at x mirrors" string:"true"`      //5, minimum value of cursors needed to use more translucent texture
-	MandalaTexturesAlpha   float64 `label:"Mandala textures opacity" scale:"100" format:"%.0f%%"` //0.3
-	Color                  *color
-	UseComboColors         bool   `label:"Use custom combo colors"`
-	ComboColors            []*HSV `new:"InitHSV" label:"Custom combo colors" showif:"UseComboColors=true"`
-	UseSkinComboColors     bool
-	UseBeatmapComboColors  bool
-	Sliders                *sliderColors
+	MandalaTexturesTrigger  int     `label:"Use Mandala textures at x mirrors" string:"true"`      //5, minimum value of cursors needed to use more translucent texture
+	MandalaTexturesAlpha    float64 `label:"Mandala textures opacity" scale:"100" format:"%.0f%%"` //0.3
+	Color                   *color
+	UseComboColors          bool    `label:"Use custom combo colors"`
+	ComboColors             []*HSV  `new:"InitHSV" label:"Custom combo colors" showif:"UseComboColors=true"`
+	ComboColorNormalization float64 `min:"0" max:"1" scale:"100" format:"%.0f%%" label:"Combo color normalization" tooltip:"Blend combo colors toward a common perceived brightness"`
+	UseSkinComboColors      bool
+	UseBeatmapComboColors   bool
+	Sliders                 *sliderColors
 }
 
 type sliderColors struct {

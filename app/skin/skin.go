@@ -612,32 +612,65 @@ func GetColor(col Color) color.Color {
 	return c
 }
 
-func GetObjectColor(comboSet, comboSetHax int, base color.Color) (col color.Color) {
-	col = color.NewRGB(base.R, base.G, base.B)
+// GetObjectColor resolves the active combo palette for one hit object and
+// applies the configured perceived-brightness normalization to the resolved
+// combo color. Danser's independent rainbow/base-color mode remains untouched
+// because it is not a combo palette.
+func GetObjectColor(comboSet, comboSetHax int, base color.Color) color.Color {
+	baseColor := color.NewRGB(base.R, base.G, base.B)
 
-	if settings.Skin.UseColorsFromSkin && len(GetColors()) > 0 {
-		cSet := comboSet
-		if settings.Skin.UseBeatmapColors {
-			cSet = comboSetHax
-		}
+	comboColor, ok := resolveComboColor(comboSet, comboSetHax)
+	if !ok {
+		return baseColor
+	}
 
-		col = GetColors()[cSet%len(GetColors())]
-	} else if settings.Objects.Colors.UseComboColors || settings.Objects.Colors.UseSkinComboColors || settings.Objects.Colors.UseBeatmapComboColors {
-		cSet := comboSet
-		if settings.Objects.Colors.UseBeatmapComboColors {
-			cSet = comboSetHax
-		}
+	return color.NormalizePerceivedBrightness(
+		comboColor,
+		float32(settings.Objects.Colors.ComboColorNormalization),
+	)
+}
 
-		if settings.Objects.Colors.UseBeatmapComboColors && len(beatmapColors) > 0 {
-			col = beatmapColors[cSet%len(beatmapColors)]
-		} else if settings.Objects.Colors.UseSkinComboColors && len(info.ComboColors) > 0 {
-			col = info.ComboColors[cSet%len(info.ComboColors)]
-		} else if settings.Objects.Colors.UseComboColors && len(settings.Objects.Colors.ComboColors) > 0 {
-			cHSV := settings.Objects.Colors.ComboColors[cSet%len(settings.Objects.Colors.ComboColors)]
-			r, g, b := color.HSVToRGB(float32(cHSV.Hue), float32(cHSV.Saturation), float32(cHSV.Value))
-			col = color.NewRGB(r, g, b)
+// resolveComboColor preserves the existing source precedence while making it
+// explicit whether a combo color was actually selected. That distinction is
+// required because Lazer normalizes combo accent colors, not Danser's separate
+// generated object-color fallback or explicit slider override colors.
+func resolveComboColor(comboSet, comboSetHax int) (color.Color, bool) {
+	if settings.Skin.UseColorsFromSkin {
+		colors := GetColors()
+		if len(colors) > 0 {
+			colorSet := comboSet
+			if settings.Skin.UseBeatmapColors {
+				colorSet = comboSetHax
+			}
+
+			return colors[colorSet%len(colors)], true
 		}
 	}
 
-	return
+	if !settings.Objects.Colors.UseComboColors &&
+		!settings.Objects.Colors.UseSkinComboColors &&
+		!settings.Objects.Colors.UseBeatmapComboColors {
+		return color.Color{}, false
+	}
+
+	colorSet := comboSet
+	if settings.Objects.Colors.UseBeatmapComboColors {
+		colorSet = comboSetHax
+	}
+
+	if settings.Objects.Colors.UseBeatmapComboColors && len(beatmapColors) > 0 {
+		return beatmapColors[colorSet%len(beatmapColors)], true
+	}
+
+	if settings.Objects.Colors.UseSkinComboColors && len(info.ComboColors) > 0 {
+		return info.ComboColors[colorSet%len(info.ComboColors)], true
+	}
+
+	if settings.Objects.Colors.UseComboColors && len(settings.Objects.Colors.ComboColors) > 0 {
+		comboHSV := settings.Objects.Colors.ComboColors[colorSet%len(settings.Objects.Colors.ComboColors)]
+		r, g, b := color.HSVToRGB(float32(comboHSV.Hue), float32(comboHSV.Saturation), float32(comboHSV.Value))
+		return color.NewRGB(r, g, b), true
+	}
+
+	return color.Color{}, false
 }
