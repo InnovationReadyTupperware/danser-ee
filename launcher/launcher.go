@@ -328,11 +328,13 @@ func (l *launcher) startContext() {
 		iconName += "-s"
 	}
 
-	gcontext.SDLCreateWindow(800, 534, "danser-go "+build.VERSION+" launcher", gcontext.OptionalProps{
+	if err := gcontext.SDLCreateWindow(800, 534, "danser-go "+build.VERSION+" launcher", gcontext.OptionalProps{
 		IconName:       iconName,
 		ScaleToMonitor: true,
 		BuiltinMSAA:    true,
-	})
+	}); err != nil {
+		panic("Failed to create SDL window: " + err.Error())
+	}
 
 	log.Println("SDL initialized!")
 

@@ -2,7 +2,6 @@ package gcontext
 
 import (
 	"fmt"
-	"log"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -72,24 +71,22 @@ func Initialize(offscreen bool) error {
 	return sdl.Init(sdl.INIT_VIDEO) // preinitialize to get access to display info - it will be reinitialized during window creation
 }
 
-func SDLCreateWindow(width, height int, title string, props OptionalProps) {
-
+func SDLCreateWindow(width, height int, title string, props OptionalProps) error {
 	sdl.QuitSubSystem(sdl.INIT_VIDEO)
 
 	if props.ScaleToMonitor {
 		// We want the window to be rescaled
 		if err := sdl.SetHint("SDL_WINDOWS_DPI_AWARENESS", "unaware"); err != nil {
-			return
+			return fmt.Errorf("sdl: couldn't enable monitor scaling: %w", err)
 		}
 	} else {
 		if err := sdl.SetHint("SDL_WINDOWS_DPI_AWARENESS", ""); err != nil {
-			return
+			return fmt.Errorf("sdl: couldn't restore native monitor scaling: %w", err)
 		}
 	}
 
-	err2 := sdl.InitSubSystem(sdl.INIT_VIDEO)
-	if err2 != nil {
-		log.Fatal(err2)
+	if err := sdl.InitSubSystem(sdl.INIT_VIDEO); err != nil {
+		return fmt.Errorf("sdl: couldn't reinitialize video subsystem: %w", err)
 	}
 
 	_ = sdl.GL_SetAttribute(sdl.GL_FRAMEBUFFER_SRGB_CAPABLE, 1)
@@ -102,48 +99,69 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) {
 		_ = sdl.GL_SetAttribute(sdl.GL_MULTISAMPLESAMPLES, 4)
 	}
 
-	var flags sdl.WindowFlags
+	flags := sdl.WINDOW_OPENGL
 
 	if props.Resizable {
 		flags |= sdl.WINDOW_RESIZABLE
 	}
 
-	var err error
-	sdlWindow, err = sdl.CreateWindow(title, width, height, sdl.WINDOW_OPENGL|sdl.WINDOW_HIDDEN|flags)
+	if props.Hidden {
+		flags |= sdl.WINDOW_HIDDEN
+	}
 
+	var err error
+	sdlWindow, err = sdl.CreateWindow(title, width, height, flags)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("sdl: couldn't create window: %w", err)
+	}
+
+	// Create the GL context before changing fullscreen state. SDL creates visible
+	// windows mapped by default, while WINDOW_HIDDEN is reserved for recording.
+	// Keeping the normal path visible from creation avoids relying on a later
+	// Show call to map a window whose fullscreen transition is still pending.
+	if _, err = sdl.GL_CreateContext(sdlWindow); err != nil {
+		return fmt.Errorf("sdl: couldn't create OpenGL context: %w", err)
 	}
 
 	if props.Fullscreen {
-		md, err := sdl.GetPrimaryDisplay().CurrentDisplayMode()
+		display := sdl.GetPrimaryDisplay()
+		currentMode, err := display.CurrentDisplayMode()
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("sdl: couldn't get current display mode: %w", err)
 		}
 
-		md.W = int32(width)
-		md.H = int32(height)
+		// CurrentDisplayMode returns SDL-owned const storage. Ask SDL for a real
+		// supported mode instead of modifying that shared object in place.
+		fullscreenMode, err := display.ClosestFullscreenDisplayMode(
+			int32(width),
+			int32(height),
+			currentMode.RefreshRate,
+			false,
+		)
+		if err != nil {
+			return fmt.Errorf("sdl: couldn't find fullscreen display mode: %w", err)
+		}
 
-		if err = sdlWindow.SetFullscreenMode(md); err != nil {
-			panic(err)
+		if err = sdlWindow.SetFullscreenMode(fullscreenMode); err != nil {
+			return fmt.Errorf("sdl: couldn't set fullscreen display mode: %w", err)
 		}
 
 		if err = sdlWindow.SetFullscreen(true); err != nil {
-			panic(err)
+			return fmt.Errorf("sdl: couldn't enter fullscreen: %w", err)
+		}
+
+		// SDL3 fullscreen changes can be asynchronous. Rendering starts as soon as
+		// this function returns, so wait until the native window state is settled.
+		if err = sdlWindow.Sync(); err != nil {
+			return fmt.Errorf("sdl: couldn't synchronize fullscreen window: %w", err)
 		}
 
 		fullscreen = true
 	}
 
-	if !props.Hidden {
-		if err = sdlWindow.Show(); err != nil {
-			return
-		}
-	}
-
 	if !offscreenCtx {
 		if err = sdlWindow.StartTextInput(); err != nil {
-			panic(err)
+			return fmt.Errorf("sdl: couldn't start text input: %w", err)
 		}
 	}
 
@@ -151,10 +169,7 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) {
 		loadIconsSDL(props.IconName)
 	}
 
-	_, err = sdl.GL_CreateContext(sdlWindow)
-	if err != nil {
-		panic(err)
-	}
+	return nil
 }
 
 func GetFramebufferSize() (int, int) {

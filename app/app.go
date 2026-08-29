@@ -483,7 +483,7 @@ func run() {
 			iconName += "-s"
 		}
 
-		gcontext.SDLCreateWindow(
+		err = gcontext.SDLCreateWindow(
 			int(settings.Graphics.GetWidth()),
 			int(settings.Graphics.GetHeight()),
 			"danser "+build.VERSION+" - "+beatMap.Artist+" - "+beatMap.Name+" ["+beatMap.Difficulty+"]",
@@ -495,6 +495,9 @@ func run() {
 				Hidden:         settings.RECORD,
 				Fullscreen:     settings.Graphics.Fullscreen,
 			})
+		if err != nil {
+			panic("Failed to create SDL window: " + err.Error())
+		}
 
 		log.Println("Window created!")
 
