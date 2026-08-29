@@ -64,18 +64,22 @@ func NewSubControl() *subControl {
 }
 
 type ReplayController struct {
-	bMap        *beatmap.BeatMap
-	replays     []RpData
-	cursors     []*graphics.Cursor
-	controllers []*subControl
-	ruleset     *osu.OsuRuleSet
-	lastTime    float64
+	bMap             *beatmap.BeatMap
+	replays          []RpData
+	cursors          []*graphics.Cursor
+	controllers      []*subControl
+	generatedCursors map[*graphics.Cursor]struct{}
+	ruleset          *osu.OsuRuleSet
+	lastTime         float64
 }
 
 func NewReplayController() Controller {
 	_ = os.MkdirAll(filepath.Join(env.DataDir(), replaysMaster), 0755)
 
-	return &ReplayController{lastTime: -200}
+	return &ReplayController{
+		lastTime:         -200,
+		generatedCursors: make(map[*graphics.Cursor]struct{}),
+	}
 }
 
 func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
@@ -103,7 +107,7 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 
 			localReplay = true
 		}
-	} else if settings.Knockout.MaxPlayers > 0 || (settings.KNOCKOUTREPLAYS != nil && len(settings.KNOCKOUTREPLAYS) > 0) { // ignore max player limit with new knockout
+	} else if settings.KNOCKOUTREPLAYS != nil || settings.Knockout.MaxPlayers > 0 { // ignore max player limit with new knockout
 		candidates = controller.getCandidates()
 	}
 
@@ -112,7 +116,7 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 			return candidates[i].Score > candidates[j].Score
 		})
 
-		if settings.KNOCKOUTREPLAYS == nil || len(settings.KNOCKOUTREPLAYS) == 0 { // limit only with classic knockout
+		if settings.KNOCKOUTREPLAYS == nil { // limit only with classic knockout
 			candidates = candidates[:min(len(candidates), settings.Knockout.MaxPlayers)]
 		}
 	}
@@ -161,6 +165,9 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 		log.Println("\tReplay loaded!")
 	}
 
+	// An explicit empty replay list is the launcher representation of a
+	// replay-free knockout. Treat it like AddDanser even when the persisted
+	// setting is off; the mode still needs one generated participant to start.
 	if !localReplay && (settings.Knockout.AddDanser || len(controller.controllers) == 0) {
 		control := NewSubControl()
 		control.diff = beatMap.Diff.Clone()
@@ -257,7 +264,7 @@ func (controller *ReplayController) getCandidates() (candidates []*rplpa.Replay)
 		candidates = append(candidates, replayD)
 	}
 
-	if settings.KNOCKOUTREPLAYS != nil && len(settings.KNOCKOUTREPLAYS) > 0 {
+	if settings.KNOCKOUTREPLAYS != nil {
 		for _, r := range settings.KNOCKOUTREPLAYS {
 			tryAddReplay(r, false)
 		}
@@ -327,6 +334,9 @@ func loadFrames(subController *subControl, frames []*rplpa.ReplayData) {
 
 func (controller *ReplayController) InitCursors() {
 	var diffs []*difficulty.Difficulty
+	if controller.generatedCursors == nil {
+		controller.generatedCursors = make(map[*graphics.Cursor]struct{})
+	}
 
 	for i, c := range controller.controllers {
 		if controller.controllers[i].danceController != nil {
@@ -338,6 +348,7 @@ func (controller *ReplayController) InitCursors() {
 			cursors := controller.controllers[i].danceController.GetCursors()
 
 			for _, cursor := range cursors {
+				controller.generatedCursors[cursor] = struct{}{}
 				cursor.Name = controller.replays[i].Name
 				cursor.ScoreTime = time.Now()
 				cursor.ScoreID = -1
@@ -709,6 +720,15 @@ func (controller *ReplayController) GetReplays() []RpData {
 
 func (controller *ReplayController) GetRuleset() *osu.OsuRuleSet {
 	return controller.ruleset
+}
+
+// IsGeneratedCursor reports whether the cursor belongs to Danser's generated
+// participant rather than a replay-backed participant. The controller keeps
+// this ownership information explicitly because visual flags such as
+// IsAutoplay and IsCursorDance are also used by other gameplay paths.
+func (controller *ReplayController) IsGeneratedCursor(cursor *graphics.Cursor) bool {
+	_, ok := controller.generatedCursors[cursor]
+	return ok
 }
 
 func (controller *ReplayController) GetBeatMap() *beatmap.BeatMap {

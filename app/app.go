@@ -437,14 +437,17 @@ func run() {
 			os.Exit(0)
 		}
 
-		allowDA := false
+		automatedPlayback := false
 
-		// if map was launched not in knockout or play mode but AT mod is present, use replay mode for danser, allowing custom ar,od,cs,hp
+		// An AT launch without explicit knockout or play mode uses the replay
+		// pipeline so custom AR, OD, CS, and HP values can be applied. Keep this
+		// provenance available to gameplay setup because this generated playback
+		// must remain failure-immune.
 		if !settings.KNOCKOUT && modsParsed.Active(difficulty2.Autoplay) {
 			settings.PLAY = false
 			settings.KNOCKOUT = true
 			settings.Knockout.MaxPlayers = 0
-			allowDA = true
+			automatedPlayback = true
 		}
 
 		lastSamples = int(settings.Graphics.MSAA)
@@ -538,7 +541,7 @@ func run() {
 		bass.Init(settings.RECORD)
 		audio.LoadSamples()
 
-		if settings.PLAY || !settings.KNOCKOUT || allowDA {
+		if settings.PLAY || !settings.KNOCKOUT || automatedPlayback {
 			if modsNew == nil {
 				modsNew = modsParsed.ConvertToModInfoList()
 			}
@@ -622,7 +625,7 @@ func run() {
 		beatmap.ParseTimingPointsAndPauses(beatMap)
 		beatmap.ParseObjects(beatMap, false, true)
 		beatMap.LoadCustomSamples()
-		player = states.NewPlayer(beatMap)
+		player = states.NewPlayer(beatMap, automatedPlayback)
 
 		if !settings.RECORD {
 			gcontext.Restore()

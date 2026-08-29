@@ -7,6 +7,12 @@ import (
 	"github.com/wieku/danser-go/framework/math/mutils"
 )
 
+const (
+	defaultTimingBeatLength = 60000.0 / 60.0
+	minimumTimingBeatLength = 6
+	maximumTimingBeatLength = 60000
+)
+
 type TimingPoint struct {
 	Time float64
 
@@ -82,26 +88,38 @@ type Timings struct {
 func NewTimings() *Timings {
 	return &Timings{
 		defaultTimingPoint: TimingPoint{
-			Time:             0,
-			beatLengthBase:   60000 / 60,
-			beatLength:       60000 / 60,
-			SampleSet:        0,
-			SampleIndex:      1,
-			SampleVolume:     1,
-			Signature:        4,
-			Inherited:        false,
-			Kiai:             false,
-			OmitFirstBarLine: false,
+			Time:                0,
+			beatLengthBase:      defaultTimingBeatLength,
+			beatLengthBaseLazer: defaultTimingBeatLength,
+			beatLength:          defaultTimingBeatLength,
+			SampleSet:           0,
+			SampleIndex:         1,
+			SampleVolume:        1,
+			Signature:           4,
+			Inherited:           false,
+			Kiai:                false,
+			OmitFirstBarLine:    false,
 		},
 		BaseSet: 1,
 	}
 }
 
 func (tim *Timings) AddPoint(time, beatLength float64, sampleSet, sampleIndex int, sampleVolume float64, signature int, inherited, kiai, omitFirstBarLine bool) {
+	baseBeatLength := beatLength
+	// osu!lazer stores timing-point beat lengths in a bindable constrained to
+	// 6..60000 ms. Keep the raw value in beatLength because its sign still
+	// encodes the inherited slider-velocity multiplier, but normalize the base
+	// value before inherited points copy it. This prevents denormal or
+	// zero-like values in malformed maps from turning a long slider into a
+	// zero-duration object.
+	if !inherited && !math.IsNaN(beatLength) {
+		baseBeatLength = max(float64(minimumTimingBeatLength), min(float64(maximumTimingBeatLength), beatLength))
+	}
+
 	point := TimingPoint{
 		Time:                time,
-		beatLengthBase:      beatLength,
-		beatLengthBaseLazer: beatLength,
+		beatLengthBase:      baseBeatLength,
+		beatLengthBaseLazer: baseBeatLength,
 		beatLength:          beatLength,
 		SampleSet:           sampleSet,
 		SampleIndex:         sampleIndex,
@@ -130,9 +148,14 @@ func (tim *Timings) FinalizePoints() {
 		if point.Inherited {
 			if i > 0 {
 				point.beatLengthBase = tim.points[i-1].beatLengthBase
+			} else {
+				// An inherited point without an earlier base point uses the
+				// default timing point. This is both the stable fallback and
+				// the timing-control-point default used by Lazer.
+				point.beatLengthBase = tim.defaultTimingPoint.beatLengthBase
 			}
 
-			point.beatLengthBaseLazer = tim.GetOriginalPointAt(point.Time).beatLength
+			point.beatLengthBaseLazer = tim.GetOriginalPointAt(point.Time).beatLengthBaseLazer
 
 			tim.points[i] = point
 		}

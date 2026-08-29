@@ -344,19 +344,32 @@ func (overlay *KnockoutOverlay) hitReceived(cursor *graphics.Cursor, judgementRe
 	}
 }
 
-// PlayerFailed removes a knockout participant when the ruleset reports an
-// actual health failure. This is separate from hitReceived because a health
+// HandlePlayerFailure removes a knockout participant when the ruleset reports
+// an actual health failure. This is separate from hitReceived because a health
 // failure can happen without a judgement result, and synthesizing a miss
 // would corrupt per-object score statistics and live sorting.
-func (overlay *KnockoutOverlay) PlayerFailed(cursor *graphics.Cursor) {
+//
+// The return value tells the ruleset whether the overlay accepted the failure.
+// Reaching the minimum-player floor is not an accepted failure: the ruleset
+// must keep that participant active or its scoring and presentation state will
+// diverge.
+func (overlay *KnockoutOverlay) HandlePlayerFailure(cursor *graphics.Cursor) bool {
 	name, ok := overlay.names[cursor]
 	if !ok {
-		return
+		return false
 	}
 
 	player := overlay.players[name]
-	if player == nil || player.hasBroken || overlay.alivePlayers <= settings.Knockout.MinPlayers {
-		return
+	if player == nil {
+		return false
+	}
+
+	if player.hasBroken {
+		return true
+	}
+
+	if overlay.alivePlayers <= settings.Knockout.MinPlayers {
+		return false
 	}
 
 	combo := player.sCombo
@@ -373,6 +386,14 @@ func (overlay *KnockoutOverlay) PlayerFailed(cursor *graphics.Cursor) {
 	overlay.deathBubbles = append(overlay.deathBubbles, newBubble(cursor.Position, overlay.normalTime, name, combo, osu.Miss, osu.Reset))
 
 	log.Println(name, "has failed! Max combo:", combo)
+
+	return true
+}
+
+// PlayerFailed preserves the original callback shape for callers that do not
+// need to observe whether knockout accepted the failure.
+func (overlay *KnockoutOverlay) PlayerFailed(cursor *graphics.Cursor) {
+	_ = overlay.HandlePlayerFailure(cursor)
 }
 
 func (overlay *KnockoutOverlay) Update(time float64) {

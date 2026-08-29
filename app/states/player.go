@@ -79,18 +79,22 @@ type Player struct {
 	// until a real mixer interval exists.
 	mixerClockActive bool
 
-	batch       *batch2.QuadBatch
-	controller  dance.Controller
-	background  *common.Background
-	BgScl       vector.Vector2d
-	Scl         float64
-	SclA        float64
-	fadeOut     float64
-	fadeIn      float64
-	start       bool
-	musicPlayer bass.ITrack
-	drawStats   *frame.FrameStats
-	updateStats *frame.FrameStats
+	batch      *batch2.QuadBatch
+	controller dance.Controller
+	// automatedPlayback identifies the internal AT-to-generated-playback
+	// conversion. It is distinct from explicit knockout, which can also use a
+	// generated Danser participant but must allow that participant to fail.
+	automatedPlayback bool
+	background        *common.Background
+	BgScl             vector.Vector2d
+	Scl               float64
+	SclA              float64
+	fadeOut           float64
+	fadeIn            float64
+	start             bool
+	musicPlayer       bass.ITrack
+	drawStats         *frame.FrameStats
+	updateStats       *frame.FrameStats
 
 	onlineOffset float64
 
@@ -180,8 +184,9 @@ type Player struct {
 	ftGraph *shape.SteppingGraph
 }
 
-func NewPlayer(beatMap *beatmap.BeatMap) *Player {
+func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool) *Player {
 	player := new(Player)
+	player.automatedPlayback = automatedPlayback
 	audio.ResetClock()
 	player.heapGrowthRate = frame.NewExponentialMovingAverage(300 * time.Millisecond)
 	player.mBuffer = make([]byte, 0, 256)
@@ -689,58 +694,77 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 
 func (player *Player) trySetupFail() {
 	var ruleset *osu.OsuRuleSet
+	var replayController *dance.ReplayController
 
-	if rC, ok := player.controller.(*dance.ReplayController); ok {
-		ruleset = rC.GetRuleset()
-	} else if rP, ok := player.controller.(*dance.PlayerController); ok {
-		ruleset = rP.GetRuleset()
+	switch controller := player.controller.(type) {
+	case *dance.ReplayController:
+		replayController = controller
+		ruleset = controller.GetRuleset()
+	case *dance.PlayerController:
+		ruleset = controller.GetRuleset()
 	}
 
 	if ruleset == nil {
 		return
 	}
 
-	if knockout, ok := player.overlay.(*overlays.KnockoutOverlay); ok {
-		ruleset.SetPlayerFailListener(knockout.PlayerFailed)
-	}
+	cursors := player.controller.GetCursors()
 
-	if sO, ok := player.overlay.(*overlays.ScoreOverlay); ok {
-		cursors := player.controller.GetCursors()
-		if len(cursors) > 0 && cursors[0].IsCursorDance {
-			// Lazer Auto does not terminate a play session when its generated
-			// input exhausts health. Danser's generated cursor is visual input,
-			// not a user replay, so keep the single-cursor overlay alive too.
-			ruleset.SetFailSuppressed(cursors[0], true)
-		} else {
-			ruleset.SetFailListener(func(cursor *graphics.Cursor) {
-				if !settings.RECORD {
-					audio.PlayFailSound()
-				}
+	switch overlay := player.overlay.(type) {
+	case *overlays.KnockoutOverlay:
+		ruleset.SetPlayerFailHandler(overlay.HandlePlayerFailure)
 
-				log.Println("Player failed!")
+		for _, cursor := range cursors {
+			// Replay-backed knockout participants are judged for display, but
+			// their local health must never remove them. A generated Danser
+			// participant is the only participant delegated to knockout. The
+			// internal AT conversion remains visual playback and is suppressed.
+			policy := osu.FailurePolicySuppress
+			if !player.automatedPlayback && replayController != nil && replayController.IsGeneratedCursor(cursor) {
+				policy = osu.FailurePolicyDelegate
+			}
 
-				sO.Fail(true)
+			ruleset.SetFailurePolicy(cursor, policy)
+		}
 
-				player.frequencyGlider.AddEvent(player.realTime, player.realTime+2400, 0.0)
-				player.objectsAlphaFail.AddEvent(player.realTime, player.realTime+2400, 0.0)
+	case *overlays.ScoreOverlay:
+		ruleset.SetFailListener(func(cursor *graphics.Cursor) {
+			if !settings.RECORD {
+				audio.PlayFailSound()
+			}
 
-				player.failOX.AddEvent(player.realTime, player.realTime+2400, camera2.OsuWidth*(rand.Float64()-0.5)/2)
-				player.failOY.AddEvent(player.realTime, player.realTime+2400, -camera2.OsuHeight*(1+rand.Float64()*0.2))
+			log.Println("Player failed!")
 
-				rotBase := rand.Float64()
+			overlay.Fail(true)
 
-				player.failRotation.AddEvent(player.realTime, player.realTime+2400, math.Copysign((math.Abs(rotBase)*0.5+0.5)/6*math.Pi, rotBase))
+			player.frequencyGlider.AddEvent(player.realTime, player.realTime+2400, 0.0)
+			player.objectsAlphaFail.AddEvent(player.realTime, player.realTime+2400, 0.0)
 
-				player.failing = true
-				player.failAt = player.realTime + 2400
+			player.failOX.AddEvent(player.realTime, player.realTime+2400, camera2.OsuWidth*(rand.Float64()-0.5)/2)
+			player.failOY.AddEvent(player.realTime, player.realTime+2400, -camera2.OsuHeight*(1+rand.Float64()*0.2))
 
-				player.dimGlider.Reset()
-				player.blurGlider.Reset()
-				player.hudGlider.Reset()
-				player.fxGlider.Reset()
-				player.cursorGlider.Reset()
-				player.objectsAlpha.Reset()
-			})
+			rotBase := rand.Float64()
+
+			player.failRotation.AddEvent(player.realTime, player.realTime+2400, math.Copysign((math.Abs(rotBase)*0.5+0.5)/6*math.Pi, rotBase))
+
+			player.failing = true
+			player.failAt = player.realTime + 2400
+
+			player.dimGlider.Reset()
+			player.blurGlider.Reset()
+			player.hudGlider.Reset()
+			player.fxGlider.Reset()
+			player.cursorGlider.Reset()
+			player.objectsAlpha.Reset()
+		})
+
+		for _, cursor := range cursors {
+			policy := osu.FailurePolicyAllow
+			if player.automatedPlayback || cursor.IsReplay {
+				policy = osu.FailurePolicySuppress
+			}
+
+			ruleset.SetFailurePolicy(cursor, policy)
 		}
 
 		if len(cursors) > 0 && cursors[0].IsPlayer && !cursors[0].IsAutoplay {

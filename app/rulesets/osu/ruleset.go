@@ -84,7 +84,7 @@ type difficultyPlayer struct {
 	classicNoSliderHeadAccuracy bool
 	classicAlwaysPlayTailSample bool
 	classicHealth               bool
-	ignoreFail                  bool
+	failurePolicy               FailurePolicy
 }
 
 // difficultyCacheKey keeps Lazer and Stable difficulty attributes separate.
@@ -123,6 +123,27 @@ type endListener func(time int64, number int64)
 
 type failListener func(cursor *graphics.Cursor)
 
+// FailurePolicy controls how a cursor's health failure is routed. It is
+// deliberately separate from mod-specific failure overrides: a generated
+// participant can be delegated to a knockout overlay while a replay-backed
+// participant in the same ruleset remains locally failure-immune.
+type FailurePolicy uint8
+
+const (
+	// FailurePolicyAllow routes a failure through the normal fail listener.
+	FailurePolicyAllow FailurePolicy = iota
+
+	// FailurePolicySuppress records no local failure and keeps the participant
+	// active. This is used for visual playback and replay-backed participants.
+	FailurePolicySuppress
+
+	// FailurePolicyDelegate sends the failure to the per-participant handler.
+	// The handler decides whether the failure was accepted.
+	FailurePolicyDelegate
+)
+
+type failHandler func(cursor *graphics.Cursor) bool
+
 type OsuRuleSet struct {
 	beatMap *beatmap.BeatMap
 	cursors map[*graphics.Cursor]*subSet
@@ -131,13 +152,13 @@ type OsuRuleSet struct {
 
 	oppDiffs map[difficultyCacheKey][]api.Attributes
 
-	queue              []HitObject
-	processed          []HitObject
-	hitListener        hitListener
-	endListener        endListener
-	failListener       failListener
-	playerFailListener failListener
-	clickListener      clickListener
+	queue             []HitObject
+	processed         []HitObject
+	hitListener       hitListener
+	endListener       endListener
+	failListener      failListener
+	playerFailHandler failHandler
+	clickListener     clickListener
 	catchUp           bool
 }
 
@@ -777,7 +798,7 @@ func (set *OsuRuleSet) PostHit(time int64, object HitObject, player *difficultyP
 
 func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 	subSet := set.cursors[player.cursor]
-	if subSet == nil || player.ignoreFail {
+	if subSet == nil || player.failurePolicy == FailurePolicySuppress {
 		return
 	}
 
@@ -785,6 +806,10 @@ func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 		return
 	}
 
+	// No Fail, Relax, and Autopilot are retained here as Danser's existing
+	// failure-suppression behavior. In osu!lazer, only No Fail implements an
+	// applicable failure override; Relax and Autopilot are intentionally left
+	// for the separate failure-override parity milestone.
 	if !subSet.replayEnded && player.diff.CheckModActive(difficulty.NoFail|difficulty.Relax|difficulty.Relax2) {
 		return
 	}
@@ -798,14 +823,20 @@ func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 	}
 
 	// actual fail
-	if !subSet.failed {
-		if set.playerFailListener != nil {
-			set.playerFailListener(player.cursor)
-		}
+	if subSet.failed {
+		return
+	}
 
-		if set.failListener != nil {
-			set.failListener(player.cursor)
+	if player.failurePolicy == FailurePolicyDelegate {
+		// A delegated handler can reject a failure when the surrounding
+		// presentation has reached its minimum-player floor. Leave the
+		// participant active so the ruleset and overlay cannot disagree about
+		// its lifecycle state.
+		if set.playerFailHandler == nil || !set.playerFailHandler(player.cursor) {
+			return
 		}
+	} else if set.failListener != nil {
+		set.failListener(player.cursor)
 	}
 
 	subSet.failed = true
@@ -833,21 +864,45 @@ func (set *OsuRuleSet) SetFailListener(listener failListener) {
 	set.failListener = listener
 }
 
-// SetPlayerFailListener receives actual per-cursor failures without changing
-// the global score-overlay flow. Knockout uses this to eliminate one replay at
-// a time while regular cursor-dance score overlays can remain fail-immune.
-func (set *OsuRuleSet) SetPlayerFailListener(listener failListener) {
-	set.playerFailListener = listener
+// SetPlayerFailHandler receives delegated per-cursor failures. It returns true
+// when the surrounding presentation accepted the failure and false when the
+// participant must remain active.
+func (set *OsuRuleSet) SetPlayerFailHandler(handler func(cursor *graphics.Cursor) bool) {
+	set.playerFailHandler = handler
 }
 
-// SetFailSuppressed controls whether one cursor's health failure is recorded
-// by the ruleset. Generated cursor-dance shown as a single score overlay uses
-// this to match Lazer Auto; knockout participants leave it disabled so their
-// failure can be routed to the knockout overlay.
-func (set *OsuRuleSet) SetFailSuppressed(cursor *graphics.Cursor, suppressed bool) {
-	if player := set.cursors[cursor]; player != nil {
-		player.player.ignoreFail = suppressed
+// SetPlayerFailListener preserves the original fire-and-forget callback API.
+// New code should use SetPlayerFailHandler when the receiver can reject a
+// failure, such as when knockout has reached its minimum-player floor.
+func (set *OsuRuleSet) SetPlayerFailListener(listener failListener) {
+	if listener == nil {
+		set.playerFailHandler = nil
+		return
 	}
+
+	set.playerFailHandler = func(cursor *graphics.Cursor) bool {
+		listener(cursor)
+		return true
+	}
+}
+
+// SetFailurePolicy controls how one cursor's health failure is routed.
+func (set *OsuRuleSet) SetFailurePolicy(cursor *graphics.Cursor, policy FailurePolicy) {
+	if subSet := set.cursors[cursor]; subSet != nil {
+		subSet.player.failurePolicy = policy
+	}
+}
+
+// SetFailSuppressed is retained for callers using the pre-policy API.
+// Deprecated: use SetFailurePolicy with FailurePolicySuppress or
+// FailurePolicyAllow.
+func (set *OsuRuleSet) SetFailSuppressed(cursor *graphics.Cursor, suppressed bool) {
+	policy := FailurePolicyAllow
+	if suppressed {
+		policy = FailurePolicySuppress
+	}
+
+	set.SetFailurePolicy(cursor, policy)
 }
 
 func (set *OsuRuleSet) GetFCPP(cursor *graphics.Cursor) api.PPv2Results {
