@@ -1,22 +1,53 @@
-.idea/
-/screenshots/
-/replays/
-/videos/
+# Local project metadata
+/.project/
+/.agents/
+/skills-lock.json
+
+# Local application data
 /settings/
+/cache/
 /ffmpeg/
 /dist/
-/cache/
 settings.json
 settings-*
 *.db
+*.db-shm
+*.db-wal
+
+# Generated media
+/screenshots/
+/replays/
+/videos/
+*.osr
+
+# Binaries and packaged output
 danser
 danser-launcher
 danser*.exe
 danser*.zip
-danser.log
-launcher.log
 assets.dpak
 danser-core.*
 libdanser*
+
+# Logs and reports
+danser.log
+launcher.log
+danser-*.log
 api.txt
-*.osr
+
+# Go build and test output
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+go.work
+go.work.sum
+
+# Environment and editor files
+.env
+.idea/
+.vscode/
+
+# Local upstream reference checkout
+/.project/docs/osu!lazer source code/
