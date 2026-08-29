@@ -84,6 +84,7 @@ type difficultyPlayer struct {
 	classicNoSliderHeadAccuracy bool
 	classicAlwaysPlayTailSample bool
 	classicHealth               bool
+	ignoreFail                  bool
 }
 
 // difficultyCacheKey keeps Lazer and Stable difficulty attributes separate.
@@ -130,12 +131,13 @@ type OsuRuleSet struct {
 
 	oppDiffs map[difficultyCacheKey][]api.Attributes
 
-	queue         []HitObject
-	processed     []HitObject
-	hitListener   hitListener
-	endListener   endListener
-	failListener  failListener
-	clickListener clickListener
+	queue              []HitObject
+	processed          []HitObject
+	hitListener        hitListener
+	endListener        endListener
+	failListener       failListener
+	playerFailListener failListener
+	clickListener      clickListener
 }
 
 func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs []*difficulty.Difficulty) *OsuRuleSet {
@@ -763,6 +765,9 @@ func (set *OsuRuleSet) PostHit(time int64, object HitObject, player *difficultyP
 
 func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 	subSet := set.cursors[player.cursor]
+	if subSet == nil || player.ignoreFail {
+		return
+	}
 
 	if player.cursor.IsReplay && (settings.Gameplay.IgnoreFailsInReplays || !subSet.replayEnded) {
 		return
@@ -781,8 +786,14 @@ func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 	}
 
 	// actual fail
-	if set.failListener != nil && !subSet.failed {
-		set.failListener(player.cursor)
+	if !subSet.failed {
+		if set.playerFailListener != nil {
+			set.playerFailListener(player.cursor)
+		}
+
+		if set.failListener != nil {
+			set.failListener(player.cursor)
+		}
 	}
 
 	subSet.failed = true
@@ -808,6 +819,23 @@ func (set *OsuRuleSet) SetEndListener(listener endListener) {
 
 func (set *OsuRuleSet) SetFailListener(listener failListener) {
 	set.failListener = listener
+}
+
+// SetPlayerFailListener receives actual per-cursor failures without changing
+// the global score-overlay flow. Knockout uses this to eliminate one replay at
+// a time while regular cursor-dance score overlays can remain fail-immune.
+func (set *OsuRuleSet) SetPlayerFailListener(listener failListener) {
+	set.playerFailListener = listener
+}
+
+// SetFailSuppressed controls whether one cursor's health failure is recorded
+// by the ruleset. Generated cursor-dance shown as a single score overlay uses
+// this to match Lazer Auto; knockout participants leave it disabled so their
+// failure can be routed to the knockout overlay.
+func (set *OsuRuleSet) SetFailSuppressed(cursor *graphics.Cursor, suppressed bool) {
+	if player := set.cursors[cursor]; player != nil {
+		player.player.ignoreFail = suppressed
+	}
 }
 
 func (set *OsuRuleSet) GetFCPP(cursor *graphics.Cursor) api.PPv2Results {

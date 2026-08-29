@@ -73,6 +73,11 @@ type Player struct {
 	mixerAtMusicStart float64
 	lastMixerPosition float64
 	mixerClockStarted bool
+	// mixerClockActive becomes true after offline audio has delivered at least
+	// one output interval. Screenshot mode also sets RECORD, but it does not
+	// drain the mixer into an encoder, so it must retain the wall-clock fallback
+	// until a real mixer interval exists.
+	mixerClockActive bool
 
 	batch       *batch2.QuadBatch
 	controller  dance.Controller
@@ -161,6 +166,15 @@ type Player struct {
 	memoryTicker *time.Ticker
 	memoryStop   chan struct{}
 	memoryWG     sync.WaitGroup
+
+	// updateStop and updateWG own the lifetime of the gameplay update worker.
+	// Dispose must join that worker before closing the native music handle;
+	// otherwise the worker can observe a nil or already-closed track while the
+	// application is shutting down.
+	updateStop     chan struct{}
+	updateStopOnce sync.Once
+	updateWG       sync.WaitGroup
+	disposeOnce    sync.Once
 
 	mBuffer []byte
 	ftGraph *shape.SteppingGraph
@@ -392,11 +406,22 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 			player.overlay.DisableAudioSubmission(true)
 		}
 
-		for i := -1000.0; i < startOffset; i += 1.0 {
-			player.controller.Update(i, 1)
+		fastForwarded := false
+		if seeker, ok := player.controller.(dance.InitialSeeker); ok {
+			fastForwarded = seeker.Seek(startOffset)
+		}
 
+		if fastForwarded {
 			if player.overlay != nil {
-				player.overlay.Update(i)
+				player.overlay.Update(startOffset)
+			}
+		} else {
+			for i := -1000.0; i < startOffset; i += 1.0 {
+				player.controller.Update(i, 1)
+
+				if player.overlay != nil {
+					player.overlay.Update(i)
+				}
 			}
 		}
 
@@ -556,10 +581,33 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 		return player
 	}
 
+	player.updateStop = make(chan struct{})
+	player.updateWG.Add(1)
+	musicPlayer := player.musicPlayer
+
 	goroutines.RunOS(func() {
+		defer player.updateWG.Done()
+		defer func() {
+			// Keep the normal worker-exit cleanup here, but use the immutable local
+			// track reference. Dispose may clear player.musicPlayer only after this
+			// worker has joined.
+			musicPlayer.Stop()
+			bass.StopLoops()
+		}()
+
 		var lastTimeNano = qpc.GetNanoTime()
 
-		for !gcontext.ShouldClose() {
+		for {
+			select {
+			case <-player.updateStop:
+				return
+			default:
+			}
+
+			if gcontext.ShouldClose() {
+				break
+			}
+
 			currentTimeNano := qpc.GetNanoTime()
 
 			elapsedNanos := currentTimeNano - lastTimeNano
@@ -571,11 +619,20 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 
 			player.updateStats.Add(time.Duration(elapsedNanos))
 
-			musicState := player.musicPlayer.GetState()
+			musicState := musicPlayer.GetState()
 
 			speed := 1.0
 
-			if musicState == bass.MusicStopped {
+			// TrackBass is attached to the mixer in a paused state before the
+			// lead-in reaches startPoint. Its paused source position is still zero,
+			// so using it here would reset a late-start timeline to the beginning
+			// and leave the renderer showing only its diagnostics indefinitely.
+			// Before playback starts, the lead-in is intentionally wall-clocked.
+			if !player.start {
+				if player.rawPositionF < player.startPoint {
+					player.rawPositionF += delta
+				}
+			} else if musicState == bass.MusicStopped {
 				if player.rawPositionF < player.startPointE || player.start {
 					player.rawPositionF += delta
 				} else {
@@ -586,11 +643,16 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 				// A stalled decoder has no new output to anchor against. Do not
 				// extrapolate gameplay time across the stall or hitsounds will be
 				// submitted early and then appear to jump when decoding resumes.
-				player.rawPositionF = player.musicPlayer.GetPosition() * 1000
-				player.lastMusicPos = player.rawPositionF
+				// BASS may report a stale zero while a seek is still resolving; never
+				// accept that value as a backwards jump in the gameplay timeline.
+				musicPos := musicPlayer.GetPosition() * 1000
+				if musicPos >= player.rawPositionF && !math.IsNaN(musicPos) && !math.IsInf(musicPos, 0) {
+					player.rawPositionF = musicPos
+					player.lastMusicPos = musicPos
+				}
 			} else {
-				musicPos := player.musicPlayer.GetPosition() * 1000
-				speed = player.musicPlayer.GetSpeed()
+				musicPos := musicPlayer.GetPosition() * 1000
+				speed = musicPlayer.GetSpeed()
 
 				if musicPos != player.lastMusicPos || musicState == bass.MusicPaused {
 					player.rawPositionF = musicPos
@@ -620,25 +682,36 @@ func NewPlayer(beatMap *beatmap.BeatMap) *Player {
 
 			player.updateLimiter.Sync()
 		}
-
-		player.musicPlayer.Stop()
-		bass.StopLoops()
 	})
 
 	return player
 }
 
 func (player *Player) trySetupFail() {
+	var ruleset *osu.OsuRuleSet
+
+	if rC, ok := player.controller.(*dance.ReplayController); ok {
+		ruleset = rC.GetRuleset()
+	} else if rP, ok := player.controller.(*dance.PlayerController); ok {
+		ruleset = rP.GetRuleset()
+	}
+
+	if ruleset == nil {
+		return
+	}
+
+	if knockout, ok := player.overlay.(*overlays.KnockoutOverlay); ok {
+		ruleset.SetPlayerFailListener(knockout.PlayerFailed)
+	}
+
 	if sO, ok := player.overlay.(*overlays.ScoreOverlay); ok {
-		var ruleset *osu.OsuRuleSet
-
-		if rC, ok1 := player.controller.(*dance.ReplayController); ok1 {
-			ruleset = rC.GetRuleset()
-		} else if rP, ok2 := player.controller.(*dance.PlayerController); ok2 {
-			ruleset = rP.GetRuleset()
-		}
-
-		if ruleset != nil {
+		cursors := player.controller.GetCursors()
+		if len(cursors) > 0 && cursors[0].IsCursorDance {
+			// Lazer Auto does not terminate a play session when its generated
+			// input exhausts health. Danser's generated cursor is visual input,
+			// not a user replay, so keep the single-cursor overlay alive too.
+			ruleset.SetFailSuppressed(cursors[0], true)
+		} else {
 			ruleset.SetFailListener(func(cursor *graphics.Cursor) {
 				if !settings.RECORD {
 					audio.PlayFailSound()
@@ -670,7 +743,7 @@ func (player *Player) trySetupFail() {
 			})
 		}
 
-		if player.controller.GetCursors()[0].IsPlayer && !player.controller.GetCursors()[0].IsAutoplay {
+		if len(cursors) > 0 && cursors[0].IsPlayer && !cursors[0].IsAutoplay {
 			player.cursorGlider.SetValue(1.0)
 		}
 	}
@@ -703,8 +776,20 @@ func (player *Player) Update(delta float64) bool {
 		// Integrate each output interval so a speed change halfway through a
 		// render cannot retroactively stretch the entire preceding song.
 		mixerDelta := mixerPosition - player.lastMixerPosition
-		if mixerDelta >= 0 && !math.IsNaN(mixerDelta) && !math.IsInf(mixerDelta, 0) {
-			player.rawPositionF += mixerDelta * 1000 * speed
+		if mixerDelta > 0 && !math.IsNaN(mixerDelta) && !math.IsInf(mixerDelta, 0) {
+			player.mixerClockActive = true
+		}
+
+		if player.mixerClockActive {
+			// A zero interval is meaningful after the output clock has started:
+			// it represents a decoder or encoder stall and should freeze the
+			// gameplay timeline instead of letting hitsounds run ahead.
+			player.rawPositionF += max(0, mixerDelta) * 1000 * speed
+		} else {
+			// Screenshot mode has no encoder loop, so no bytes advance the
+			// decode mixer. Keep its historical wall-clock behavior until output
+			// data is actually available.
+			player.rawPositionF += delta * speed
 		}
 		player.lastMixerPosition = mixerPosition
 	} else {
@@ -1414,19 +1499,29 @@ func (player *Player) Show() {}
 func (player *Player) Hide() {}
 
 func (player *Player) Dispose() {
-	player.stopMemoryProfiler()
-	bass.StopAllSamples()
-	if player.background != nil {
-		if storyboard := player.background.GetStoryboard(); storyboard != nil {
-			storyboard.Dispose()
-		}
-	}
-	if player.musicPlayer != nil {
-		player.musicPlayer.Stop()
-		player.musicPlayer.Close()
-		player.musicPlayer = nil
-	}
+	player.disposeOnce.Do(func() {
+		player.stopMemoryProfiler()
 
-	audio.ClearBeatmapSamples()
-	audio.ResetClock()
+		if player.updateStop != nil {
+			player.updateStopOnce.Do(func() {
+				close(player.updateStop)
+			})
+		}
+		player.updateWG.Wait()
+
+		bass.StopAllSamples()
+		if player.background != nil {
+			if storyboard := player.background.GetStoryboard(); storyboard != nil {
+				storyboard.Dispose()
+			}
+		}
+		if player.musicPlayer != nil {
+			player.musicPlayer.Stop()
+			player.musicPlayer.Close()
+			player.musicPlayer = nil
+		}
+
+		audio.ClearBeatmapSamples()
+		audio.ResetClock()
+	})
 }

@@ -10,4 +10,5 @@ import (
 type Scheduler interface {
 	Init(objects []objects.IHitObject, diff *difficulty.Difficulty, cursor *graphics.Cursor, spinnerMoverCtor func() spinners.SpinnerMover, initKeys bool)
 	Update(time float64)
+	Seek(time float64)
 }

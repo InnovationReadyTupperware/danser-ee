@@ -409,6 +409,52 @@ func (controller *ReplayController) Update(time float64, delta float64) {
 
 	controller.updateMain(time)
 
+	controller.updateScores(delta)
+}
+
+// Seek initializes a replay controller containing only generated cursor-dance
+// controls at time. Real replay controls are intentionally rejected because
+// their score and input state depend on every replay frame between the old and
+// new positions.
+func (controller *ReplayController) Seek(time float64) bool {
+	for _, control := range controller.controllers {
+		_, ok := control.danceController.(InitialSeeker)
+		if !ok {
+			return false
+		}
+	}
+
+	controller.bMap.Update(time)
+
+	for i, control := range controller.controllers {
+		seeker := control.danceController.(InitialSeeker)
+		seeker.Seek(time)
+
+		if int64(time)%17 == 0 {
+			controller.cursors[i].LastFrameTime = int64(time) - 17
+			controller.cursors[i].CurrentFrameTime = int64(time)
+			controller.cursors[i].IsReplayFrame = true
+		} else {
+			controller.cursors[i].IsReplayFrame = false
+		}
+
+		if int64(time) != control.lastTime {
+			controller.ruleset.UpdateClickFor(controller.cursors[i], int64(time))
+			controller.ruleset.UpdateNormalFor(controller.cursors[i], int64(time), false)
+			controller.ruleset.UpdatePostFor(controller.cursors[i], int64(time), false)
+		}
+
+		control.lastTime = int64(time)
+	}
+
+	controller.ruleset.Update(int64(time))
+	controller.lastTime = time
+	controller.updateScores(0)
+
+	return true
+}
+
+func (controller *ReplayController) updateScores(delta float64) {
 	for i := range controller.controllers {
 		if controller.controllers[i].danceController == nil {
 			controller.cursors[i].Update(delta)

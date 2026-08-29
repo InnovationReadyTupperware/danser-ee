@@ -209,3 +209,49 @@ func (scheduler *GenericScheduler) Update(time float64) {
 
 	scheduler.lastTime = time
 }
+
+// Seek reconstructs the small active movement window around time before
+// running one normal update. Updating an entire skipped interval one
+// millisecond at a time is needlessly expensive, and asking the regular update
+// path to remove every expired object can repeatedly rebuild long mover
+// windows. A single rebuild keeps the same next-object state while making
+// startup cost proportional to the object queue rather than the seek offset.
+func (scheduler *GenericScheduler) Seek(time float64) {
+	if len(scheduler.queue) == 0 {
+		scheduler.lastTime = time
+		return
+	}
+
+	current := 0
+	for current < len(scheduler.queue) && scheduler.mover.GetObjectsEndTime(scheduler.queue[current]) < time {
+		current++
+	}
+
+	if current >= len(scheduler.queue) {
+		last := scheduler.queue[len(scheduler.queue)-1]
+		scheduler.queue = scheduler.queue[:0]
+		scheduler.lastTime = time
+		if scheduler.cursor != nil {
+			scheduler.cursor.SetPos(scheduler.mover.GetObjectsEndPosition(last))
+		}
+		if scheduler.input != nil {
+			scheduler.input.Update(time)
+		}
+		return
+	}
+
+	// Retain the object immediately before the active one so the rebuilt mover
+	// has the same incoming segment as the regular object-expiration path.
+	windowStart := max(0, current-1)
+	if current > 0 {
+		window := scheduler.queue[windowStart:]
+		consumed := scheduler.mover.SetObjects(window) - 1
+		consumed = max(1, min(consumed, len(window)))
+		scheduler.queue = window[consumed:]
+	}
+
+	// Set lastTime before the normal update so a seek does not trigger the
+	// brief first-object movement lock that is intended only for live time.
+	scheduler.lastTime = time
+	scheduler.Update(time)
+}

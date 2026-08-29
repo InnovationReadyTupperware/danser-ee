@@ -176,12 +176,39 @@ func (container *HitObjectContainer) preProcessQueue(time float64) {
 	}
 }
 
+// removeExpiredRenderables releases proxies before any render pass uses them.
+// BeatMap.Update finalizes slider-owned GPU resources when a frame advances
+// past their lifetime. A late frame or seek can therefore finalize a slider
+// before this container has had a chance to remove its body proxy. Cleaning
+// the proxies first keeps the render queue from dereferencing that disposed
+// resource.
+func (container *HitObjectContainer) removeExpiredRenderables(time float64) {
+	writeIndex := 0
+
+	for _, proxy := range container.renderables {
+		if proxy.endTime <= time {
+			if !proxy.isSliderBody {
+				container.countProcessed--
+			}
+
+			continue
+		}
+
+		container.renderables[writeIndex] = proxy
+		writeIndex++
+	}
+
+	clear(container.renderables[writeIndex:])
+	container.renderables = container.renderables[:writeIndex]
+}
+
 func (container *HitObjectContainer) Draw(batch *batch.QuadBatch, baseCamera mgl32.Mat4, cameras []mgl32.Mat4, time float64, scale, alpha float32) {
 	profiler.StartGroup("HitObjectContainer.Draw", profiler.PDraw)
 
 	divides := len(cameras)
 
 	container.preProcessQueue(time)
+	container.removeExpiredRenderables(time)
 
 	if settings.Playfield.DrawObjects {
 		objectColors := settings.Objects.Colors.Color.GetColors(divides, float64(scale), float64(alpha))
@@ -298,13 +325,6 @@ func (container *HitObjectContainer) Draw(batch *batch.QuadBatch, baseCamera mgl
 					proxy.renderable.(*objects.Slider).DrawBody(time, objectColors[j], bodyColors[j], borderColors[j], borderColors[ind], cameras[j], scale)
 				}
 
-				if proxy.endTime <= time {
-					if !proxy.isSliderBody {
-						container.countProcessed--
-					}
-
-					container.renderables = append(container.renderables[:i], container.renderables[(i+1):]...)
-				}
 			}
 
 			if enabled {

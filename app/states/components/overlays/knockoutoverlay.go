@@ -336,6 +336,37 @@ func (overlay *KnockoutOverlay) hitReceived(cursor *graphics.Cursor, judgementRe
 	}
 }
 
+// PlayerFailed removes a knockout participant when the ruleset reports an
+// actual health failure. This is separate from hitReceived because a health
+// failure can happen without a judgement result, and synthesizing a miss
+// would corrupt per-object score statistics and live sorting.
+func (overlay *KnockoutOverlay) PlayerFailed(cursor *graphics.Cursor) {
+	name, ok := overlay.names[cursor]
+	if !ok {
+		return
+	}
+
+	player := overlay.players[name]
+	if player == nil || player.hasBroken || overlay.alivePlayers <= settings.Knockout.MinPlayers {
+		return
+	}
+
+	combo := player.sCombo
+	player.hasBroken = true
+	player.breakTime = max(int64(overlay.normalTime), cursor.CurrentFrameTime)
+	player.sCombo = 0
+	overlay.alivePlayers--
+
+	player.fade.AddEvent(overlay.normalTime, overlay.normalTime+3000, 0)
+
+	player.height.SetEasing(easing.OutQuad)
+	player.height.AddEvent(overlay.normalTime+2500, overlay.normalTime+3000, 0)
+
+	overlay.deathBubbles = append(overlay.deathBubbles, newBubble(cursor.Position, overlay.normalTime, name, combo, osu.Miss, osu.Reset))
+
+	log.Println(name, "has failed! Max combo:", combo)
+}
+
 func (overlay *KnockoutOverlay) Update(time float64) {
 	if overlay.audioTime == 0 {
 		overlay.audioTime = time

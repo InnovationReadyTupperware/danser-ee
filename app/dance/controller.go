@@ -20,6 +20,15 @@ type Controller interface {
 	GetCursors() []*graphics.Cursor
 }
 
+// InitialSeeker can initialize a controller at a later timeline position
+// without replaying every millisecond before it. It is deliberately optional:
+// generated cursor-dance movement can be reconstructed from the target time,
+// while real replay and player controllers must retain their event-by-event
+// simulation for scoring and input correctness.
+type InitialSeeker interface {
+	Seek(time float64) bool
+}
+
 type GenericController struct {
 	bMap       *beatmap.BeatMap
 	cursors    []*graphics.Cursor
@@ -119,6 +128,22 @@ func (controller *GenericController) Update(time float64, delta float64) {
 		controller.cursors[i].LeftButton = controller.cursors[i].LeftKey || controller.cursors[i].LeftMouse
 		controller.cursors[i].RightButton = controller.cursors[i].RightKey || controller.cursors[i].RightMouse
 	}
+}
+
+// Seek advances generated cursor-dance schedulers directly to time. Their
+// movement is a pure function of the current object window, so simulating the
+// skipped milliseconds would only add startup latency without improving the
+// rendered result.
+func (controller *GenericController) Seek(time float64) bool {
+	for i := range controller.cursors {
+		controller.schedulers[i].Seek(time)
+		controller.cursors[i].Update(0)
+
+		controller.cursors[i].LeftButton = controller.cursors[i].LeftKey || controller.cursors[i].LeftMouse
+		controller.cursors[i].RightButton = controller.cursors[i].RightKey || controller.cursors[i].RightMouse
+	}
+
+	return true
 }
 
 func (controller *GenericController) GetCursors() []*graphics.Cursor {
