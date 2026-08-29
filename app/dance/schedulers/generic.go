@@ -64,8 +64,10 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 		}
 	}
 
-	// Convert two overlapping circles (slider starts too if slider danced) to one double-tap circle
-	for i := range len(scheduler.queue) - 1 {
+	// Convert two overlapping circles (slider starts too if slider danced) to one double-tap circle.
+	// The queue shrinks when a pair is collapsed, so this condition must be
+	// evaluated on every iteration instead of capturing the original length.
+	for i := 0; i+1 < len(scheduler.queue); i++ {
 		current, pOk := scheduler.queue[i].(*objects.Circle)
 		next, cOk := scheduler.queue[i+1].(*objects.Circle)
 

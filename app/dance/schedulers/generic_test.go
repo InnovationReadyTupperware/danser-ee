@@ -83,3 +83,27 @@ func TestGenericSchedulerGivesMoverTwoObjectsForSingleObjectQueue(t *testing.T) 
 		t.Fatalf("scheduler queue after initialization = %d, want 1", len(scheduler.queue))
 	}
 }
+
+func TestGenericSchedulerHandlesRepeatedOverlapCollapse(t *testing.T) {
+	previous := settings.CursorDance
+	t.Cleanup(func() {
+		settings.CursorDance = previous
+	})
+	settings.CursorDance = settings.NewConfigFile().CursorDance
+
+	diff := difficulty.NewDifficulty(5, 5, 5, 5)
+	mover := &recordingMover{}
+	scheduler := &GenericScheduler{mover: mover}
+	objectsToCollapse := []objects.IHitObject{
+		objects.DummyCircle(vector.NewVec2f(256, 192), 1000),
+		objects.DummyCircle(vector.NewVec2f(256, 192), 1001),
+		objects.DummyCircle(vector.NewVec2f(256, 192), 1002),
+		objects.DummyCircle(vector.NewVec2f(256, 192), 1003),
+	}
+
+	scheduler.Init(objectsToCollapse, diff, nil, nil, false)
+
+	if len(mover.windowLengths) != 1 || mover.windowLengths[0] != 3 {
+		t.Fatalf("mover received windows %v, want one three-object window", mover.windowLengths)
+	}
+}
