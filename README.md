@@ -80,6 +80,7 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Optional osu!.db acceleration      |                         ✅ Read-only Stable metadata bootstrap                          |                        -                        |
 | Lazy beatmap and skin assets       |                            ✅ Demand-driven asset resolution                            |             ❌ Eager asset indexing             |
 | Native Classic (CL) mod            |                                           ✅                                            |               synthetic Lazer mod               |
+| Replay-free knockout launch       |        ✅ Automatic Danser participant fallback        |         ❌ Replay selection required         |
 | Lazer slider result taxonomy       |                                           ✅                                            |      approximate slider tick/tail handling      |
 | Slider miss judgment markers       |                     red/gray X markers, skin-aware and configurable                     |                        -                        |
 | Slider visual timing               |                                 Lazer-style fractional                                  |                  legacy timing                  |
