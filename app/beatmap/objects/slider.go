@@ -752,7 +752,7 @@ func (slider *Slider) Update(time float64) bool {
 
 	visualEndTime := slider.visualEndTime()
 
-	if (!settings.PLAY && !settings.KNOCKOUT) || settings.PLAYERS > 1 {
+	if (!settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT)) || settings.PLAYERS > 1 {
 		if slider.lastTime < slider.StartTime && time >= slider.StartTime {
 			slider.HitEdge(0, time, true)
 			slider.InitSlide(slider.StartTime)

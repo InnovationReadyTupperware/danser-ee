@@ -150,6 +150,27 @@ func (b *builder) removeReplay() {
 	b.diff.SetGameplayMode(difficulty.GameplayLazer)
 }
 
+func (b *builder) numKnockoutReplays() (ret int) {
+	for _, replay := range b.knockoutReplays {
+		if replay.included {
+			ret++
+		}
+	}
+
+	return
+}
+
+func (b *builder) launchDisabled() bool {
+	switch launcherConfig.CurrentMode {
+	case Replay:
+		return b.currentReplay == nil
+	case Knockout:
+		return b.currentMap == nil || b.numKnockoutReplays() == 0
+	default:
+		return b.currentMap == nil
+	}
+}
+
 func (b *builder) getArguments() (args []string) {
 	currentMode := launcherConfig.CurrentMode
 	currentPMode := launcherConfig.CurrentPMode
@@ -176,10 +197,7 @@ func (b *builder) getArguments() (args []string) {
 		if currentMode == Play {
 			args = append(args, "-play")
 		} else if currentMode == Knockout {
-			// Keep an empty selection as an explicit empty JSON array. A nil
-			// slice would become JSON null, which the gameplay process treats as
-			// legacy knockout and may replace with an on-disk replay scan.
-			list := make([]string, 0, len(b.knockoutReplays))
+			var list []string
 
 			for _, r := range b.knockoutReplays {
 				if r.included {
@@ -189,6 +207,8 @@ func (b *builder) getArguments() (args []string) {
 
 			data, _ := json.Marshal(list)
 			args = append(args, "-knockout2", string(data))
+		} else if currentMode == SoloKnockout {
+			args = append(args, "-solo-knockout")
 		} else if currentMode == DanserReplay {
 			diffClone.AddMod(difficulty.Autoplay)
 		}
@@ -219,7 +239,7 @@ func (b *builder) getArguments() (args []string) {
 		}
 	}
 
-	if currentMode == CursorDance {
+	if usesGeneratedCursors(currentMode) {
 		if b.mirrors > 1 {
 			args = append(args, "-cursors", strconv.Itoa(int(b.mirrors)))
 		}

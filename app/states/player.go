@@ -241,7 +241,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool) *Player {
 
 	settings.START = min(settings.START, (beatMap.HitObjects[len(beatMap.HitObjects)-1].GetStartTime()-1)/1000) // cap start to start time of the last HitObject - 1ms
 
-	if (settings.START > 0.01 || !math.IsInf(settings.END, 1)) && (settings.PLAY || !settings.KNOCKOUT) {
+	if (settings.START > 0.01 || !math.IsInf(settings.END, 1)) && (settings.PLAY || !settings.KNOCKOUT || settings.SOLOKNOCKOUT) {
 		scrub := max(0, settings.START*1000)
 		end := settings.END * 1000
 
@@ -318,6 +318,13 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool) *Player {
 		player.controller.SetBeatMap(player.bMap)
 		player.controller.InitCursors()
 		player.overlay = overlays.NewScoreOverlay(player.controller.(*dance.PlayerController).GetRuleset(), player.controller.GetCursors()[0])
+	} else if settings.KNOCKOUT && settings.SOLOKNOCKOUT {
+		controller := dance.NewSoloKnockoutController()
+		player.controller = controller
+
+		controller.SetBeatMap(player.bMap)
+		controller.InitCursors()
+		player.overlay = overlays.NewKnockoutOverlay(controller)
 	} else if settings.KNOCKOUT {
 		controller := dance.NewReplayController()
 		player.controller = controller
@@ -694,13 +701,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool) *Player {
 
 func (player *Player) trySetupFail() {
 	var ruleset *osu.OsuRuleSet
-	var replayController *dance.ReplayController
-
-	switch controller := player.controller.(type) {
-	case *dance.ReplayController:
-		replayController = controller
-		ruleset = controller.GetRuleset()
-	case *dance.PlayerController:
+	if controller, ok := player.controller.(dance.RulesetController); ok {
 		ruleset = controller.GetRuleset()
 	}
 
@@ -709,6 +710,7 @@ func (player *Player) trySetupFail() {
 	}
 
 	cursors := player.controller.GetCursors()
+	generatedController, _ := player.controller.(dance.GeneratedCursorController)
 
 	switch overlay := player.overlay.(type) {
 	case *overlays.KnockoutOverlay:
@@ -720,7 +722,7 @@ func (player *Player) trySetupFail() {
 			// participant is the only participant delegated to knockout. The
 			// internal AT conversion remains visual playback and is suppressed.
 			policy := osu.FailurePolicySuppress
-			if !player.automatedPlayback && replayController != nil && replayController.IsGeneratedCursor(cursor) {
+			if !player.automatedPlayback && generatedController != nil && generatedController.IsGeneratedCursor(cursor) {
 				policy = osu.FailurePolicyDelegate
 			}
 

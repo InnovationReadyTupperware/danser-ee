@@ -196,13 +196,13 @@ func (spinner *Spinner) Update(time float64) bool {
 	spinner.fade.Update(time)
 
 	if time >= spinner.StartTime && time <= spinner.EndTime {
-		if (!settings.PLAY && !settings.KNOCKOUT) || settings.PLAYERS > 1 {
+		if (!settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT)) || settings.PLAYERS > 1 {
 			elapsed := time - spinner.StartTime
 			if elapsed < 0 || math.IsNaN(elapsed) || math.IsInf(elapsed, 0) {
 				elapsed = 0
 			}
 
-			if spinner.diff != nil && spinner.diff.IsLazer() && !settings.PLAY && !settings.KNOCKOUT {
+			if spinner.diff != nil && spinner.diff.IsLazer() && !settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT) {
 				// Generated Lazer visuals use the same selected RPM as cursor
 				// dance. Stable keeps the historical ramp and angle equation
 				// because replayed Stable visuals are an observable compatibility
@@ -236,7 +236,7 @@ func (spinner *Spinner) Update(time float64) bool {
 	spinner.pos = spinner.StartPosRaw
 
 	if spinner.lastTime < spinner.EndTime && time >= spinner.EndTime {
-		if (!settings.PLAY && !settings.KNOCKOUT) || settings.PLAYERS > 1 {
+		if (!settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT)) || settings.PLAYERS > 1 {
 			spinner.StopSpinSample()
 			spinner.Clear()
 			spinner.Hit(time, true)

@@ -85,7 +85,7 @@ func loadLauncherConfig() {
 		launcherConfig.Profile = &def
 	}
 
-	launcherConfig.CurrentMode = mutils.Clamp(launcherConfig.CurrentMode, CursorDance, Play)
+	launcherConfig.CurrentMode = mutils.Clamp(launcherConfig.CurrentMode, CursorDance, SoloKnockout)
 	launcherConfig.CurrentPMode = mutils.Clamp(launcherConfig.CurrentPMode, Watch, Screenshot)
 
 	saveLauncherConfig()

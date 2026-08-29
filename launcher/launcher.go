@@ -61,6 +61,9 @@ const (
 	Replay
 	Knockout
 	Play
+	// SoloKnockout is kept after Play so existing launcher.json files retain
+	// their numeric Play selection when this mode is introduced.
+	SoloKnockout
 )
 
 func (m Mode) String() string {
@@ -75,12 +78,18 @@ func (m Mode) String() string {
 		return "Watch knockout"
 	case Play:
 		return "Play osu!standard"
+	case SoloKnockout:
+		return "Watch solo knockout"
 	}
 
 	return ""
 }
 
-var modes = []Mode{CursorDance, DanserReplay, Replay, Knockout, Play}
+var modes = []Mode{CursorDance, DanserReplay, Replay, Knockout, SoloKnockout, Play}
+
+func usesGeneratedCursors(mode Mode) bool {
+	return mode == CursorDance || mode == SoloKnockout
+}
 
 type PMode int
 
@@ -1038,7 +1047,7 @@ func (l *launcher) drawControls() {
 
 		imgui.TableNextColumn()
 
-		if launcherConfig.CurrentMode == CursorDance {
+		if usesGeneratedCursors(launcherConfig.CurrentMode) {
 			if imgui.ButtonV("Mirrors/Tags", vec2(-1, imgui.TextLineHeight()*2)) {
 				l.openPopup(newPopupF("Difficulty adjust", popDynamic, func() {
 					drawCDMenu(l.bld)
@@ -1234,7 +1243,7 @@ func (l *launcher) newKnockout() {
 			l.openPopup(l.knockoutManager)
 		}
 	} else {
-		imgui.TextUnformatted("No replays selected - Danser will be added automatically")
+		imgui.TextUnformatted("No replays selected")
 	}
 
 	imgui.UnindentV(5)
@@ -1426,8 +1435,7 @@ func (l *launcher) drawLowerPanel() {
 		{
 			dRun := l.danserRunning && launcherConfig.CurrentPMode == Record
 
-			s := (launcherConfig.CurrentMode == Replay && l.bld.currentReplay == nil) ||
-				(launcherConfig.CurrentMode != Replay && l.bld.currentMap == nil)
+			s := l.bld.launchDisabled()
 
 			if !dRun {
 				if s {

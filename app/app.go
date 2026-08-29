@@ -125,10 +125,11 @@ func run() {
 
 		settingsVersion := flag.String("settings", "", "Specify settings version, -settings=b/abc means that settings/b/abc.json will be loaded. \"Credentials\"")
 		cursors := flag.Int("cursors", 1, "How many repeated cursors should be visible, recommended 2 for mirror, 8 for mandala")
-		tag := flag.Int("tag", 1, "How many cursors should be \"playing\" specific map. 2 means that 1st cursor clicks the 1st object, 2nd clicks 2nd object, 1st clicks 3rd and so on")
+		tag := flag.Int("tag", 1, "How many generated cursors to create. In cursor-dance TAG mode they take turns on objects; in solo knockout each is scored as a full participant.")
 
 		knockout := flag.Bool("knockout", false, "Use (classic) knockout feature. Replays are sourced from \"replays/{a}\" where {a} is an md5 hash of .osu file. Danser automatically organizes replay files put directly in \"replays\", using maps' md5s provided by the replay files.")
 		knockout2 := flag.String("knockout2", "", "Use (new) knockout feature, JSON list of paths to compatible replay files has to be provided. \"Knockout.ExcludeMods\" and \"Knockout.MaxPlayers\" options are ignored, they have to be filtered beforehand.")
+		soloKnockout := flag.Bool("solo-knockout", false, "Run map-driven knockout with generated Danser participants. Use -cursors and -tag to configure mirrors and participants.")
 
 		speed := flag.Float64("speed", 1.0, "Specify music's speed, set to 1.5 to have DoubleTime mod experience")
 		pitch := flag.Float64("pitch", 1.0, "Specify music's pitch, set to 1.5 with -speed=1.5 to have Nightcore mod experience")
@@ -193,6 +194,18 @@ func run() {
 			}
 
 			*knockout = true
+
+			if *soloKnockout {
+				panic("Incompatible flags selected: -solo-knockout, -knockout2")
+			}
+		}
+
+		if *soloKnockout {
+			*knockout = true
+		}
+
+		if *knockout2 != "" && len(knockoutReplays) == 0 {
+			panic("-knockout2 requires at least one replay path")
 		}
 
 		if !*noUpdCheck {
@@ -291,6 +304,7 @@ func run() {
 
 		settings.DEBUG = *debug
 		settings.KNOCKOUT = *knockout
+		settings.SOLOKNOCKOUT = *soloKnockout
 		settings.KNOCKOUTREPLAYS = knockoutReplays
 		settings.PLAY = *play
 		settings.DIVIDES = *cursors
@@ -541,7 +555,7 @@ func run() {
 		bass.Init(settings.RECORD)
 		audio.LoadSamples()
 
-		if settings.PLAY || !settings.KNOCKOUT || automatedPlayback {
+		if settings.PLAY || !settings.KNOCKOUT || settings.SOLOKNOCKOUT || automatedPlayback {
 			if modsNew == nil {
 				modsNew = modsParsed.ConvertToModInfoList()
 			}

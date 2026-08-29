@@ -111,7 +111,7 @@ func newBubble(position vector.Vector2f, time float64, name string, combo int64,
 }
 
 type KnockoutOverlay struct {
-	controller   *dance.ReplayController
+	controller   dance.KnockoutController
 	font         *font.Font
 	players      map[string]*knockoutPlayer
 	playersArray []*knockoutPlayer
@@ -138,9 +138,9 @@ type KnockoutOverlay struct {
 	alivePlayers int
 }
 
-func NewKnockoutOverlay(replayController *dance.ReplayController) *KnockoutOverlay {
+func NewKnockoutOverlay(controller dance.KnockoutController) *KnockoutOverlay {
 	overlay := new(KnockoutOverlay)
-	overlay.controller = replayController
+	overlay.controller = controller
 
 	if font.GetFont("Quicksand Bold") == nil {
 		file, _ := assets.Open("assets/fonts/Quicksand-Bold.ttf")
@@ -154,17 +154,17 @@ func NewKnockoutOverlay(replayController *dance.ReplayController) *KnockoutOverl
 	overlay.playersArray = make([]*knockoutPlayer, 0)
 	overlay.deathBubbles = make([]*bubble, 0)
 	overlay.names = make(map[*graphics.Cursor]string)
-	overlay.generator = rand.New(rand.NewSource(replayController.GetBeatMap().TimeAdded))
+	overlay.generator = rand.New(rand.NewSource(controller.GetBeatMap().TimeAdded))
 
 	overlay.ScaledHeight = 1080.0
 	overlay.ScaledWidth = overlay.ScaledHeight * settings.Graphics.GetAspectRatio()
 
 	overlay.fade = animation.NewGlider(1)
 
-	for i, r := range replayController.GetReplays() {
-		cursor := replayController.GetCursors()[i]
+	for i, r := range controller.GetReplays() {
+		cursor := controller.GetCursors()[i]
 		overlay.names[cursor] = r.Name
-		overlay.players[r.Name] = &knockoutPlayer{animation.NewGlider(1), animation.NewGlider(0), animation.NewGlider(overlay.ScaledHeight * 0.9 * 1.04 / (51)), animation.NewGlider(float64(i)), animation.NewTargetGlider(0, 0), animation.NewTargetGlider(0, 2), animation.NewTargetGlider(100, 2), 0, 0, r.MaxCombo, false, 0, 0.0, 0, make([]stats, len(replayController.GetBeatMap().HitObjects)), 0.0, osu.Hit300, animation.NewGlider(0), animation.NewGlider(0), r.Name, i, i}
+		overlay.players[r.Name] = &knockoutPlayer{animation.NewGlider(1), animation.NewGlider(0), animation.NewGlider(overlay.ScaledHeight * 0.9 * 1.04 / (51)), animation.NewGlider(float64(i)), animation.NewTargetGlider(0, 0), animation.NewTargetGlider(0, 2), animation.NewTargetGlider(100, 2), 0, 0, r.MaxCombo, false, 0, 0.0, 0, make([]stats, len(controller.GetBeatMap().HitObjects)), 0.0, osu.Hit300, animation.NewGlider(0), animation.NewGlider(0), r.Name, i, i}
 		overlay.players[r.Name].index.SetEasing(easing.InOutQuad)
 		overlay.playersArray = append(overlay.playersArray, overlay.players[r.Name])
 
@@ -187,7 +187,7 @@ func NewKnockoutOverlay(replayController *dance.ReplayController) *KnockoutOverl
 		}
 	}
 
-	replayController.GetRuleset().SetListener(overlay.hitReceived)
+	controller.GetRuleset().SetListener(overlay.hitReceived)
 
 	sortFunc := func(number int64, instantSort bool) {
 		alive := 0
@@ -232,8 +232,8 @@ func NewKnockoutOverlay(replayController *dance.ReplayController) *KnockoutOverl
 		discord.UpdateKnockout(alive, len(overlay.playersArray))
 	}
 
-	replayController.GetRuleset().SetEndListener(func(time int64, number int64) {
-		if number == int64(len(replayController.GetBeatMap().HitObjects)-1) && settings.Knockout.RevivePlayersAtEnd {
+	controller.GetRuleset().SetEndListener(func(time int64, number int64) {
+		if number == int64(len(controller.GetBeatMap().HitObjects)-1) && settings.Knockout.RevivePlayersAtEnd {
 			for _, player := range overlay.players {
 				player.hasBroken = false
 				player.breakTime = 0

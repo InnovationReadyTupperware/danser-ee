@@ -105,7 +105,7 @@ func NewSliderEndCircle(pos vector.Vector2f, appearTime, bounceStartTime, time f
 }
 
 func (circle *Circle) Update(time float64) bool {
-	if !circle.silent && ((!settings.PLAY && !settings.KNOCKOUT) || settings.PLAYERS > 1) && (circle.lastTime < circle.StartTime && time >= circle.StartTime) {
+	if !circle.silent && ((!settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT)) || settings.PLAYERS > 1) && (circle.lastTime < circle.StartTime && time >= circle.StartTime) {
 		circle.Arm(true, circle.StartTime)
 		circle.PlaySound(circle.StartTime)
 	}

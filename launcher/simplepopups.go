@@ -37,7 +37,12 @@ func drawCDMenu(bld *builder) {
 
 		imgui.TableNextColumn()
 
-		imgui.TextUnformatted("Tag cursors:")
+		tagLabel := "Tag cursors:"
+		if launcherConfig.CurrentMode == SoloKnockout {
+			tagLabel = "Danser participants:"
+		}
+
+		imgui.TextUnformatted(tagLabel)
 
 		imgui.TableNextColumn()
 

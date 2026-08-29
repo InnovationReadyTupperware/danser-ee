@@ -107,7 +107,7 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 
 			localReplay = true
 		}
-	} else if settings.KNOCKOUTREPLAYS != nil || settings.Knockout.MaxPlayers > 0 { // ignore max player limit with new knockout
+	} else if settings.Knockout.MaxPlayers > 0 || (settings.KNOCKOUTREPLAYS != nil && len(settings.KNOCKOUTREPLAYS) > 0) { // ignore max player limit with new knockout
 		candidates = controller.getCandidates()
 	}
 
@@ -116,7 +116,7 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 			return candidates[i].Score > candidates[j].Score
 		})
 
-		if settings.KNOCKOUTREPLAYS == nil { // limit only with classic knockout
+		if settings.KNOCKOUTREPLAYS == nil || len(settings.KNOCKOUTREPLAYS) == 0 { // limit only with classic knockout
 			candidates = candidates[:min(len(candidates), settings.Knockout.MaxPlayers)]
 		}
 	}
@@ -165,10 +165,7 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 		log.Println("\tReplay loaded!")
 	}
 
-	// An explicit empty replay list is the launcher representation of a
-	// replay-free knockout. Treat it like AddDanser even when the persisted
-	// setting is off; the mode still needs one generated participant to start.
-	if !localReplay && (settings.Knockout.AddDanser || len(controller.controllers) == 0) {
+	if !localReplay && settings.Knockout.AddDanser {
 		control := NewSubControl()
 		control.diff = beatMap.Diff.Clone()
 
@@ -264,7 +261,7 @@ func (controller *ReplayController) getCandidates() (candidates []*rplpa.Replay)
 		candidates = append(candidates, replayD)
 	}
 
-	if settings.KNOCKOUTREPLAYS != nil {
+	if settings.KNOCKOUTREPLAYS != nil && len(settings.KNOCKOUTREPLAYS) > 0 {
 		for _, r := range settings.KNOCKOUTREPLAYS {
 			tryAddReplay(r, false)
 		}
