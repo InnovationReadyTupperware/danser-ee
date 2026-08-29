@@ -10,7 +10,7 @@ import (
 	"github.com/AllenDang/cimgui-go/imgui"
 	"github.com/Zyko0/go-sdl3/sdl"
 
-	"github.com/wieku/danser-go/app/utils"
+	appUtils "github.com/wieku/danser-go/app/utils"
 	"github.com/wieku/danser-go/framework/env"
 	"github.com/wieku/danser-go/framework/platform"
 )
@@ -47,20 +47,26 @@ func showMessage(typ messageType, format string, args ...any) bool {
 }
 
 func checkForUpdates(pingUpToDate bool) {
-	status, url, err := utils.CheckForUpdate()
+	status, url, err := appUtils.CheckForUpdate()
+	showUpdateResult(status, url, err, pingUpToDate)
+}
 
+// showUpdateResult applies an already completed update check on the launcher
+// thread. The network request is intentionally separate so opening the
+// launcher cannot stall on GitHub or display an SDL dialog from a worker.
+func showUpdateResult(status appUtils.UpdateStatus, url string, err error, pingUpToDate bool) {
 	switch status {
-	case utils.Ignored, utils.UpToDate:
+	case appUtils.Ignored, appUtils.UpToDate:
 		if pingUpToDate {
 			showMessage(mInfo, "You're using the newest version of danser.")
 		}
-	case utils.Failed:
+	case appUtils.Failed:
 		showMessage(mError, "Can't get version from GitHub: %s", err)
-	case utils.Snapshot:
+	case appUtils.Snapshot:
 		if showMessage(mQuestion, "You're using a snapshot version of danser.\nFor newer version of snapshots please visit the official danser discord server at: %s\n\nDo you want to go there?", url) {
 			platform.OpenURL(url)
 		}
-	case utils.UpdateAvailable:
+	case appUtils.UpdateAvailable:
 		if showMessage(mQuestion, "You're using an older version of danser.\nYou can download a newer version here: %s\n\nDo you want to go there?", url) {
 			platform.OpenURL(url)
 		}

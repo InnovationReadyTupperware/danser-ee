@@ -837,6 +837,7 @@ func (m *songSelectPopup) selectNewest() {
 func (m *songSelectPopup) stopPreview() {
 	if m.PreviewedSong != nil {
 		m.PreviewedSong.Stop()
+		m.PreviewedSong.Close()
 	}
 
 	m.PreviewedSong = nil
@@ -923,6 +924,19 @@ func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []se
 	query = strings.ToLower(query)
 	if groupCount == 0 && len(beatmaps) > 0 {
 		groupCount = len(assignSearchGroupIndices(beatmaps))
+	} else if groupCount > 0 {
+		// The popup maintains this invariant, but the pure helper is also used
+		// directly by tests and recovery paths. Inspect only the first live entry
+		// so the normal 140k-entry query path does not pay for a full validation.
+		for _, entry := range beatmaps {
+			if entry == nil {
+				continue
+			}
+			if entry.groupIndex < 0 || entry.groupIndex >= groupCount {
+				groupCount = len(assignSearchGroupIndices(beatmaps))
+			}
+			break
+		}
 	}
 	groupHint := min(groupCount, max(1, len(beatmaps)/4))
 
@@ -939,6 +953,9 @@ func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []se
 
 	for _, entry := range beatmaps {
 		if entry == nil || query != "" && !strings.Contains(entry.searchKey, query) {
+			continue
+		}
+		if entry.groupIndex < 0 || entry.groupIndex >= len(groupScratch) {
 			continue
 		}
 

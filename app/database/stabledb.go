@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -32,6 +33,17 @@ func stableDatabasePath() string {
 // independent from the danser database so malformed Stable data can be
 // rejected without affecting the existing catalog.
 func loadStableDatabase() ([]*BeatmapEntry, error) {
+	return loadStableDatabaseContext(context.Background())
+}
+
+func loadStableDatabaseContext(ctx context.Context) ([]*BeatmapEntry, error) {
+	if ctx == nil {
+		return nil, errors.New("nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	file, err := os.Open(stableDatabasePath())
 	if err != nil {
 		return nil, err
@@ -46,10 +58,20 @@ func loadStableDatabase() ([]*BeatmapEntry, error) {
 		return nil, fmt.Errorf("osu!.db has an unsupported size: %d", info.Size())
 	}
 
-	return parseStableDatabase(file, info.Size())
+	return parseStableDatabaseContext(ctx, file, info.Size())
 }
 
 func parseStableDatabase(source io.Reader, size int64) ([]*BeatmapEntry, error) {
+	return parseStableDatabaseContext(context.Background(), source, size)
+}
+
+func parseStableDatabaseContext(ctx context.Context, source io.Reader, size int64) ([]*BeatmapEntry, error) {
+	if ctx == nil {
+		return nil, errors.New("nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if source == nil {
 		return nil, errors.New("nil osu!.db source")
 	}
@@ -87,6 +109,10 @@ func parseStableDatabase(source io.Reader, size int64) ([]*BeatmapEntry, error) 
 	entries := make([]*BeatmapEntry, 0, mapCount)
 	seenPaths := make(map[string]struct{}, mapCount)
 	for i := 0; i < mapCount; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		entry, err := reader.readStableEntry(int(version))
 		if err != nil {
 			return nil, fmt.Errorf("read osu!.db map %d: %w", i, err)

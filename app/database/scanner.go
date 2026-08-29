@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -26,6 +27,25 @@ func scanBeatmapFiles(
 	mustCheckDirs []string,
 	progress func(directoriesSeen int),
 ) (scanResult, error) {
+	return scanBeatmapFilesContext(context.Background(), root, skipCached, cachedFolders, mustCheckDirs, progress)
+}
+
+// scanBeatmapFilesContext is the cancellable implementation used by the
+// launcher's background catalog worker. Directory enumeration can be slow on
+// removable or mechanical drives, so cancellation must be checked between
+// directories and entries instead of waiting for a complete walk to finish.
+func scanBeatmapFilesContext(
+	ctx context.Context,
+	root string,
+	skipCached bool,
+	cachedFolders map[string]uint8,
+	mustCheckDirs []string,
+	progress func(directoriesSeen int),
+) (scanResult, error) {
+	if ctx == nil {
+		return scanResult{}, fmt.Errorf("nil context")
+	}
+
 	result := scanResult{complete: true}
 	mustCheck := make(map[string]struct{}, len(mustCheckDirs))
 	for _, dir := range mustCheckDirs {
@@ -34,6 +54,10 @@ func scanBeatmapFiles(
 
 	var visit func(string, string, int) error
 	visit = func(directory, relativeDirectory string, level int) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if skipCached && level > 0 {
 			normalized := normalizeRelativePath(relativeDirectory)
 			if _, required := mustCheck[normalized]; !required {
@@ -62,6 +86,10 @@ func scanBeatmapFiles(
 		directories := make([]os.DirEntry, 0)
 
 		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
 			if entry.Type()&os.ModeSymlink != 0 {
 				// Symlink targets are deliberately outside the catalog's source
 				// boundary. Treating one as an incomplete observation prevents a
@@ -117,6 +145,10 @@ func scanBeatmapFiles(
 		}
 
 		for _, entry := range directories {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
 			nextRelative := entry.Name()
 			if relativeDirectory != "" {
 				nextRelative = filepath.Join(relativeDirectory, entry.Name())

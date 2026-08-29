@@ -2,13 +2,15 @@ package launcher
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/wieku/danser-go/app/beatmap"
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/framework/math/math32"
 	"github.com/wieku/rplpa"
 	"golang.org/x/exp/constraints"
-	"strconv"
-	"strings"
 )
 
 type floatParam param[float64]
@@ -80,6 +82,10 @@ func newBuilder() *builder {
 }
 
 func (b *builder) setMap(bMap *beatmap.BeatMap) {
+	if bMap == nil {
+		return
+	}
+
 	b.currentMap = bMap
 
 	b.start = intParam{}
@@ -117,6 +123,10 @@ func (b *builder) setMap(bMap *beatmap.BeatMap) {
 }
 
 func (b *builder) setReplay(replay *rplpa.Replay) {
+	if replay == nil {
+		return
+	}
+
 	b.currentReplay = replay
 	gameplayMode := difficulty.GameplayModeFromReplayVersion(int(replay.OsuVersion))
 	b.sourceDiff.SetGameplayMode(gameplayMode)
@@ -128,12 +138,20 @@ func (b *builder) setReplay(replay *rplpa.Replay) {
 		modsNew := make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))
 
 		for _, mod := range replay.ScoreInfo.Mods {
-			modsNew = append(modsNew, *mod)
+			if mod != nil {
+				modsNew = append(modsNew, *mod)
+			}
 		}
 
-		b.sourceDiff.SetMods2(modsNew)
-		b.baseDiff.SetMods(b.sourceDiff.Mods)
-		b.diff.SetMods2(modsNew)
+		if len(modsNew) > 0 {
+			b.sourceDiff.SetMods2(modsNew)
+			b.baseDiff.SetMods(b.sourceDiff.Mods)
+			b.diff.SetMods2(modsNew)
+		} else {
+			b.sourceDiff.SetMods(difficulty.Modifier(replay.Mods))
+			b.baseDiff.SetMods(difficulty.Modifier(replay.Mods))
+			b.diff.SetMods(difficulty.Modifier(replay.Mods))
+		}
 	} else {
 		b.sourceDiff.SetMods(difficulty.Modifier(replay.Mods))
 		b.baseDiff.SetMods(difficulty.Modifier(replay.Mods))
@@ -171,7 +189,16 @@ func (b *builder) launchDisabled() bool {
 	}
 }
 
-func (b *builder) getArguments() (args []string) {
+func (b *builder) getArguments() []string {
+	args, err := b.getArgumentsChecked()
+	if err != nil {
+		return nil
+	}
+
+	return args
+}
+
+func (b *builder) getArgumentsChecked() (args []string, err error) {
 	currentMode := launcherConfig.CurrentMode
 	currentPMode := launcherConfig.CurrentPMode
 
@@ -182,14 +209,25 @@ func (b *builder) getArguments() (args []string) {
 	}
 
 	if currentMode == Replay {
+		if b.currentMap == nil || b.currentReplay == nil || strings.TrimSpace(b.replayPath) == "" {
+			return nil, fmt.Errorf("a replay and its beatmap must be selected")
+		}
+
 		args = append(args, "-replay", b.replayPath)
 
 		if !b.sourceDiff.Equals(b.diff) {
-			bt, _ := json.Marshal(b.diff.ExportMods2())
+			bt, marshalErr := json.Marshal(b.diff.ExportMods2())
+			if marshalErr != nil {
+				return nil, fmt.Errorf("encode replay mods: %w", marshalErr)
+			}
 
 			args = append(args, "-mods2", string(bt))
 		}
 	} else {
+		if b.currentMap == nil {
+			return nil, fmt.Errorf("a beatmap must be selected")
+		}
+
 		args = append(args, "-md5", b.currentMap.MD5)
 
 		diffClone := b.diff.Clone()
@@ -205,7 +243,10 @@ func (b *builder) getArguments() (args []string) {
 				}
 			}
 
-			data, _ := json.Marshal(list)
+			data, marshalErr := json.Marshal(list)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("encode knockout replays: %w", marshalErr)
+			}
 			args = append(args, "-knockout2", string(data))
 		} else if currentMode == SoloKnockout {
 			args = append(args, "-solo-knockout")
@@ -214,7 +255,10 @@ func (b *builder) getArguments() (args []string) {
 		}
 
 		if diffClone.Mods != difficulty.None {
-			bt, _ := json.Marshal(diffClone.ExportMods2())
+			bt, marshalErr := json.Marshal(diffClone.ExportMods2())
+			if marshalErr != nil {
+				return nil, fmt.Errorf("encode mods: %w", marshalErr)
+			}
 
 			args = append(args, "-mods2", string(bt))
 		}

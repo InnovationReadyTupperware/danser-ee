@@ -2,9 +2,12 @@ package osuapi
 
 import (
 	"context"
+	"errors"
+	"log"
+	"time"
+
 	"github.com/wieku/danser-go/app/settings"
 	"golang.org/x/oauth2"
-	"time"
 )
 
 func getToken() *oauth2.Token {
@@ -18,6 +21,13 @@ func getToken() *oauth2.Token {
 }
 
 func getTokenSource() (oauth2.TokenSource, error) {
+	return getTokenSourceContext(context.Background())
+}
+
+func getTokenSourceContext(ctx context.Context) (oauth2.TokenSource, error) {
+	if ctx == nil {
+		return nil, errors.New("nil context")
+	}
 	prepareConfig()
 
 	token := getToken()
@@ -26,7 +36,7 @@ func getTokenSource() (oauth2.TokenSource, error) {
 		if !token.Valid() {
 			var err error
 
-			token, err = exchangeClientCredentials(clientConfig, context.Background())
+			token, err = exchangeClientCredentials(clientConfig, ctx)
 
 			if err != nil {
 				return nil, err
@@ -36,15 +46,25 @@ func getTokenSource() (oauth2.TokenSource, error) {
 		return oauth2.StaticTokenSource(token), nil
 	}
 
-	return clientConfig.TokenSource(context.Background(), token), nil
+	return clientConfig.TokenSource(ctx, token), nil
 }
 
 func TryRefreshToken() error {
+	return TryRefreshTokenContext(context.Background())
+}
+
+// TryRefreshTokenContext refreshes the current token without outliving its
+// caller. The launcher uses this form during startup so shutdown can cancel
+// the underlying OAuth request before native resources are torn down.
+func TryRefreshTokenContext(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("nil context")
+	}
 	if settings.Credentails.AccessToken == "" {
 		return nil
 	}
 
-	tSource, err := getTokenSource()
+	tSource, err := getTokenSourceContext(ctx)
 
 	if err != nil {
 		return err
@@ -53,6 +73,12 @@ func TryRefreshToken() error {
 	tk, err := tSource.Token()
 
 	if err != nil {
+		return err
+	}
+	if tk == nil {
+		return errors.New("token source returned an empty token")
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 
@@ -72,5 +98,7 @@ func tryUpdateToken(token *oauth2.Token) {
 	settings.Credentails.RefreshToken = token.RefreshToken
 	settings.Credentails.Expiry = token.Expiry
 
-	settings.SaveCredentials(false)
+	if err := settings.SaveCredentialsChecked(false); err != nil {
+		log.Println("ApiConnector: Failed to save refreshed credentials:", err)
+	}
 }

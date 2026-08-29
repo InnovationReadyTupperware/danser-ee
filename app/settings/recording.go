@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/wieku/danser-go/framework/env"
 	"github.com/wieku/danser-go/framework/platform"
@@ -280,8 +281,15 @@ func parseCustomOptions(list []string, custom string) []string {
 
 var encoderCacheCreated bool
 var encoderCache []string
+var encoderCacheMu sync.Mutex
 
+// EncoderOptions is called by both the launcher preloader and the settings
+// editor's reflection path. Keep lazy FFmpeg probing serialized and return a
+// copy so a caller cannot mutate the shared cache after unlocking it.
 func (d *defaultsFactory) EncoderOptions() []string {
+	encoderCacheMu.Lock()
+	defer encoderCacheMu.Unlock()
+
 	if !encoderCacheCreated {
 		encoderCacheCreated = true
 
@@ -293,11 +301,11 @@ func (d *defaultsFactory) EncoderOptions() []string {
 		// control group, if libx264 fails it means ffmpeg was not installed correctly
 		ctrl, err := platform.PrepareFFMpeg("ffmpeg", "-f", "lavfi", "-i", "color=black:s=240x144", "-vframes", "1", "-an", "-c:v", "libx264", "-f", "null", "-")
 		if err != nil {
-			return encoderCache
+			return slices.Clone(encoderCache)
 		}
 
 		if ctrl.Run() != nil {
-			return encoderCache
+			return slices.Clone(encoderCache)
 		}
 
 		toRemove := util.Balance(8, encoderCache, func(encoder string) (string, bool) {
@@ -319,5 +327,5 @@ func (d *defaultsFactory) EncoderOptions() []string {
 		encoderCache = slices.DeleteFunc(encoderCache, func(s string) bool { return slices.Contains(toRemove, s) })
 	}
 
-	return encoderCache
+	return slices.Clone(encoderCache)
 }

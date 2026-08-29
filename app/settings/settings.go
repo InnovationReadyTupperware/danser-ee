@@ -75,6 +75,7 @@ func LoadConfig(file *os.File) (*Config, error) {
 		return nil, fmt.Errorf("SettingsManager: Failed to parse %s! Please re-check the file for mistakes. Error: %s", file.Name(), err)
 	}
 
+	config.normalizeSections()
 	config.normalizeCursorDance()
 	config.migrateCursorDance()
 	config.normalizeCursorDance()
@@ -88,6 +89,53 @@ func LoadConfig(file *os.File) (*Config, error) {
 	log.Println(fmt.Sprintf(`SettingsManager: "%s" loaded!`, file.Name()))
 
 	return config, nil
+}
+
+// normalizeSections keeps explicit null top-level sections from turning a
+// user-editable profile into a later nil-pointer panic. Missing JSON fields
+// already retain NewConfigFile defaults; only nil replacements need repair.
+func (config *Config) normalizeSections() {
+	defaults := NewConfigFile()
+
+	if config.General == nil {
+		config.General = defaults.General
+	}
+	if config.Graphics == nil {
+		config.Graphics = defaults.Graphics
+	}
+	if config.Audio == nil {
+		config.Audio = defaults.Audio
+	}
+	if config.Input == nil {
+		config.Input = defaults.Input
+	}
+	if config.Gameplay == nil {
+		config.Gameplay = defaults.Gameplay
+	}
+	if config.Skin == nil {
+		config.Skin = defaults.Skin
+	}
+	if config.Cursor == nil {
+		config.Cursor = defaults.Cursor
+	}
+	if config.Objects == nil {
+		config.Objects = defaults.Objects
+	}
+	if config.Playfield == nil {
+		config.Playfield = defaults.Playfield
+	}
+	if config.CursorDance == nil {
+		config.CursorDance = defaults.CursorDance
+	}
+	if config.Knockout == nil {
+		config.Knockout = defaults.Knockout
+	}
+	if config.Recording == nil {
+		config.Recording = defaults.Recording
+	}
+	if config.Debug == nil {
+		config.Debug = defaults.Debug
+	}
 }
 
 func NewConfigFile() *Config {
@@ -374,30 +422,47 @@ func (config *Config) GetCombined() *CombinedConfig {
 }
 
 func (config *Config) Save(path string, forceSave bool) {
+	if err := config.SaveChecked(path, forceSave); err != nil {
+		panic(err)
+	}
+}
+
+// SaveChecked writes a settings file and returns persistence errors to the
+// caller. The launcher uses this form because a malformed or temporarily
+// unavailable profile must not crash the UI process.
+func (config *Config) SaveChecked(path string, forceSave bool) error {
+	if config == nil {
+		return fmt.Errorf("cannot save a nil settings config")
+	}
+
 	if strings.TrimSpace(path) == "" {
 		path = config.srcPath
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("settings path is empty")
 	}
 
 	data, err := json.MarshalIndent(config, "", "\t")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("encode settings: %w", err)
 	}
 
 	if forceSave || !bytes.Equal(data, config.srcData) { // Don't rewrite the file unless necessary
 		log.Println(fmt.Sprintf(`SettingsManager: Saving settings to "%s"`, path))
 
-		config.srcData = data
-
 		if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			panic(err)
+			return fmt.Errorf("create settings directory: %w", err)
 		}
 
 		if err = os.WriteFile(path, data, 0644); err != nil {
-			panic(err)
+			return fmt.Errorf("write settings: %w", err)
 		}
 
+		config.srcData = data
 		config.srcPath = path
 	}
+
+	return nil
 }
 
 func (config *Config) GetCompressedString() string {

@@ -1,20 +1,16 @@
 package launcher
 
 import (
-	"bufio"
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,7 +18,6 @@ import (
 	"unicode"
 
 	"github.com/AllenDang/cimgui-go/imgui"
-	"github.com/fsnotify/fsnotify"
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/wieku/rplpa"
@@ -35,6 +30,7 @@ import (
 	"github.com/wieku/danser-go/app/osuapi"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/app/states/components/common"
+	appUtils "github.com/wieku/danser-go/app/utils"
 	"github.com/wieku/danser-go/build"
 	"github.com/wieku/danser-go/framework/assets"
 	"github.com/wieku/danser-go/framework/bass"
@@ -126,10 +122,11 @@ const (
 // It is stored as one value in atomic.Value so the launcher never observes a
 // partially updated stage, count, or completion flag while drawing a frame.
 type catalogProgressState struct {
-	stage     database.ImportStage
-	processed int
-	target    int
-	active    bool
+	generation uint64
+	stage      database.ImportStage
+	processed  int
+	target     int
+	active     bool
 }
 
 // catalogProgressVisibilityThreshold hides tiny refreshes from the normal
@@ -137,6 +134,12 @@ type catalogProgressState struct {
 const catalogProgressVisibilityThreshold = 128
 
 type launcher struct {
+	runtimeDone   <-chan struct{}
+	runtimeCancel context.CancelFunc
+	runtimeEvents chan launcherEvent
+	shutdownOnce  sync.Once
+	backgroundWG  sync.WaitGroup
+
 	bg *common.Background
 
 	batch *batch.QuadBatch
@@ -149,34 +152,36 @@ type launcher struct {
 	configList    []string
 	currentConfig *settings.Config
 
-	newDefault bool
-
-	catalogProgress atomic.Value
-	catalogMu       sync.Mutex
+	catalogProgress           atomic.Value
+	catalogGeneration         atomic.Uint64
+	catalogSnapshotReady      atomic.Bool
+	catalogSnapshotGeneration atomic.Uint64
+	beatmapEventPending       atomic.Bool
+	catalogCoordinator        *catalogCoordinator
 
 	newCloneOpened bool
 
 	configManiMode ConfigMode
 	configPrevName string
 
-	newCloneName     string
-	refreshRate      float32
-	configEditOpened bool
-	configEditPos    imgui.Vec2
+	newCloneName       string
+	refreshRate        float32
+	configEditOpened   bool
+	danserRunning      bool
+	danserStartPending bool
+	startTimer         *time.Timer
+	recordProgress     float32
+	recordStatus       string
+	recordStatusSpeed  string
+	recordStatusETA    string
+	showProgressBar    bool
 
-	danserRunning       bool
-	recordProgress      float32
-	recordStatus        string
-	recordStatusSpeed   string
-	recordStatusElapsed string
-	recordStatusETA     string
-	showProgressBar     bool
-
-	triangleSpeed    *animation.Glider
-	encodeInProgress bool
-	encodeStart      time.Time
-	danserCmd        *exec.Cmd
-	popupStack       []iPopup
+	triangleSpeed     *animation.Glider
+	encodeInProgress  bool
+	encodeStart       time.Time
+	processSupervisor *processSupervisor
+	closeAfterDanser  bool
+	popupStack        []iPopup
 
 	selectWindow *songSelectPopup
 
@@ -184,14 +189,12 @@ type launcher struct {
 
 	configSearch string
 
-	lastReplayDir   string
-	lastKnockoutDir string
-
 	knockoutManager *knockoutManagerPopup
 
 	currentEditor     *settingsEditor
 	beatmapDirUpdated bool
 	showBeatmapAlert  float64
+	watcher           *directoryWatcher
 
 	winter        bool
 	christmas     bool
@@ -220,14 +223,18 @@ func StartLauncher() {
 	goroutines.SetCrashHandler(closeHandler)
 
 	cTime := time.Now()
+	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
 
 	launcher := &launcher{
-		bld:        newBuilder(),
-		catalog:    database.NewCatalogSnapshot(nil),
-		popupStack: make([]iPopup, 0),
-		winter:     (cTime.Month() == 12 && cTime.Day() >= 6) || (cTime.Month() < 2),
-		christmas:  cTime.Month() == 12 && cTime.Day() >= 6,
-		cHold:      make(map[string]*bool),
+		runtimeDone:   runtimeCtx.Done(),
+		runtimeCancel: runtimeCancel,
+		runtimeEvents: make(chan launcherEvent, launcherEventQueueCapacity),
+		bld:           newBuilder(),
+		catalog:       database.NewCatalogSnapshot(nil),
+		popupStack:    make([]iPopup, 0),
+		winter:        (cTime.Month() == 12 && cTime.Day() >= 6) || (cTime.Month() < 2),
+		christmas:     cTime.Month() == 12 && cTime.Day() >= 6,
+		cHold:         make(map[string]*bool),
 	}
 
 	platform.StartLogging("launcher")
@@ -252,10 +259,14 @@ func StartLauncher() {
 			}
 		}()
 
-		goroutines.CallMain(launcher.startContext)
+		goroutines.CallMain(func() {
+			launcher.startContext(runtimeCtx)
+		})
 
 		for !gcontext.ShouldClose() {
 			goroutines.CallMain(func() {
+				launcher.drainEvents()
+
 				if !gcontext.IsMinimized() {
 					if !gcontext.IsFocused() {
 						gcontext.SetSwapInterval(2)
@@ -272,12 +283,7 @@ func StartLauncher() {
 		}
 	})
 
-	// Save configs on exit
-	closeWatcher()
-	saveLauncherConfig()
-	if launcher.currentConfig != nil {
-		launcher.currentConfig.Save("", false)
-	}
+	launcher.shutdown()
 }
 
 func closeHandler(err any, stackTrace []string) {
@@ -296,7 +302,11 @@ func closeHandler(err any, stackTrace []string) {
 	log.Println("Exiting normally.")
 }
 
-func (l *launcher) startContext() {
+func (l *launcher) startContext(ctx context.Context) {
+	if ctx == nil {
+		panic("launcher runtime context is nil")
+	}
+
 	if err := gcontext.Initialize(false); err != nil {
 		panic(err)
 	}
@@ -389,59 +399,26 @@ func (l *launcher) startContext() {
 
 	l.coin.DrawVisualiser(true)
 
-	goroutines.RunOS(func() {
-		settings.DefaultsFactory.EncoderOptions() // preload to avoid pauses
+	l.processSupervisor = newProcessSupervisor(l)
+	l.setupWatcher()
 
-		l.loadBeatmaps(nil)
-
-		gcontext.RegisterListener(func(event gcontext.DropEvent) {
-			if l.danserRunning {
-				return
-			}
-
-			if strings.HasSuffix(event.Names[0], ".osz") {
-				l.loadOSZs(event.Names)
-			} else if len(event.Names) > 1 {
-				l.trySelectReplaysFromPaths(event.Names)
-			} else {
-				l.trySelectReplayFromPath(event.Names[0])
-			}
-		})
-
-		gcontext.RegisterListener(func(_ gcontext.CloseEvent) {
-			if l.danserCmd != nil {
-				gcontext.SetShouldClose(false)
-
-				goroutines.Run(func() {
-					if showMessage(mQuestion, "Recording is in progress, do you want to exit?") {
-						if l.danserCmd != nil {
-							l.danserCmd.Process.Kill()
-							l.danserCleanup(false)
-						}
-
-						gcontext.SetShouldClose(true)
-					}
-				})
-			}
-		})
-
-		if len(os.Args) > 2 { //won't work in combined mode
-			l.trySelectReplaysFromPaths(os.Args[1:])
-		} else if len(os.Args) > 1 {
-			l.trySelectReplayFromPath(os.Args[1])
-		} else if launcherConfig.LoadLatestReplay {
-			l.loadLatestReplay()
-		}
-
-		if launcherConfig.CheckForUpdates {
-			checkForUpdates(false)
-		}
-
-		refreshErr := osuapi.TryRefreshToken()
-		if refreshErr != nil {
-			showMessage(mError, "Failed to refresh token!\nPlease go to Settings->Credentials and click Authorize.\nError: %s", refreshErr.Error())
-		}
+	gcontext.RegisterListener(func(event gcontext.DropEvent) {
+		l.handleDrop(event)
 	})
+
+	gcontext.RegisterListener(func(_ gcontext.CloseEvent) {
+		l.handleCloseRequest()
+	})
+
+	// The cached snapshot is published by the coordinator before the full
+	// reconciliation completes. Startup paths that need a map wait for the
+	// first completed reconciliation, while ordinary launcher browsing remains
+	// available immediately.
+	l.catalogCoordinator = newCatalogCoordinator(l)
+	l.catalogCoordinator.start(ctx)
+	l.reloadMaps(l.processStartupSelection)
+
+	l.startBackgroundTasks(ctx)
 
 	gcontext.RegisterListener(func(event gcontext.KeyEvent) {
 		if l.currentEditor != nil {
@@ -450,113 +427,68 @@ func (l *launcher) startContext() {
 	})
 }
 
-func (l *launcher) loadBeatmaps(after func()) {
-	// SQLite and the database manager intentionally have one active catalog
-	// operation at a time. A second refresh must wait before closing or
-	// replacing the shared connection used by reconciliation.
-	l.catalogMu.Lock()
-
-	closeWatcher()
-	database.Close()
-
-	l.clearCatalogProgress()
-
-	err := database.Init()
-	if err != nil {
-		// Keep the in-memory catalog visible during a refresh failure. The
-		// database is an accelerator for the launcher, so losing it must not
-		// turn a recoverable refresh error into an empty startup screen.
-		goroutines.CallMain(func() {
-			showMessage(mError, "Failed to initialize database! Error: %s\nMake sure Song's folder does exist or change it to the correct directory in settings.", err)
-		})
-		l.setupWatcher()
-		l.catalogMu.Unlock()
-		return
-	} else {
-		cached := database.LoadCachedCatalog()
-		l.publishCatalog(cached, nil)
-		l.setupWatcher()
-
-		// The cached snapshot is enough to make the launcher usable. Reconcile
-		// the filesystem on a separate OS thread and publish the replacement
-		// snapshot only after the durable catalog has been updated.
-		goroutines.RunOS(func() {
-			defer l.catalogMu.Unlock()
-			defer l.clearCatalogProgress()
-
-			// A first launch may have no danser rows yet. Read Stable's optional
-			// database on this worker and publish its provisional metadata before
-			// walking the Songs tree, so even a large library can become browsable
-			// while the authoritative filesystem reconciliation continues.
-			stableDelta := database.SeedCatalogFromStableDatabase()
-			l.publishCatalogDelta(stableDelta, nil)
-
-			delta := database.ReconcileCatalog(launcherConfig.SkipMapUpdate, l.catalogImportListener())
-			l.publishCatalogDelta(delta, after)
-
-			// Star ratings are a separate, potentially large background pass. Do
-			// not hold the selector's first usable catalog hostage to it.
-			starDelta := database.UpdateCatalogStarRating(l.catalogStarRatingListener())
-			l.publishCatalogDelta(starDelta, nil)
-		})
-
+// startBackgroundTasks contains startup work that may perform network or
+// native-library I/O. The worker reports only immutable results; dialogs and
+// any other launcher-facing behavior remain on the main thread.
+func (l *launcher) startBackgroundTasks(ctx context.Context) {
+	if ctx == nil {
 		return
 	}
-}
 
-func (l *launcher) publishCatalog(catalog *database.CatalogSnapshot, after func()) {
-	if catalog == nil {
-		catalog = database.NewCatalogSnapshot(nil)
-	}
+	checkUpdates := launcherConfig.CheckForUpdates
 
-	// The initial publication is synchronous so command-line replay/map
-	// selection, which runs immediately after startup, cannot observe a nil or
-	// half-installed catalog.
-	goroutines.CallMain(func() {
-		l.catalog = catalog
-
-		if l.selectWindow != nil {
-			l.selectWindow.updateCatalog(catalog)
-		}
-
-		if after != nil {
-			after()
-		}
-	})
-}
-
-func (l *launcher) publishCatalogDelta(delta database.CatalogDelta, after func()) {
-	// Publish synchronously before releasing catalogMu. A queued callback
-	// could otherwise apply an old reconciliation result after a subsequent
-	// reload has opened a new database connection.
-	goroutines.CallMain(func() {
-		if len(delta.Upserts) == 0 && len(delta.Removals) == 0 {
-			if after != nil {
-				after()
+	l.backgroundWG.Add(1)
+	go func() {
+		defer l.backgroundWG.Done()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("Launcher: Background startup task panicked: %v", recovered)
 			}
-			return
+		}()
+
+		settings.DefaultsFactory.EncoderOptions()
+
+		if checkUpdates {
+			status, url, err := appUtils.CheckForUpdateContext(ctx)
+			if !l.postEventContext(ctx, launcherEvent{
+				kind: launcherStartupTaskEvent,
+				task: func() { showUpdateResult(status, url, err, false) },
+			}) {
+				return
+			}
 		}
 
-		if l.catalog == nil {
-			l.catalog = database.NewCatalogSnapshot(nil)
+		if refreshErr := osuapi.TryRefreshTokenContext(ctx); refreshErr != nil && ctx.Err() == nil {
+			l.postEventContext(ctx, launcherEvent{
+				kind: launcherStartupTaskEvent,
+				task: func() {
+					showMessage(mError, "Failed to refresh token!\nPlease go to Settings->Credentials and click Authorize.\nError: %s", refreshErr)
+				},
+			})
 		}
+	}()
+}
 
-		l.catalog = l.catalog.ApplyDelta(delta)
+func (l *launcher) loadBeatmaps(after func()) {
+	if l.catalogCoordinator == nil {
+		return
+	}
 
-		if l.selectWindow != nil {
-			l.selectWindow.updateCatalog(l.catalog)
-		}
-
-		if after != nil {
-			after()
-		}
-	})
+	l.catalogCoordinator.request(after)
 }
 
 func (l *launcher) catalogImportListener() database.ImportListener {
+	return l.catalogImportListenerFor(l.catalogGeneration.Load())
+}
+
+func (l *launcher) catalogImportListenerFor(generation uint64) database.ImportListener {
 	largeScan := false
 
 	return func(stage database.ImportStage, processed, target int) {
+		if generation != 0 && generation != l.catalogGeneration.Load() {
+			return
+		}
+
 		// Discovery and comparison intentionally stay invisible for small
 		// updates. Once discovery crosses the threshold, keep the phase visible
 		// while comparison runs even though comparison has no exact total.
@@ -568,9 +500,10 @@ func (l *launcher) catalogImportListener() database.ImportListener {
 
 			largeScan = true
 			l.catalogProgress.Store(catalogProgressState{
-				stage:     stage,
-				processed: processed,
-				active:    true,
+				generation: generation,
+				stage:      stage,
+				processed:  processed,
+				active:     true,
 			})
 		case database.Comparison:
 			if !largeScan {
@@ -578,8 +511,9 @@ func (l *launcher) catalogImportListener() database.ImportListener {
 			}
 
 			l.catalogProgress.Store(catalogProgressState{
-				stage:  database.Comparison,
-				active: true,
+				generation: generation,
+				stage:      database.Comparison,
+				active:     true,
 			})
 		case database.Import, database.Cleanup:
 			if target < catalogProgressVisibilityThreshold {
@@ -587,10 +521,11 @@ func (l *launcher) catalogImportListener() database.ImportListener {
 			}
 
 			l.catalogProgress.Store(catalogProgressState{
-				stage:     stage,
-				processed: processed,
-				target:    target,
-				active:    true,
+				generation: generation,
+				stage:      stage,
+				processed:  processed,
+				target:     target,
+				active:     true,
 			})
 		}
 	}
@@ -603,23 +538,65 @@ func (l *launcher) clearCatalogProgress() {
 	l.catalogProgress.Store(catalogProgressState{})
 }
 
+func (l *launcher) clearCatalogProgressFor(generation uint64) {
+	value := l.catalogProgress.Load()
+	if value == nil {
+		return
+	}
+
+	progress, ok := value.(catalogProgressState)
+	if ok && (progress.generation == 0 || progress.generation == generation) {
+		l.clearCatalogProgress()
+	}
+}
+
 func (l *launcher) catalogStarRatingListener() func(processed, target int, message string) {
+	return l.catalogStarRatingListenerFor(l.catalogGeneration.Load())
+}
+
+func (l *launcher) catalogStarRatingListenerFor(generation uint64) func(processed, target int, message string) {
 	return func(processed, target int, _ string) {
+		if generation != 0 && generation != l.catalogGeneration.Load() {
+			return
+		}
+
 		if target < catalogProgressVisibilityThreshold {
 			return
 		}
 
 		l.catalogProgress.Store(catalogProgressState{
-			stage:     database.StarRating,
-			processed: processed,
-			target:    target,
-			active:    true,
+			generation: generation,
+			stage:      database.StarRating,
+			processed:  processed,
+			target:     target,
+			active:     true,
 		})
 	}
 }
 
 func (l *launcher) materializeCatalogEntry(entry *database.BeatmapEntry) (*beatmap.BeatMap, error) {
-	return database.LoadRuntimeBeatMap(entry)
+	bMap, err := database.LoadRuntimeBeatMap(entry)
+	if err != nil {
+		// A cached row can outlive its source file on an external or actively
+		// edited Songs drive. Keep the cached selector usable, but ask the
+		// background coordinator to reconcile the stale row instead of mutating
+		// the database from this UI callback.
+		l.reloadMaps(nil)
+		return nil, err
+	}
+	if bMap == nil {
+		l.reloadMaps(nil)
+		return nil, errors.New("catalog returned an empty beatmap")
+	}
+
+	if entry != nil && (entry.LastModified != bMap.LastModified || entry.FileSize != bMap.FileSize || !strings.EqualFold(entry.MD5, bMap.MD5)) {
+		// Runtime selection verifies the file lazily. A changed file is still
+		// playable now, while the asynchronous reconciliation refreshes search
+		// metadata and the durable fingerprint for the next access.
+		l.reloadMaps(nil)
+	}
+
+	return bMap, nil
 }
 
 func (l *launcher) findCatalogEntryByMD5(md5 string) *database.BeatmapEntry {
@@ -640,6 +617,10 @@ func (l *launcher) findCatalogEntryByMD5(md5 string) *database.BeatmapEntry {
 }
 
 func (l *launcher) loadLatestReplay() {
+	if l.currentConfig == nil {
+		return
+	}
+
 	replaysDir := l.currentConfig.General.GetReplaysDir()
 
 	type lastModPath struct {
@@ -647,7 +628,7 @@ func (l *launcher) loadLatestReplay() {
 		name   string
 	}
 
-	var list []*lastModPath
+	var list []lastModPath
 
 	entries, err := os.ReadDir(replaysDir)
 	if err != nil {
@@ -655,9 +636,9 @@ func (l *launcher) loadLatestReplay() {
 	}
 
 	for _, d := range entries {
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".osr") {
+		if !d.IsDir() && strings.EqualFold(filepath.Ext(d.Name()), ".osr") {
 			if info, err1 := d.Info(); err1 == nil {
-				list = append(list, &lastModPath{
+				list = append(list, lastModPath{
 					tStamp: info.ModTime(),
 					name:   d.Name(),
 				})
@@ -669,13 +650,13 @@ func (l *launcher) loadLatestReplay() {
 		return
 	}
 
-	slices.SortFunc(list, func(a, b *lastModPath) int {
+	slices.SortFunc(list, func(a, b lastModPath) int {
 		return -a.tStamp.Compare(b.tStamp)
 	})
 
 	// Load the newest that can be used
-	for _, lMP := range list {
-		r, err := l.loadReplay(filepath.Join(replaysDir, lMP.name))
+	for _, replayPath := range list {
+		r, err := l.loadReplay(filepath.Join(replaysDir, replayPath.name))
 		if err == nil {
 			l.trySelectReplay(r)
 			break
@@ -808,7 +789,7 @@ func (l *launcher) drawImgui() {
 
 	resetPopupHierarchyInfo()
 
-	lock := l.danserRunning
+	lock := l.danserRunning || l.danserStartPending
 
 	if lock {
 		imgui.PushItemFlag(imgui.ItemFlags(imgui.ItemFlagsDisabled), true)
@@ -845,11 +826,6 @@ func (l *launcher) drawMain() {
 	w := contentRegionMax().X
 
 	imgui.PushFont(Font, 24)
-	if launcherConfig.CurrentMode == Play {
-		// Play mode has no output-mode row in the lower panel. Keep catalog
-		// progress visible in its original header position for that mode.
-		l.drawCatalogProgress()
-	}
 
 	if imgui.BeginTableV("ltpanel", 2, imgui.TableFlagsSizingStretchProp, vec2(float32(w)/2, 0), -1) {
 		imgui.TableSetupColumnV("ltpanel1", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(0))
@@ -945,7 +921,7 @@ func (l *launcher) drawCatalogProgress() {
 	}
 
 	progress, ok := value.(catalogProgressState)
-	if !ok || !progress.active {
+	if !ok || !progress.active || (progress.generation != 0 && progress.generation != l.catalogGeneration.Load()) {
 		return
 	}
 
@@ -1072,7 +1048,7 @@ func (l *launcher) selectReplay() {
 		}
 
 		showFilePicker("Select replay file", []string{"osr"}, dir, false, false, func(paths []string, err error) {
-			if err == nil {
+			if err == nil && len(paths) > 0 {
 				l.trySelectReplayFromPath(paths[0])
 			}
 		})
@@ -1083,7 +1059,7 @@ func (l *launcher) selectReplay() {
 	imgui.PushFont(Font, 20)
 	imgui.IndentV(5)
 
-	if l.bld.currentReplay != nil {
+	if l.bld.currentReplay != nil && l.bld.currentMap != nil {
 		b := l.bld.currentMap
 
 		mString := fmt.Sprintf("%s - %s [%s]\nPlayed by: %s", b.Artist, b.Name, b.Difficulty, l.bld.currentReplay.Username)
@@ -1103,8 +1079,13 @@ func (l *launcher) trySelectReplayFromPath(p string) {
 	replay, err := l.loadReplay(p)
 
 	if err != nil {
-		e := []rune(err.Error())
-		showMessage(mError, "%s", string(unicode.ToUpper(e[0]))+string(e[1:]))
+		message := err.Error()
+		runes := []rune(message)
+		if len(runes) > 0 {
+			runes[0] = unicode.ToUpper(runes[0])
+			message = string(runes)
+		}
+		showMessage(mError, "%s", message)
 		return
 	}
 
@@ -1177,6 +1158,11 @@ func (l *launcher) trySelectReplaysFromPaths(p []string) {
 }
 
 func (l *launcher) trySelectReplay(replay *knockoutReplay) {
+	if replay == nil || replay.parsedReplay == nil {
+		showMessage(mError, "Replay data is empty.")
+		return
+	}
+
 	entry := l.findCatalogEntryByMD5(replay.parsedReplay.BeatmapMD5)
 	if entry != nil {
 		bMap, err := l.materializeCatalogEntry(entry)
@@ -1209,7 +1195,7 @@ func (l *launcher) newKnockout() {
 		}
 
 		showFilePicker("Select replay files", []string{"osr"}, kPath, true, false, func(p []string, err error) {
-			if err == nil {
+			if err == nil && len(p) > 0 {
 				launcherConfig.LastKnockoutPath = getRelativeOrABSPath(filepath.Dir(p[0]))
 				saveLauncherConfig()
 
@@ -1252,18 +1238,21 @@ func (l *launcher) newKnockout() {
 }
 
 func (l *launcher) loadReplay(p string) (*knockoutReplay, error) {
-	if !strings.HasSuffix(p, ".osr") {
+	if !strings.EqualFold(filepath.Ext(p), ".osr") {
 		return nil, fmt.Errorf("it's not a replay file")
 	}
 
 	rData, err := os.ReadFile(p)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %s", err)
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
 	replay, err := rplpa.ParseReplay(rData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse replay: %s", err)
+		return nil, fmt.Errorf("failed to parse replay: %w", err)
+	}
+	if replay == nil {
+		return nil, errors.New("failed to parse replay: empty replay")
 	}
 
 	if replay.PlayMode != 0 {
@@ -1285,7 +1274,9 @@ func (l *launcher) loadReplay(p string) (*knockoutReplay, error) {
 		modsNew := make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))
 
 		for _, mod := range replay.ScoreInfo.Mods {
-			modsNew = append(modsNew, *mod)
+			if mod != nil {
+				modsNew = append(modsNew, *mod)
+			}
 		}
 
 		diff.SetMods2(modsNew)
@@ -1341,25 +1332,29 @@ func (l *launcher) showSelect() {
 func (l *launcher) drawLowerPanel() {
 	w, h := contentRegionMax().X, contentRegionMax().Y
 
-	if launcherConfig.CurrentMode != Play {
-		showProgress := launcherConfig.CurrentPMode == Record && l.showProgressBar
+	showProgress := launcherConfig.CurrentPMode == Record && l.showProgressBar
+	frameHeight := imgui.FrameHeightWithSpacing()
+	outputSpacing := frameHeight
+	if showProgress {
+		outputSpacing *= 2
+	}
 
-		spacing := imgui.FrameHeightWithSpacing()
-		if showProgress {
-			spacing *= 2
-		}
-
-		// Keep library reconciliation status with the output controls. The
-		// extra frame of space leaves the progress line above the Watch,
-		// Record, and Screenshot row in both the normal and encoding layouts.
-		imgui.SetCursorPos(vec2(20, h-spacing-imgui.FrameHeightWithSpacing()))
+	if launcherConfig.CurrentMode == Play {
+		// Play mode intentionally has no output selector. Reuse that row's
+		// coordinates for catalog progress so the status remains aligned with
+		// every other mode without adding a separate header layout.
+		imgui.SetCursorPos(vec2(20, h-frameHeight))
+		l.drawCatalogProgress()
+	} else {
+		// Reconciliation status belongs immediately above the output selector.
+		// Recording reserves one additional row for the taskbar/progress bar.
+		imgui.SetCursorPos(vec2(20, h-outputSpacing-frameHeight))
 		l.drawCatalogProgress()
 
-		imgui.SetCursorPos(vec2(20, h-spacing))
-
+		imgui.SetCursorPos(vec2(20, h-outputSpacing))
 		imgui.SetNextItemWidth((imgui.WindowWidth() - 40) / 4)
 
-		l.recordSnowPos = vector.NewVec2f(20+(imgui.WindowWidth()-40)/4/2, h-spacing-2)
+		l.recordSnowPos = vector.NewVec2f(20+(imgui.WindowWidth()-40)/4/2, h-outputSpacing-2)
 
 		if imgui.BeginCombo("##Watch mode", launcherConfig.CurrentPMode.String()) {
 			for _, m := range pModes {
@@ -1380,7 +1375,7 @@ func (l *launcher) drawLowerPanel() {
 			}
 		}
 
-		imgui.SetCursorPos(vec2(contentRegionMin().X, h-imgui.FrameHeightWithSpacing()))
+		imgui.SetCursorPos(vec2(contentRegionMin().X, h-frameHeight))
 
 		if showProgress {
 			if strings.HasPrefix(l.recordStatus, "Done") {
@@ -1437,12 +1432,12 @@ func (l *launcher) drawLowerPanel() {
 
 			s := l.bld.launchDisabled()
 
-			if !dRun {
-				if s {
-					imgui.PushItemFlag(imgui.ItemFlags(imgui.ItemFlagsDisabled), true)
-				}
-			} else {
+			if dRun {
+				// drawImgui disables the entire interface while a child is
+				// running. Temporarily remove that outer flag only for CANCEL.
 				imgui.PopItemFlag()
+			} else if s {
+				imgui.PushItemFlag(imgui.ItemFlags(imgui.ItemFlagsDisabled), true)
 			}
 
 			name := "danse!"
@@ -1452,15 +1447,8 @@ func (l *launcher) drawLowerPanel() {
 
 			if imgui.ButtonV(name, vec2(bW, fHwS)) {
 				if dRun {
-					if l.danserCmd != nil {
-						goroutines.Run(func() {
-							res := showMessage(mQuestion, "Do you really want to cancel?")
-
-							if res && l.danserCmd != nil {
-								l.danserCmd.Process.Kill()
-								l.danserCleanup(false)
-							}
-						})
+					if l.processSupervisor != nil && showMessage(mQuestion, "Do you really want to cancel?") {
+						l.processSupervisor.stop()
 					}
 				} else {
 					if l.selectWindow != nil {
@@ -1474,20 +1462,15 @@ func (l *launcher) drawLowerPanel() {
 					if launcherConfig.CurrentPMode != Watch {
 						l.startDanser()
 					} else {
-						goroutines.Run(func() {
-							time.Sleep(500 * time.Millisecond)
-							l.startDanser()
-						})
+						l.scheduleDanserStart()
 					}
 				}
 			}
 
-			if !dRun {
-				if s {
-					imgui.PopItemFlag()
-				}
-			} else {
+			if dRun {
 				imgui.PushItemFlag(imgui.ItemFlags(imgui.ItemFlagsDisabled), true)
+			} else if s {
+				imgui.PopItemFlag()
 			}
 
 			imgui.PopFont()
@@ -1704,11 +1687,19 @@ func (l *launcher) drawConfigPanel() {
 				}
 
 				if imgui.Button("Save##newclone") || (!e && (imgui.IsKeyPressedBool(imgui.KeyEnter) || imgui.IsKeyPressedBool(imgui.KeyKeypadEnter))) {
-					_, err := os.Stat(filepath.Join(env.ConfigDir(), l.newCloneName+".json"))
-					if err == nil {
+					profilePath, pathErr := profileFilePath(l.newCloneName)
+					if pathErr != nil {
+						showMessage(mError, "Invalid profile name: %s", pathErr)
+						return
+					}
+
+					_, err := os.Stat(profilePath)
+					switch {
+					case err == nil:
 						showMessage(mError, "Config with that name already exists!\nPlease pick a different name")
-					} else {
-						log.Println("ok")
+					case !os.IsNotExist(err):
+						showMessage(mError, "Failed to inspect the target profile: %s", err)
+					default:
 						switch l.configManiMode {
 						case Rename:
 							l.renameConfig(l.configPrevName, l.newCloneName)
@@ -1735,8 +1726,16 @@ func (l *launcher) drawConfigPanel() {
 
 func (l *launcher) openCurrentSettingsEditor() {
 	saveFunc := func() {
-		settings.SaveCredentials(false)
-		l.currentConfig.Save("", false)
+		if err := settings.SaveCredentialsChecked(false); err != nil {
+			showMessage(mError, "Failed to save credentials: %s", err)
+		}
+		if l.currentConfig == nil {
+			return
+		}
+		if err := l.currentConfig.SaveChecked("", false); err != nil {
+			showMessage(mError, "Failed to save profile: %s", err)
+			return
+		}
 
 		if !compareDirs(l.currentConfig.General.OsuSongsDir, settings.General.OsuSongsDir) {
 			showMessage(mInfo, "This config has different osu! Songs directory.\nRestart the launcher to see updated maps")
@@ -1755,18 +1754,34 @@ func (l *launcher) openCurrentSettingsEditor() {
 }
 
 func (l *launcher) tryCreateDefaultConfig() {
-	_, err := os.Stat(filepath.Join(env.ConfigDir(), "default.json"))
+	defaultPath, err := profileFilePath("default")
 	if err != nil {
+		showMessage(mError, "Failed to resolve the default profile: %s", err)
+		return
+	}
+
+	_, err = os.Stat(defaultPath)
+	if os.IsNotExist(err) {
 		l.createConfig("default")
+	} else if err != nil {
+		showMessage(mError, "Failed to inspect the default profile: %s", err)
 	}
 }
 
 func (l *launcher) createConfig(name string) {
 	vm := gcontext.GetPrimaryVideoMode()
+	path, err := profileFilePath(name)
+	if err != nil {
+		showMessage(mError, "Failed to create profile: %s", err)
+		return
+	}
 
 	conf := settings.NewConfigFile()
 	conf.Graphics.SetDefaults(int64(vm.W), int64(vm.H))
-	conf.Save(filepath.Join(env.ConfigDir(), name+".json"), true)
+	if err := conf.SaveChecked(path, true); err != nil {
+		showMessage(mError, "Failed to create profile: %s", err)
+		return
+	}
 
 	l.createConfigList()
 
@@ -1774,7 +1789,20 @@ func (l *launcher) createConfig(name string) {
 }
 
 func (l *launcher) removeConfig(name string) {
-	os.Remove(filepath.Join(env.ConfigDir(), name+".json"))
+	if strings.EqualFold(name, "default") {
+		return
+	}
+
+	path, err := profileFilePath(name)
+	if err != nil {
+		showMessage(mError, "Failed to remove profile: %s", err)
+		return
+	}
+
+	if err := os.Remove(path); err != nil {
+		showMessage(mError, "Failed to remove profile: %s", err)
+		return
+	}
 
 	l.createConfigList()
 
@@ -1791,7 +1819,16 @@ func (l *launcher) cloneConfig(toClone, name string) {
 		return
 	}
 
-	cConfig.Save(filepath.Join(env.ConfigDir(), name+".json"), true)
+	path, err := profileFilePath(name)
+	if err != nil {
+		showMessage(mError, "Failed to clone profile: %s", err)
+		return
+	}
+
+	if err := cConfig.SaveChecked(path, true); err != nil {
+		showMessage(mError, "Failed to clone profile: %s", err)
+		return
+	}
 
 	l.createConfigList()
 
@@ -1806,9 +1843,27 @@ func (l *launcher) renameConfig(toRename, name string) {
 		return
 	}
 
-	cConfig.Save(filepath.Join(env.ConfigDir(), name+".json"), true)
+	path, err := profileFilePath(name)
+	if err != nil {
+		showMessage(mError, "Failed to save renamed profile: %s", err)
+		return
+	}
 
-	os.Remove(filepath.Join(env.ConfigDir(), toRename+".json"))
+	if err := cConfig.SaveChecked(path, true); err != nil {
+		showMessage(mError, "Failed to save renamed profile: %s", err)
+		return
+	}
+
+	oldPath, err := profileFilePath(toRename)
+	if err != nil {
+		showMessage(mError, "Profile was copied but the old profile path was invalid: %s", err)
+		return
+	}
+
+	if err := os.Remove(oldPath); err != nil {
+		showMessage(mError, "Profile was copied but the old profile could not be removed: %s", err)
+		return
+	}
 
 	l.createConfigList()
 
@@ -1818,17 +1873,24 @@ func (l *launcher) renameConfig(toRename, name string) {
 func (l *launcher) createConfigList() {
 	l.configList = []string{}
 
-	filepath.Walk(env.ConfigDir(), func(path string, info fs.FileInfo, err error) error {
-		if !info.IsDir() && strings.HasSuffix(path, ".json") {
-			stPath := strings.ReplaceAll(strings.TrimPrefix(strings.TrimSuffix(path, ".json"), env.ConfigDir()+string(os.PathSeparator)), "\\", "/")
+	if err := filepath.WalkDir(env.ConfigDir(), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			log.Println("Launcher: Failed to inspect profile:", err)
+			return nil
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(path), ".json") {
+			return nil
+		}
 
-			if stPath != "credentials" && stPath != "default" && stPath != "launcher" {
-				l.configList = append(l.configList, stPath)
-			}
+		profile := profilePath(env.ConfigDir(), path)
+		if profile != "" && !isReservedProfileName(profile) {
+			l.configList = append(l.configList, profile)
 		}
 
 		return nil
-	})
+	}); err != nil {
+		log.Println("Launcher: Failed to enumerate profiles:", err)
+	}
 
 	log.Println("Available configs:", strings.Join(l.configList, ", "))
 
@@ -1837,13 +1899,30 @@ func (l *launcher) createConfigList() {
 	l.configList = append([]string{"default"}, l.configList...)
 }
 
-func (l *launcher) loadConfig(name string) (*settings.Config, error) {
-	f, err := os.Open(filepath.Join(env.ConfigDir(), name+".json"))
+func (l *launcher) loadConfig(name string) (config *settings.Config, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			config = nil
+			err = fmt.Errorf("load profile %q panicked: %v", name, recovered)
+		}
+	}()
+
+	path, err := profileFilePath(name)
 	if err != nil {
-		return nil, fmt.Errorf("invalid file state. Please don't modify the folder while launcher is running. Error: %s", err)
+		return nil, err
 	}
 
-	defer f.Close()
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid profile file state: %w", err)
+	}
+
+	defer func() {
+		if closeErr := f.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close profile %q: %w", name, closeErr)
+			config = nil
+		}
+	}()
 
 	return settings.LoadConfig(f)
 }
@@ -1861,208 +1940,11 @@ func (l *launcher) setConfig(s string) {
 		l.bld.config = s
 		l.currentConfig = eConfig
 
+		if launcherConfig.Profile == nil {
+			launcherConfig.Profile = new(string)
+		}
 		*launcherConfig.Profile = l.bld.config
 		saveLauncherConfig()
-	}
-}
-
-func (l *launcher) startDanser() {
-	l.recordProgress = 0
-	l.recordStatus = ""
-	l.recordStatusSpeed = ""
-	l.recordStatusETA = ""
-	l.encodeInProgress = false
-
-	dExec := os.Args[0]
-
-	if build.Stream == "Release" {
-		dExec = filepath.Join(env.LibDir(), build.DanserExec)
-	}
-
-	if runtime.GOOS != "windows" {
-		if stat, err := os.Stat(dExec); err == nil {
-			os.Chmod(dExec, (stat.Mode()&os.ModePerm)|0111) // Just try
-		}
-	}
-
-	l.danserCmd = exec.Command(dExec, l.bld.getArguments()...)
-	// The child owns its fatal error logging, while this launcher owns the
-	// child-process error surface. Marking the boundary prevents a direct app
-	// dialog and this parent dialog from appearing back-to-back for one crash.
-	l.danserCmd.Env = env.LauncherChildEnvironment(true)
-
-	rFile, oFile, err := os.Pipe()
-	if err != nil {
-		panic(err)
-	}
-
-	l.danserCmd.Stderr = os.Stderr
-	l.danserCmd.Stdin = os.Stdin
-	l.danserCmd.Stdout = io.MultiWriter(os.Stdout, oFile)
-
-	err = l.danserCmd.Start()
-	if err != nil {
-		showMessage(mError, "danser failed to start! %s", err.Error())
-		return
-	}
-
-	if launcherConfig.CurrentPMode == Watch {
-		gcontext.Minimize()
-	} else if launcherConfig.CurrentPMode == Record {
-		l.showProgressBar = true
-	}
-
-	l.danserRunning = true
-	l.recordStatus = "Preparing..."
-
-	panicMessage := ""
-	panicWait := &sync.WaitGroup{}
-	panicWait.Add(1)
-
-	resultFile := ""
-
-	goroutines.Run(func() {
-		sc := bufio.NewScanner(rFile)
-
-		l.encodeInProgress = false
-
-		for sc.Scan() {
-			line := sc.Text()
-
-			if strings.Contains(line, "Launcher: Open settings") {
-				if l.currentEditor == nil || !l.currentEditor.opened {
-					l.openCurrentSettingsEditor()
-				}
-
-				gcontext.Restore()
-				gcontext.Focus()
-			}
-
-			if strings.Contains(line, "panic:") {
-				panicMessage = line[strings.Index(line, "panic:"):]
-				panicWait.Done()
-			}
-
-			if strings.Contains(line, "Starting encoding!") {
-				l.encodeInProgress = true
-				l.encodeStart = time.Now()
-
-				goroutines.CallMain(func() {
-					gcontext.StartProgress()
-				})
-			}
-
-			if strings.Contains(line, "Finishing rendering") {
-				l.encodeInProgress = false
-
-				l.recordProgress = 1
-				goroutines.CallMain(func() {
-					gcontext.SetProgress(1)
-				})
-
-				l.recordStatus = "Finalizing..."
-				l.recordStatusSpeed = ""
-				l.recordStatusETA = ""
-			}
-
-			if idx := strings.Index(line, "Video is available at: "); idx > -1 {
-				resultFile = strings.TrimPrefix(line[idx:], "Video is available at: ")
-			}
-
-			if idx := strings.Index(line, "Screenshot "); idx > -1 && strings.Contains(line, " saved!") {
-				resultFile = strings.TrimSuffix(strings.TrimPrefix(line[idx:], "Screenshot "), " saved!")
-				resultFile = filepath.Join(env.DataDir(), "screenshots", resultFile)
-			}
-
-			if strings.Contains(line, "Progress") && l.encodeInProgress {
-				line = line[strings.Index(line, "Progress"):]
-
-				rStats := strings.Split(line, ",")
-
-				spl := strings.TrimSpace(strings.Split(rStats[0], ":")[1])
-
-				l.recordStatus = spl
-
-				l.recordStatusSpeed = strings.TrimSpace(rStats[1])
-				l.recordStatusETA = strings.TrimSpace(rStats[2])
-
-				speed := strings.TrimSpace(strings.Split(rStats[1], ":")[1])
-
-				speedP, _ := strconv.ParseFloat(speed[:len(speed)-1], 32)
-
-				l.triangleSpeed.AddEvent(l.triangleSpeed.GetTime(), l.triangleSpeed.GetTime()+500, speedP)
-
-				at, _ := strconv.Atoi(spl[:len(spl)-1])
-
-				l.recordProgress = float32(at) / 100
-				goroutines.CallMain(func() {
-					gcontext.SetProgress(l.recordProgress)
-				})
-			}
-		}
-
-		l.recordProgress = 1
-		l.recordStatus = "Done in " + util.FormatSeconds(int(time.Since(l.encodeStart).Seconds()))
-		l.recordStatusSpeed = ""
-		l.recordStatusETA = ""
-	})
-
-	goroutines.Run(func() {
-		err = l.danserCmd.Wait()
-
-		l.danserCleanup(err == nil)
-
-		restore := true
-
-		if err != nil {
-			panicWait.Wait()
-
-			goroutines.CallMain(func() {
-				pMsg := panicMessage
-				if idx := strings.Index(pMsg, "Error:"); idx > -1 {
-					pMsg = pMsg[:idx-1] + "\n\n" + pMsg[idx+7:]
-				}
-
-				gcontext.ErrorProgress()
-
-				restore = false
-				gcontext.Restore()
-				gcontext.Focus()
-
-				showMessage(mError, "danser crashed! %s\n\n%s", err.Error(), pMsg)
-			})
-		} else if launcherConfig.CurrentPMode != Watch && launcherConfig.CurrentMode != Play {
-			if launcherConfig.ShowFileAfter && resultFile != "" {
-				platform.ShowFileInManager(resultFile)
-			}
-
-			platform.Beep(platform.Ok)
-		}
-
-		rFile.Close()
-		oFile.Close()
-
-		if restore {
-			goroutines.CallMain(func() {
-				gcontext.Restore()
-			})
-		}
-	})
-}
-
-func (l *launcher) danserCleanup(success bool) {
-	l.recordStatusSpeed = ""
-	l.recordStatusETA = ""
-	l.danserRunning = false
-	l.triangleSpeed.AddEvent(l.triangleSpeed.GetTime(), l.triangleSpeed.GetTime()+500, 1)
-	l.danserCmd = nil
-
-	if !success {
-		goroutines.CallMain(func() {
-			gcontext.StopProgress()
-		})
-		l.recordStatus = ""
-		l.showProgressBar = false
 	}
 }
 
@@ -2072,13 +1954,13 @@ func (l *launcher) openPopup(p iPopup) {
 }
 
 func (l *launcher) loadOSZs(names []string) {
-	closeWatcher()
+	l.closeWatcher()
 	l.beatmapDirUpdated = false
 
 	reload := false
 
 	for _, name := range names {
-		if strings.HasSuffix(name, ".osz") {
+		if strings.EqualFold(filepath.Ext(name), ".osz") {
 			fileName := filepath.Base(name)
 
 			err := files.MoveFile(name, filepath.Join(settings.General.GetSongsDir(), fileName))
@@ -2091,6 +1973,10 @@ func (l *launcher) loadOSZs(names []string) {
 	}
 
 	if reload {
+		// Archive moves are complete before the watcher is reinstalled. The
+		// refresh itself is asynchronous, so a failure must not leave the
+		// launcher without future filesystem notifications.
+		l.setupWatcher()
 		l.reloadMaps(func() {
 			if l.selectWindow == nil {
 				l.selectWindow = newSongSelectPopup(l.bld, l.catalog, l.materializeCatalogEntry)
@@ -2101,6 +1987,7 @@ func (l *launcher) loadOSZs(names []string) {
 			if l.bld.knockoutReplays == nil && l.bld.currentReplay == nil {
 				l.selectWindow.selectNewest()
 			}
+
 		})
 	} else {
 		l.setupWatcher()
@@ -2108,19 +1995,26 @@ func (l *launcher) loadOSZs(names []string) {
 }
 
 func (l *launcher) reloadMaps(after func()) {
-	goroutines.RunOS(func() {
-		l.loadBeatmaps(after)
-	})
+	l.loadBeatmaps(after)
 }
 
 func (l *launcher) setupWatcher() {
-	setupWatcher(settings.General.GetSongsDir(), func(event fsnotify.Event) {
-		delay := 3000.0                   //Wait for the last map to load on osu side
-		if launcherConfig.AutoRefreshDB { // Wait a bit longer if we're about to refresh the DB automatically
-			delay = 6000
-		}
+	l.closeWatcher()
 
-		l.showBeatmapAlert = qpc.GetMilliTimeF() + delay
-		l.beatmapDirUpdated = true
+	watcher, err := newDirectoryWatcher(settings.General.GetSongsDir(), func() {
+		l.postBeatmapChangedEvent()
 	})
+	if err != nil {
+		log.Println("DirWatcher: Could not watch Songs directory:", err)
+		return
+	}
+
+	l.watcher = watcher
+}
+
+func (l *launcher) closeWatcher() {
+	if l.watcher != nil {
+		l.watcher.close()
+		l.watcher = nil
+	}
 }

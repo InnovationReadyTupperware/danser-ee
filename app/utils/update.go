@@ -1,33 +1,50 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/wieku/danser-go/build"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/wieku/danser-go/build"
 )
 
 // GetLatestVersionFromGitHub makes a request to GitHub and returns url and tag of the latest version found
 func GetLatestVersionFromGitHub() (url string, tag string, err error) {
+	return GetLatestVersionFromGitHubContext(context.Background())
+}
+
+// GetLatestVersionFromGitHubContext makes a cancellable request to GitHub and
+// returns the latest release URL and tag. The timeout protects launcher
+// shutdown from a network stack that never completes a request.
+func GetLatestVersionFromGitHubContext(ctx context.Context) (url string, tag string, err error) {
+	if ctx == nil {
+		return "", "", fmt.Errorf("nil context")
+	}
 	request, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/Wieku/danser-go/releases/latest", nil)
 	if err != nil {
 		return "", "", err
 	}
+	request = request.WithContext(ctx)
 
-	client := new(http.Client)
+	client := &http.Client{Timeout: 15 * time.Second}
 	response, err := client.Do(request)
-
-	if err != nil || response.StatusCode != 200 {
+	if err != nil {
 		return "", "", err
+	}
+	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
+		return "", "", fmt.Errorf("GitHub returned HTTP status %s", response.Status)
 	}
 
 	defer func() {
-		err := response.Body.Close()
-		if err != nil {
-			panic(err)
+		closeErr := response.Body.Close()
+		if closeErr != nil && err == nil {
+			err = fmt.Errorf("close GitHub response: %w", closeErr)
 		}
 	}()
 
@@ -80,13 +97,23 @@ const (
 )
 
 func CheckForUpdate() (UpdateStatus, string, error) {
+	return CheckForUpdateContext(context.Background())
+}
+
+// CheckForUpdateContext performs the update check with caller-owned
+// cancellation. This is used by the launcher so a closing window does not
+// retain a network goroutine or post a dialog after teardown.
+func CheckForUpdateContext(ctx context.Context) (UpdateStatus, string, error) {
+	if ctx == nil {
+		return Failed, "", fmt.Errorf("nil context")
+	}
 	if build.Stream != "Release" || strings.Contains(build.VERSION, "dev") { // false positive, those are changed during compile
 		return Ignored, "", nil
 	}
 
 	log.Println("Checking Github for a new version of danser...")
 
-	url, tag, err := GetLatestVersionFromGitHub()
+	url, tag, err := GetLatestVersionFromGitHubContext(ctx)
 	if err != nil {
 		return Failed, "", err
 	}

@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/files"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/wieku/danser-go/framework/env"
+	"github.com/wieku/danser-go/framework/files"
 )
 
 var Credentails = &credentials{
@@ -69,9 +70,19 @@ func loadCredentials(file *os.File) {
 }
 
 func SaveCredentials(forceSave bool) {
+	if err := SaveCredentialsChecked(forceSave); err != nil {
+		panic(err)
+	}
+}
+
+// SaveCredentialsChecked persists credentials without turning an ordinary
+// filesystem failure into a process panic. Callers that can surface or log a
+// persistence error should prefer this form; SaveCredentials remains as the
+// compatibility wrapper for older startup paths.
+func SaveCredentialsChecked(forceSave bool) error {
 	data, err := json.MarshalIndent(Credentails, "", "\t")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("encode credentials: %w", err)
 	}
 
 	fPath := filepath.Join(env.ConfigDir(), "credentials.json")
@@ -79,14 +90,16 @@ func SaveCredentials(forceSave bool) {
 	if forceSave || !bytes.Equal(data, srcDataCred) { // Don't rewrite the file unless necessary
 		log.Println(fmt.Sprintf(`ApiConnector: Saving current settings to "%s"`, fPath))
 
-		srcDataCred = data
-
 		if err = os.MkdirAll(filepath.Dir(fPath), 0755); err != nil {
-			panic(err)
+			return fmt.Errorf("create credentials directory: %w", err)
 		}
 
 		if err = os.WriteFile(fPath, data, 0644); err != nil {
-			panic(err)
+			return fmt.Errorf("write credentials: %w", err)
 		}
+
+		srcDataCred = data
 	}
+
+	return nil
 }

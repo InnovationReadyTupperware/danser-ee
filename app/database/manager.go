@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -67,11 +69,6 @@ type modMap struct {
 	location    mapLocation
 	fingerprint fileFingerprint
 	localState  catalogLocalState
-}
-
-type fingerprintUpdate struct {
-	location    mapLocation
-	fingerprint fileFingerprint
 }
 
 var migrations []Migration
@@ -411,9 +408,8 @@ func LoadCatalog(skipDatabaseCheck bool, importListener ImportListener) []*Beatm
 	}
 
 	// The command-line path is intentionally synchronous for compatibility.
-	// The launcher calls SeedCatalogFromStableDatabase separately on its
-	// background reconciliation worker so parsing a large optional accelerator
-	// never delays warm launcher startup.
+	// The launcher performs the same optional seed on its reconciliation worker,
+	// so parsing a large accelerator never delays warm launcher startup.
 	SeedCatalogFromStableDatabase()
 
 	var unpackedMaps []string
@@ -435,11 +431,38 @@ func LoadCatalog(skipDatabaseCheck bool, importListener ImportListener) []*Beatm
 // LoadCachedCatalog loads danser's last committed standard-mode catalog
 // without touching the Songs directory. It is the cache-first startup path.
 func LoadCachedCatalog() *CatalogSnapshot {
-	if dbFile == nil || !catalogSourceMatches {
+	catalog, err := LoadCachedCatalogContext(context.Background())
+	if err != nil {
+		log.Println("DatabaseManager: Failed to load cached catalog:", err)
 		return NewCatalogSnapshot(nil)
 	}
 
-	return NewCatalogSnapshot(loadCatalogEntries())
+	return catalog
+}
+
+// LoadCachedCatalogContext is the cancellable cache-first read used by the
+// launcher. It never touches the Songs directory; a source mismatch returns an
+// empty snapshot so rows from a different profile cannot be shown as current.
+func LoadCachedCatalogContext(ctx context.Context) (*CatalogSnapshot, error) {
+	if ctx == nil {
+		return nil, errors.New("nil context")
+	}
+	if dbFile == nil {
+		return nil, errors.New("database is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !catalogSourceMatches {
+		return NewCatalogSnapshot(nil), nil
+	}
+
+	entries, err := queryCatalogEntriesContext(ctx, "WHERE mode = 0")
+	if err != nil {
+		return nil, err
+	}
+
+	return NewCatalogSnapshot(entries), nil
 }
 
 // SeedCatalogFromStableDatabase ingests the optional adjacent osu!.db only
@@ -448,25 +471,52 @@ func LoadCachedCatalog() *CatalogSnapshot {
 // filesystem reconciliation finishes. A bad, stale, or unavailable Stable
 // database is an accelerator miss, never a catalog failure.
 func SeedCatalogFromStableDatabase() CatalogDelta {
+	delta, err := SeedCatalogFromStableDatabaseContext(context.Background())
+	if err != nil {
+		log.Println("DatabaseManager: Stable database seed stopped:", err)
+	}
+
+	return delta
+}
+
+// SeedCatalogFromStableDatabaseContext ingests the optional adjacent osu!.db
+// without making it a correctness dependency. Only cancellation is returned
+// to the caller; malformed, stale, or unavailable Stable data is logged and
+// treated as an accelerator miss.
+func SeedCatalogFromStableDatabaseContext(ctx context.Context) (CatalogDelta, error) {
+	if ctx == nil {
+		return CatalogDelta{}, errors.New("nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return CatalogDelta{}, err
+	}
 	if dbFile == nil || !catalogSourceMatches {
-		return CatalogDelta{}
+		return CatalogDelta{}, nil
 	}
 
 	var hasEntries bool
-	if err := dbFile.QueryRow("SELECT EXISTS (SELECT 1 FROM beatmaps WHERE mode = 0)").Scan(&hasEntries); err != nil {
+	if err := dbFile.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM beatmaps WHERE mode = 0)").Scan(&hasEntries); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return CatalogDelta{}, contextErr
+		}
+
 		log.Println("DatabaseManager: Could not inspect catalog before osu!.db import:", err)
-		return CatalogDelta{}
+		return CatalogDelta{}, nil
 	}
 	if hasEntries {
-		return CatalogDelta{}
+		return CatalogDelta{}, nil
 	}
 
-	stableEntries, err := loadStableDatabase()
+	stableEntries, err := loadStableDatabaseContext(ctx)
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return CatalogDelta{}, contextErr
+		}
+
 		if !os.IsNotExist(err) {
 			log.Println("DatabaseManager: Ignoring osu!.db accelerator:", err)
 		}
-		return CatalogDelta{}
+		return CatalogDelta{}, nil
 	}
 
 	standardEntries := make([]*BeatmapEntry, 0, len(stableEntries))
@@ -476,37 +526,68 @@ func SeedCatalogFromStableDatabase() CatalogDelta {
 		}
 	}
 	if len(standardEntries) == 0 {
-		return CatalogDelta{}
+		return CatalogDelta{}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return CatalogDelta{}, err
 	}
 
 	if err = upsertCatalogEntries(standardEntries); err != nil {
 		log.Println("DatabaseManager: Could not seed catalog from osu!.db:", err)
-		return CatalogDelta{}
+		return CatalogDelta{}, nil
 	}
 
 	log.Println("DatabaseManager: Seeded", len(standardEntries), "maps from optional osu!.db accelerator.")
-	return CatalogDelta{Upserts: standardEntries}
+	return CatalogDelta{Upserts: standardEntries}, nil
 }
 
 // ReconcileCatalog updates danser's catalog from the configured source. It
 // does not load or materialize the resulting catalog; callers can publish a
 // new snapshot after the operation completes.
 func ReconcileCatalog(skipDatabaseCheck bool, importListener ImportListener) CatalogDelta {
+	delta, err := ReconcileCatalogContext(context.Background(), skipDatabaseCheck, importListener)
+	if err != nil {
+		log.Println("DatabaseManager: Catalog reconciliation stopped:", err)
+	}
+
+	return delta
+}
+
+// ReconcileCatalogContext updates danser's catalog from the configured source
+// and stops at safe boundaries when ctx is cancelled. The durable catalog may
+// contain work committed before cancellation, but the returned delta is only
+// published by callers that completed the operation for their generation.
+func ReconcileCatalogContext(ctx context.Context, skipDatabaseCheck bool, importListener ImportListener) (CatalogDelta, error) {
+	if ctx == nil {
+		return CatalogDelta{}, errors.New("nil context")
+	}
 	if dbFile == nil {
 		log.Println("DatabaseManager: Cannot reconcile catalog before initialization")
-		return CatalogDelta{}
+		return CatalogDelta{}, errors.New("database is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return CatalogDelta{}, err
 	}
 
 	var unpackedMaps []string
 	if settings.General.UnpackOszFiles {
+		if err := ctx.Err(); err != nil {
+			return CatalogDelta{}, err
+		}
 		unpackedMaps = unpackMaps()
 	}
 
-	delta := SeedCatalogFromStableDatabase()
-	importDelta := importMaps(skipDatabaseCheck, unpackedMaps, importListener)
+	delta, err := SeedCatalogFromStableDatabaseContext(ctx)
+	if err != nil {
+		return delta, err
+	}
+	importDelta, err := importMapsContext(ctx, skipDatabaseCheck, unpackedMaps, importListener)
+	if err != nil {
+		return delta, err
+	}
 	delta.Upserts = append(delta.Upserts, importDelta.Upserts...)
 	delta.Removals = append(delta.Removals, importDelta.Removals...)
-	return delta
+	return delta, nil
 }
 
 // RebuildCatalog invalidates every cached source fingerprint and performs a
@@ -532,14 +613,24 @@ func unpackMaps() (dirs []string) {
 
 	if err == nil && len(oszs) > 0 {
 		for _, osz := range oszs {
-			dirName := strings.TrimSuffix(filepath.Base(osz), ".osz")
+			baseName := filepath.Base(osz)
+			if !strings.EqualFold(filepath.Ext(baseName), ".osz") {
+				continue
+			}
+			dirName := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 
 			destination := filepath.Join(filepath.Dir(osz), dirName)
 
 			log.Println("DatabaseManager: Unpacking", osz, "->", destination)
 
-			utils.Unzip(osz, destination)
-			os.Remove(osz)
+			if _, err := utils.Unzip(osz, destination); err != nil {
+				log.Println("DatabaseManager: Failed to unpack", osz, err)
+				continue
+			}
+			if err := os.Remove(osz); err != nil {
+				log.Println("DatabaseManager: Failed to remove unpacked archive", osz, err)
+				continue
+			}
 
 			dirs = append(dirs, dirName)
 		}
@@ -562,6 +653,15 @@ const (
 )
 
 func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener ImportListener) CatalogDelta {
+	delta, err := importMapsContext(context.Background(), skipDatabaseCheck, mustCheckDirs, importListener)
+	if err != nil {
+		log.Println("DatabaseManager: Map import stopped:", err)
+	}
+
+	return delta
+}
+
+func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDirs []string, importListener ImportListener) (CatalogDelta, error) {
 	const workers = 2
 	var delta CatalogDelta
 	// A cache from another Songs directory is not safe to skip, even when the
@@ -569,7 +669,13 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 	// forces one complete reconciliation before the new location is recorded.
 	effectiveSkipDatabaseCheck := skipDatabaseCheck && catalogSourceMatches
 
-	cachedFolders, mapsInDB := getLastModified()
+	cachedFolders, mapsInDB, fingerprintsComplete := getLastModifiedContext(ctx)
+	if !fingerprintsComplete {
+		if err := ctx.Err(); err != nil {
+			return delta, err
+		}
+		return delta, errors.New("load cached beatmap fingerprints")
+	}
 
 	log.Printf("DatabaseManager: Scanning %q for .osu files...", songsDir)
 
@@ -581,13 +687,16 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 
 	trySendStatus(importListener, Discovery, 0, 0)
 
-	scan, err := scanBeatmapFiles(songsDir, effectiveSkipDatabaseCheck, cachedFolders, mustCheckDirs, func(directoriesSeen int) {
+	scan, err := scanBeatmapFilesContext(ctx, songsDir, effectiveSkipDatabaseCheck, cachedFolders, mustCheckDirs, func(directoriesSeen int) {
 		trySendStatus(importListener, Discovery, directoriesSeen, 0)
 	})
 
 	if err != nil {
-		log.Println("DatabaseManager: Scan failed:", err)
-		return delta
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return delta, err
+		}
+
+		return delta, fmt.Errorf("scan Songs directory: %w", err)
 	}
 
 	log.Printf("DatabaseManager: Scan complete. Found %d files in %d directories.", len(scan.candidates), scan.directoriesSeen)
@@ -595,40 +704,32 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 	log.Println("DatabaseManager: Comparing files with database...")
 
 	mapsToImport := make([]modMap, 0)
-	fingerprintUpdates := make([]fingerprintUpdate, 0)
 	cleanupFailed := false
 
 	trySendStatus(importListener, Comparison, 0, 0)
 
 	for _, candidate := range scan.candidates {
+		if err := ctx.Err(); err != nil {
+			return delta, err
+		}
+
 		if previous, ok := mapsInDB[candidate.location.key()]; ok {
 			// A seen path is not stale merely because its fingerprint changed.
 			// Keep it out of the cleanup set before parsing so a transient read,
 			// replacement, or malformed edit cannot erase the last good row.
 			delete(mapsInDB, candidate.location.key())
 
-			unchanged := catalogSourceMatches && previous.fingerprint.modified == candidate.fingerprint.modified && previous.fingerprint.size == candidate.fingerprint.size
+			// Stable's optional database is only an accelerator. Its metadata can
+			// lag behind the filesystem and it does not provide a reliable content
+			// fingerprint for danser's catalog, so every seeded row must be parsed
+			// once by the authoritative filesystem reconciliation.
+			unchanged := previous.fingerprint.metadataState != MetadataFromStableDatabase && catalogSourceMatches && previous.fingerprint.modified == candidate.fingerprint.modified && previous.fingerprint.size == candidate.fingerprint.size
 			// Preserve the spelling used by the source filesystem. The catalog
 			// identity is case-insensitive for Stable/Windows compatibility, but
 			// a case-sensitive filesystem still needs the current path to open the
 			// file after a rename.
 			unchanged = unchanged && previous.location.dir == candidate.location.dir && previous.location.file == candidate.location.file
-			if catalogSourceMatches && previous.fingerprint.size < 0 && previous.fingerprint.metadataState == MetadataFromStableDatabase {
-				// Stable's database does not store the source file size. A matching
-				// modification time is enough to defer parsing until lazy validation;
-				// the generic scanner will still repair this fingerprint later.
-				unchanged = previous.fingerprint.modified == candidate.fingerprint.modified &&
-					previous.location.dir == candidate.location.dir && previous.location.file == candidate.location.file
-			}
-
 			if unchanged {
-				if previous.fingerprint.size < 0 && previous.fingerprint.metadataState == MetadataFromStableDatabase {
-					fingerprintUpdates = append(fingerprintUpdates, fingerprintUpdate{
-						location:    previous.location,
-						fingerprint: candidate.fingerprint,
-					})
-				}
-
 				continue
 			}
 
@@ -645,8 +746,6 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 	}
 
 	log.Println("DatabaseManager: Compare complete.")
-	refreshCatalogFingerprints(fingerprintUpdates)
-
 	if scan.complete && len(mapsInDB) > 0 && !effectiveSkipDatabaseCheck {
 		trySendStatus(importListener, Cleanup, 0, len(mapsInDB))
 
@@ -655,6 +754,10 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 		mapsToRemove := make([]mapLocation, 0, len(mapsInDB))
 
 		for _, cached := range mapsInDB {
+			if err := ctx.Err(); err != nil {
+				return delta, err
+			}
+
 			mapsToRemove = append(mapsToRemove, cached.location)
 		}
 
@@ -675,85 +778,14 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 		if scan.complete && !cleanupFailed {
 			persistCatalogSource()
 		}
-		return delta
+		return delta, nil
 	}
 
 	log.Println("DatabaseManager: Starting import of", len(mapsToImport), "maps. It may take up to several minutes...")
 
 	trySendStatus(importListener, Import, 0, len(mapsToImport))
 
-	receive := make(chan *beatmap.BeatMap, workers)
-
-	goroutines.Run(func() {
-		util.BalanceChan(workers, mapsToImport, receive, func(candidate modMap) (*beatmap.BeatMap, bool) {
-			partialPath := filepath.Join(candidate.location.dir, candidate.location.file)
-			defer func() {
-				if err := recover(); err != nil { //TODO: Technically should be fixed but unexpected parsing problem won't crash whole process
-					log.Println("DatabaseManager: Failed to load \"", partialPath, "\":", err)
-				}
-			}()
-
-			mapPath := filepath.Join(songsDir, partialPath)
-
-			file, err := os.Open(mapPath)
-			if err != nil {
-				log.Println(fmt.Sprintf("\"DatabaseManager: Failed to read \"%s\", skipping. Error: %s", partialPath, err))
-				return nil, false
-			}
-
-			defer file.Close()
-
-			if settings.General.VerboseImportLogs {
-				log.Println("DatabaseManager: Importing:", partialPath)
-			}
-
-			bMap, parseErr := beatmap.ParseBeatMapFileWithError(file)
-			if parseErr == nil {
-				fileInfo, statErr := file.Stat()
-				if statErr != nil {
-					log.Println("DatabaseManager: Failed to stat imported map:", partialPath, statErr)
-					return nil, false
-				}
-
-				// Use the metadata from the same open handle as the parser and
-				// hasher. A map replaced between discovery and import must not be
-				// cached with the older directory-entry fingerprint.
-				bMap.Dir = candidate.location.dir
-				bMap.File = candidate.location.file
-				bMap.LastModified = fileInfo.ModTime().UnixNano() / int64(1e6)
-				bMap.FileSize = fileInfo.Size()
-				bMap.TimeAdded = candidate.localState.timeAdded
-				if bMap.TimeAdded == 0 {
-					bMap.TimeAdded = time.Now().UnixNano() / 1000000
-				}
-				bMap.PlayCount = candidate.localState.playCount
-				bMap.LastPlayed = candidate.localState.lastPlayed
-				bMap.LocalOffset = candidate.localState.localOffset
-
-				if _, err = file.Seek(0, io.SeekStart); err != nil {
-					log.Println("DatabaseManager: Failed to rewind:", partialPath, err)
-					return nil, false
-				}
-
-				if bMap.MD5, err = hashBeatmapFile(file); err != nil {
-					log.Println("DatabaseManager: Failed to hash:", partialPath, err)
-					return nil, false
-				}
-
-				if settings.General.VerboseImportLogs {
-					log.Println("DatabaseManager: Imported:", partialPath)
-				}
-
-				return bMap, true
-			}
-
-			log.Println("DatabaseManager: Failed to import:", partialPath, parseErr)
-
-			return nil, false
-		})
-
-		close(receive)
-	})
+	receive := importBeatmapsContext(ctx, mapsToImport, workers)
 
 	var numImported int
 	var imported []*beatmap.BeatMap
@@ -773,6 +805,10 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 			appendImportedDelta(&delta, entries)
 
 			imported = imported[:0]
+		}
+
+		if err := ctx.Err(); err != nil {
+			return delta, err
 		}
 	}
 
@@ -800,7 +836,140 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 		persistCatalogSource()
 	}
 
-	return delta
+	return delta, nil
+}
+
+// importBeatmapsContext feeds map candidates through a bounded worker pool.
+// The coordinator goroutine owns both channel closure and worker joining, so
+// callers can simply range over the result channel without racing a producer
+// that is still trying to send after cancellation.
+func importBeatmapsContext(ctx context.Context, candidates []modMap, workers int) <-chan *beatmap.BeatMap {
+	if workers < 1 {
+		workers = 1
+	}
+
+	receive := make(chan *beatmap.BeatMap, workers)
+
+	go func() {
+		defer close(receive)
+
+		queue := make(chan modMap)
+		var importWorkers sync.WaitGroup
+
+		for range workers {
+			importWorkers.Add(1)
+			go func() {
+				defer importWorkers.Done()
+
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case candidate, ok := <-queue:
+						if !ok {
+							return
+						}
+
+						partialPath := filepath.Join(candidate.location.dir, candidate.location.file)
+						bMap, ok := importBeatmap(candidate, partialPath)
+						if !ok {
+							continue
+						}
+
+						select {
+						case receive <- bMap:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}
+			}()
+		}
+
+		for _, candidate := range candidates {
+			select {
+			case queue <- candidate:
+			case <-ctx.Done():
+				close(queue)
+				importWorkers.Wait()
+				return
+			}
+		}
+
+		close(queue)
+		importWorkers.Wait()
+	}()
+
+	return receive
+}
+
+// importBeatmap parses one candidate from the current Songs directory. The
+// parser accepts third-party and partially malformed files, so an isolated
+// failure must be logged and skipped without taking down the catalog worker.
+func importBeatmap(candidate modMap, partialPath string) (bMap *beatmap.BeatMap, ok bool) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("DatabaseManager: Failed to load %q: %v", partialPath, recovered)
+			bMap = nil
+			ok = false
+		}
+	}()
+
+	mapPath := filepath.Join(songsDir, partialPath)
+
+	file, err := os.Open(mapPath)
+	if err != nil {
+		log.Printf("DatabaseManager: Failed to read %q, skipping: %v", partialPath, err)
+		return nil, false
+	}
+	defer file.Close()
+
+	if settings.General.VerboseImportLogs {
+		log.Println("DatabaseManager: Importing:", partialPath)
+	}
+
+	bMap, parseErr := beatmap.ParseBeatMapFileWithError(file)
+	if parseErr != nil {
+		log.Println("DatabaseManager: Failed to import:", partialPath, parseErr)
+		return nil, false
+	}
+
+	fileInfo, statErr := file.Stat()
+	if statErr != nil {
+		log.Println("DatabaseManager: Failed to stat imported map:", partialPath, statErr)
+		return nil, false
+	}
+
+	// Use metadata from the same open handle as the parser and hasher. A map
+	// replaced between discovery and import must not be cached with the older
+	// directory-entry fingerprint.
+	bMap.Dir = candidate.location.dir
+	bMap.File = candidate.location.file
+	bMap.LastModified = fileInfo.ModTime().UnixNano() / int64(1e6)
+	bMap.FileSize = fileInfo.Size()
+	bMap.TimeAdded = candidate.localState.timeAdded
+	if bMap.TimeAdded == 0 {
+		bMap.TimeAdded = time.Now().UnixNano() / 1000000
+	}
+	bMap.PlayCount = candidate.localState.playCount
+	bMap.LastPlayed = candidate.localState.lastPlayed
+	bMap.LocalOffset = candidate.localState.localOffset
+
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		log.Println("DatabaseManager: Failed to rewind:", partialPath, err)
+		return nil, false
+	}
+
+	if bMap.MD5, err = hashBeatmapFile(file); err != nil {
+		log.Println("DatabaseManager: Failed to hash:", partialPath, err)
+		return nil, false
+	}
+
+	if settings.General.VerboseImportLogs {
+		log.Println("DatabaseManager: Imported:", partialPath)
+	}
+
+	return bMap, true
 }
 
 func sameCatalogSource(left, right string) bool {
@@ -958,45 +1127,6 @@ func appendImportedDelta(delta *CatalogDelta, entries []*BeatmapEntry) {
 	}
 }
 
-func refreshCatalogFingerprints(updates []fingerprintUpdate) {
-	if dbFile == nil || len(updates) == 0 {
-		return
-	}
-
-	tx, err := dbFile.Begin()
-	if err != nil {
-		log.Println("DatabaseManager: Failed to begin fingerprint refresh:", err)
-		return
-	}
-	defer tx.Rollback()
-
-	statement, err := tx.Prepare(`UPDATE beatmaps
-		SET lastModified = ?, fileSize = ?
-		WHERE dir = ? COLLATE NOCASE AND file = ? COLLATE NOCASE AND metadataState = ?`)
-	if err != nil {
-		log.Println("DatabaseManager: Failed to prepare fingerprint refresh:", err)
-		return
-	}
-	defer statement.Close()
-
-	for _, update := range updates {
-		if _, err = statement.Exec(
-			update.fingerprint.modified,
-			update.fingerprint.size,
-			update.location.dir,
-			update.location.file,
-			MetadataFromStableDatabase,
-		); err != nil {
-			log.Println("DatabaseManager: Failed to refresh fingerprint:", update.location.file, err)
-			return
-		}
-	}
-
-	if err = tx.Commit(); err != nil {
-		log.Println("DatabaseManager: Failed to commit fingerprint refresh:", err)
-	}
-}
-
 func trySendStatus(listener ImportListener, stage ImportStage, progress, target int) {
 	if listener != nil {
 		listener(stage, progress, target)
@@ -1096,6 +1226,81 @@ func UpdateStarRating(maps []*beatmap.BeatMap, progressListener func(processed, 
 	log.Println("DatabaseManager: Star rating updated!")
 }
 
+// UpdateStarRatingContext is the cancellable form used by the launcher's
+// background catalog coordinator. Rating calculation remains serial because
+// parsing complex sliders temporarily materializes a large object graph.
+func UpdateStarRatingContext(ctx context.Context, maps []*beatmap.BeatMap, progressListener func(processed, target int, message string)) error {
+	if ctx == nil {
+		return errors.New("nil context")
+	}
+	var toCalculate []*beatmap.BeatMap
+
+	for _, bMap := range maps {
+		if bMap != nil && bMap.Mode == 0 && (bMap.Stars < 0 || bMap.StarsVersion < difficultyCalc.GetVersion()) {
+			toCalculate = append(toCalculate, bMap)
+		}
+	}
+
+	if len(toCalculate) == 0 {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if progressListener != nil {
+		progressListener(0, len(toCalculate), "")
+	}
+
+	calculated := make([]*beatmap.BeatMap, 0, min(len(toCalculate), 200))
+	for progress, bMap := range toCalculate {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		func() {
+			defer func() {
+				bMap.StarsVersion = difficultyCalc.GetVersion()
+				bMap.Clear()
+
+				if recovered := recover(); recovered != nil {
+					bMap.Stars = 0
+					log.Printf("DatabaseManager: Failed to calculate star rating for %q/%q: %v", bMap.Dir, bMap.File, recovered)
+				}
+			}()
+
+			beatmap.ParseTimingPointsAndPauses(bMap)
+			beatmap.ParseObjects(bMap, true, false)
+			if len(bMap.HitObjects) < 2 {
+				log.Println("DatabaseManager:", bMap.Dir+"/"+bMap.File, "doesn't have enough hitobjects")
+				bMap.Stars = 0
+				return
+			}
+
+			attr := difficultyCalc.CalculateSingle(bMap, bMap.Diff)
+			bMap.Stars = attr.Total
+
+		}()
+
+		if progressListener != nil {
+			progressListener(progress+1, len(toCalculate), "")
+		}
+
+		calculated = append(calculated, bMap)
+		if len(calculated) < 200 && progress+1 != len(toCalculate) {
+			continue
+		}
+
+		if err := pushSRToDB(calculated); err != nil {
+			return err
+		}
+		calculated = calculated[:0]
+	}
+
+	log.Println("DatabaseManager: Star rating updated!")
+	return nil
+}
+
 // UpdateCatalogStarRating calculates ratings only for catalog entries that
 // need them. This keeps cache-first startup from materializing every map just
 // to retain the old rating refresh behavior.
@@ -1144,6 +1349,66 @@ func UpdateCatalogStarRating(progressListener func(processed, target int, messag
 	}
 
 	return delta
+}
+
+// UpdateCatalogStarRatingContext is the cancellable catalog-level rating
+// refresh. The existing non-context API remains for command-line callers.
+func UpdateCatalogStarRatingContext(ctx context.Context, progressListener func(processed, target int, message string)) (CatalogDelta, error) {
+	if ctx == nil {
+		return CatalogDelta{}, errors.New("nil context")
+	}
+	if dbFile == nil {
+		return CatalogDelta{}, errors.New("database is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return CatalogDelta{}, err
+	}
+
+	entries, err := loadStaleCatalogEntriesContext(ctx, difficultyCalc.GetVersion())
+	if err != nil {
+		return CatalogDelta{}, err
+	}
+	toCalculate := make([]*beatmap.BeatMap, 0, len(entries))
+
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return CatalogDelta{}, err
+		}
+
+		if entry.MetadataState == MetadataFromStableDatabase && entry.FileSize < 0 {
+			// Stable metadata without a verified file size is provisional. Do not
+			// turn the rating pass into an implicit full filesystem validation.
+			continue
+		}
+
+		bMap, err := loadRuntimeBeatMap(entry, false)
+		if err != nil {
+			log.Println("DatabaseManager: Failed to load map for star rating:", entry.Dir+"/"+entry.File, err)
+			continue
+		}
+		toCalculate = append(toCalculate, bMap)
+	}
+
+	if len(toCalculate) == 0 {
+		return CatalogDelta{}, nil
+	}
+
+	if err := UpdateStarRatingContext(ctx, toCalculate, progressListener); err != nil {
+		return CatalogDelta{}, err
+	}
+
+	delta := CatalogDelta{Upserts: make([]*BeatmapEntry, 0, len(toCalculate))}
+	for _, bMap := range toCalculate {
+		if entry := NewBeatmapEntry(bMap); entry != nil {
+			delta.Upserts = append(delta.Upserts, entry)
+		}
+	}
+
+	if err := upsertCatalogEntries(delta.Upserts); err != nil {
+		return CatalogDelta{}, fmt.Errorf("persist star-rating catalog update: %w", err)
+	}
+
+	return delta, nil
 }
 
 func pushSRToDB(maps []*beatmap.BeatMap) error {
@@ -1242,7 +1507,10 @@ func removeBeatmaps(toRemove []mapLocation) error {
 }
 
 func migrateBeatmaps() error {
-	_, lastModified := getLastModified()
+	_, lastModified, fingerprintsComplete := getLastModified()
+	if !fingerprintsComplete {
+		return errors.New("load cached beatmap fingerprints")
+	}
 
 	var removeList []mapLocation
 
@@ -1513,12 +1781,33 @@ func loadCatalogEntries() []*BeatmapEntry {
 }
 
 func loadStaleCatalogEntries(starsVersion int) []*BeatmapEntry {
-	return queryCatalogEntries("WHERE mode = 0 AND (stars < 0 OR starsVersion < ?)", starsVersion)
+	entries, err := loadStaleCatalogEntriesContext(context.Background(), starsVersion)
+	if err != nil {
+		log.Println("DatabaseManager: Failed to load stale catalog entries:", err)
+	}
+
+	return entries
+}
+
+func loadStaleCatalogEntriesContext(ctx context.Context, starsVersion int) ([]*BeatmapEntry, error) {
+	return queryCatalogEntriesContext(ctx, "WHERE mode = 0 AND (stars < 0 OR starsVersion < ?)", starsVersion)
 }
 
 func queryCatalogEntries(filter string, args ...any) []*BeatmapEntry {
+	entries, err := queryCatalogEntriesContext(context.Background(), filter, args...)
+	if err != nil {
+		log.Println("DatabaseManager: Failed to load catalog:", err)
+	}
+
+	return entries
+}
+
+func queryCatalogEntriesContext(ctx context.Context, filter string, args ...any) ([]*BeatmapEntry, error) {
+	if ctx == nil {
+		return nil, errors.New("nil context")
+	}
 	if dbFile == nil {
-		return nil
+		return nil, errors.New("database is not initialized")
 	}
 
 	query := `SELECT dir, file, lastModified, title, titleUnicode, artist,
@@ -1528,15 +1817,18 @@ func queryCatalogEntries(filter string, args ...any) []*BeatmapEntry {
 	circles, sliders, spinners, endTime, setID, mapID, starsVersion, localOffset,
 	fileSize, metadataState FROM beatmaps ` + filter
 
-	rows, err := dbFile.Query(query, args...)
+	rows, err := dbFile.QueryContext(ctx, query, args...)
 	if err != nil {
-		log.Println("DatabaseManager: Failed to load catalog:", err)
-		return nil
+		return nil, fmt.Errorf("query catalog: %w", err)
 	}
 	defer rows.Close()
 
 	entries := make([]*BeatmapEntry, 0)
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return entries, err
+		}
+
 		entry := &BeatmapEntry{}
 		var circleSize, approachRate, healthDrain, overallDifficulty float64
 		var metadataState int
@@ -1584,8 +1876,7 @@ func queryCatalogEntries(filter string, args ...any) []*BeatmapEntry {
 			&metadataState,
 		)
 		if err != nil {
-			log.Println("DatabaseManager: Failed to read catalog row:", err)
-			continue
+			return nil, fmt.Errorf("read catalog row: %w", err)
 		}
 
 		entry.CircleSize = mutils.Clamp(circleSize, 0, 10)
@@ -1598,29 +1889,41 @@ func queryCatalogEntries(filter string, args ...any) []*BeatmapEntry {
 	}
 
 	if err = rows.Err(); err != nil {
-		log.Println("DatabaseManager: Failed while loading catalog:", err)
+		return nil, fmt.Errorf("read catalog: %w", err)
 	}
 
-	return entries
+	return entries, nil
 }
 
-func getLastModified() (map[string]uint8, map[string]cachedMap) {
+func getLastModified() (map[string]uint8, map[string]cachedMap, bool) {
+	return getLastModifiedContext(context.Background())
+}
+
+func getLastModifiedContext(ctx context.Context) (map[string]uint8, map[string]cachedMap, bool) {
+	if ctx == nil {
+		return nil, nil, false
+	}
 	if dbFile == nil {
-		return nil, nil
+		return nil, nil, false
 	}
 
-	res, err := dbFile.Query("SELECT dir, file, lastModified, fileSize, metadataState, dateAdded, playCount, lastPlayed, localOffset FROM beatmaps")
+	res, err := dbFile.QueryContext(ctx, "SELECT dir, file, lastModified, fileSize, metadataState, dateAdded, playCount, lastPlayed, localOffset FROM beatmaps")
 	if err != nil {
 		log.Println("DatabaseManager: Failed to load file fingerprints:", err)
-		return nil, nil
+		return nil, nil, false
 	}
 	defer res.Close()
 
 	dirs := make(map[string]uint8)
 
 	mod := make(map[string]cachedMap)
+	complete := true
 
 	for res.Next() {
+		if err := ctx.Err(); err != nil {
+			return dirs, mod, false
+		}
+
 		var (
 			dir, file     string
 			lastModified  int64
@@ -1634,7 +1937,8 @@ func getLastModified() (map[string]uint8, map[string]cachedMap) {
 
 		if err := res.Scan(&dir, &file, &lastModified, &fileSize, &metadataState, &timeAdded, &playCount, &lastPlayed, &localOffset); err != nil {
 			log.Println("DatabaseManager: Failed to read file fingerprint:", err)
-			continue
+			complete = false
+			break
 		}
 
 		dirs[normalizeRelativePath(dir)] = 1
@@ -1658,9 +1962,10 @@ func getLastModified() (map[string]uint8, map[string]cachedMap) {
 
 	if err := res.Err(); err != nil {
 		log.Println("DatabaseManager: Failed while reading file fingerprints:", err)
+		complete = false
 	}
 
-	return dirs, mod
+	return dirs, mod, complete
 }
 
 func Close() {

@@ -28,7 +28,7 @@ import (
 	"github.com/wieku/danser-go/framework/qpc"
 )
 
-var context *imgui.Context
+var imguiContext *imgui.Context
 var ImIO *imgui.IO
 var rShader *shader.RShader
 var vao *buffer.VertexArrayObject
@@ -62,7 +62,7 @@ var scrollDeltas = make(map[imgui.ID]scrollContainer)
 func SetupImgui() {
 	log.Println("Imgui setup")
 
-	context = imgui.CreateContext()
+	imguiContext = imgui.CreateContext()
 
 	imgui.PushStyleVarFloat(imgui.StyleVarPopupRounding, 5)
 	imgui.PushStyleVarFloat(imgui.StyleVarWindowRounding, 5)
@@ -82,7 +82,7 @@ func SetupImgui() {
 	imgui.PushStyleColorVec4(imgui.ColTitleBgActive, vec4(0.2, 0.2, 0.2, 0.8))
 	imgui.PushStyleColorVec4(imgui.ColTitleBgCollapsed, vec4(0.2, 0.2, 0.2, 0.8))
 
-	imgui.SetCurrentContext(context)
+	imgui.SetCurrentContext(imguiContext)
 
 	ImIO = imgui.CurrentIO()
 
@@ -508,7 +508,7 @@ func DrawImgui() {
 	// walk that table manually and rewrap each entry through the generic
 	// NewTextureDataFromC constructor instead. Pinned to v1.6.0 codegen
 	// behavior - recheck on binding upgrades.
-	pio := context.PlatformIO()
+	pio := imguiContext.PlatformIO()
 	texList := pio.Textures()
 
 	if n := texList.Size; n > 0 {
@@ -663,7 +663,7 @@ func handleTexture(tex imgui.TextureData) {
 }
 
 func handleDragScroll() (ret bool) {
-	window := context.CurrentWindow()
+	window := imguiContext.CurrentWindow()
 	wId := window.ID()
 
 	if imgui.IsMouseDown(imgui.MouseButtonLeft) && (scrCache.cId == 0 || scrCache.cId == wId) {
@@ -708,7 +708,7 @@ func handleDragScroll() (ret bool) {
 }
 
 func isAnyScrollbarActive() bool {
-	activeWindow := context.ActiveIdWindow()
+	activeWindow := imguiContext.ActiveIdWindow()
 
 	return activeWindow.CData != nil && imgui.InternalActiveID() == imgui.InternalWindowScrollbarID(activeWindow, imgui.AxisY)
 }
