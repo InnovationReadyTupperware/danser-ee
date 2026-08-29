@@ -1886,6 +1886,10 @@ func (l *launcher) startDanser() {
 	}
 
 	l.danserCmd = exec.Command(dExec, l.bld.getArguments()...)
+	// The child owns its fatal error logging, while this launcher owns the
+	// child-process error surface. Marking the boundary prevents a direct app
+	// dialog and this parent dialog from appearing back-to-back for one crash.
+	l.danserCmd.Env = env.LauncherChildEnvironment(true)
 
 	rFile, oFile, err := os.Pipe()
 	if err != nil {

@@ -2,13 +2,13 @@ package launcher
 
 import (
 	"errors"
-	"log"
 	"strings"
 	"sync/atomic"
 
 	"github.com/Zyko0/go-sdl3/sdl"
 
 	"github.com/wieku/danser-go/framework/goroutines"
+	"github.com/wieku/danser-go/framework/platform"
 	"github.com/wieku/danser-go/framework/platform/gcontext"
 )
 
@@ -79,60 +79,35 @@ func showFilePicker(title string, extensions []string, startDir string, multiple
 	}
 }
 
-// message box button ids: callers branch on these through showMessage, so the
-// mapping must stay stable regardless of display order below.
+// Message-box result ids are kept local to the launcher so existing callers do
+// not depend on the platform package's public result type.
 const (
 	msgButtonOK   = 0
 	msgButtonYes  = 1
 	msgButtonNo   = 2
-	msgButtonNone = -1 // returned by ShowMessageBox on failure; never matches Yes
+	msgButtonNone = -1 // returned when no platform result is available
 )
 
-// yesNoButtons defines a Yes/No pair where Enter confirms Yes and Escape
-// activates No, matching conventional native dialog behavior.
-func yesNoButtons() []sdl.MessageBoxButtonData {
-	return []sdl.MessageBoxButtonData{
-		{ButtonID: msgButtonYes, Text: "Yes", Flags: sdl.MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
-		{ButtonID: msgButtonNo, Text: "No", Flags: sdl.MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT},
-	}
-}
-
-// okButtons defines the single-button layout used for informational and plain
-// error popups.
-func okButtons() []sdl.MessageBoxButtonData {
-	return []sdl.MessageBoxButtonData{
-		{ButtonID: msgButtonOK, Text: "OK", Flags: sdl.MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | sdl.MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT},
-	}
-}
-
 // showMessageBox shows a blocking native message box parented to the launcher
-// window and returns the pressed button id. Unlike the file pickers this can
-// stay synchronous: native message boxes pump their own modal message loop,
-// so the host window stays responsive while one is up. If the SDL bindings
-// are unusable (they nil-deref until LoadLibrary succeeds, which is exactly
-// when callers need to report a fatal startup error), execution falls back
-// to raw platform APIs so the user always sees what went wrong.
-func showMessageBox(flags sdl.MessageBoxFlags, message string, buttons []sdl.MessageBoxButtonData) (pressed int32) {
-	yesNo := len(buttons) == 2
-
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println("SDL message box unavailable, using native fallback:", r)
-			pressed = nativeMessageBox(flags, message, yesNo)
-		}
-	}()
-
-	id, err := sdl.ShowMessageBox(&sdl.MessageBoxData{
-		Flags:   flags,
-		Window:  gcontext.SDLWindow(),
-		Title:   "danser",
-		Message: message,
-		Buttons: buttons,
-	})
-	if err != nil {
-		log.Println("SDL message box failed, using native fallback:", err)
-		return nativeMessageBox(flags, message, yesNo)
+// window and returns the launcher-local button id. The platform layer owns the
+// SDL/native fallback because startup failures can occur before SDL is loaded.
+func showMessageBox(flags sdl.MessageBoxFlags, message string, yesNo bool) int32 {
+	kind := platform.MessageBoxInformation
+	switch flags {
+	case sdl.MESSAGEBOX_WARNING:
+		kind = platform.MessageBoxWarning
+	case sdl.MESSAGEBOX_ERROR:
+		kind = platform.MessageBoxError
 	}
 
-	return id
+	switch platform.ShowMessageBox(gcontext.SDLWindow(), kind, message, yesNo) {
+	case platform.MessageBoxOK:
+		return msgButtonOK
+	case platform.MessageBoxYes:
+		return msgButtonYes
+	case platform.MessageBoxNo:
+		return msgButtonNo
+	default:
+		return msgButtonNone
+	}
 }

@@ -973,6 +973,17 @@ func closeHandler(err any, stackTrace []string) {
 			log.Println(s)
 		}
 
+		if !env.IsLauncherChild() {
+			// Direct CLI launches have no launcher process to turn the panic line
+			// into a native error surface. Pass the SDL window when one exists so
+			// the dialog is owned and focused correctly; the platform layer falls
+			// back to the OS dialog API when startup failed before SDL was usable.
+			platform.ShowErrorDialog(
+				gcontext.SDLWindow(),
+				fmt.Sprintf("danser failed:\n\n%v\n\nSee danser.log for details.", err),
+			)
+		}
+
 		os.Exit(1)
 	}
 

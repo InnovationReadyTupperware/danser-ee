@@ -1,11 +1,12 @@
 package utils
 
 import (
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
-
 	"os"
 	"os/exec"
+
+	"github.com/wieku/danser-go/framework/env"
+	"github.com/wieku/danser-go/framework/goroutines"
+	"github.com/wieku/danser-go/framework/platform/gcontext"
 )
 
 func QuickRestart() {
@@ -37,6 +38,10 @@ func QuickRestart() {
 	}
 
 	cmd := exec.Command(danserPath, arguments...)
+	// The restarted process is detached from the launcher's child-process
+	// monitor when this app exits, so it must own its own fatal dialog rather
+	// than inheriting the stale marker from the original launcher child.
+	cmd.Env = env.LauncherChildEnvironment(false)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

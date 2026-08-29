@@ -28,19 +28,19 @@ func showMessage(typ messageType, format string, args ...any) bool {
 
 	switch typ {
 	case mInfo:
-		showMessageBox(sdl.MESSAGEBOX_INFORMATION, message, okButtons())
+		showMessageBox(sdl.MESSAGEBOX_INFORMATION, message, false)
 	case mError:
 		if urlIndex := strings.Index(message, "http"); urlIndex > -1 {
-			if showMessageBox(sdl.MESSAGEBOX_ERROR, message+"\n\nDo you want to go there?", yesNoButtons()) == msgButtonYes {
+			if showMessageBox(sdl.MESSAGEBOX_ERROR, message+"\n\nDo you want to go there?", true) == msgButtonYes {
 				url := message[urlIndex:]
 				platform.OpenURL(url)
 				return true
 			}
 		} else {
-			showMessageBox(sdl.MESSAGEBOX_ERROR, message, okButtons())
+			showMessageBox(sdl.MESSAGEBOX_ERROR, message, false)
 		}
 	case mQuestion:
-		return showMessageBox(sdl.MESSAGEBOX_INFORMATION, message, yesNoButtons()) == msgButtonYes
+		return showMessageBox(sdl.MESSAGEBOX_INFORMATION, message, true) == msgButtonYes
 	}
 
 	return false
