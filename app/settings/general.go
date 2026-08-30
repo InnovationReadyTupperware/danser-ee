@@ -15,7 +15,7 @@ func initGeneral() *general {
 		OsuSongsDir:       filepath.Join(osuBaseDir, "Songs"),
 		OsuSkinsDir:       filepath.Join(osuBaseDir, "Skins"),
 		OsuReplaysDir:     filepath.Join(osuBaseDir, "Replays"),
-		DiscordPresenceOn: true,
+		DiscordPresenceOn: false,
 		UnpackOszFiles:    true,
 		VerboseImportLogs: false,
 	}
