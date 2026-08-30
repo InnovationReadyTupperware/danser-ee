@@ -100,3 +100,34 @@ func TestSplitBeforeDigit(t *testing.T) {
 		})
 	}
 }
+
+func TestSampleBalanceClampsOutOfPlayfieldPositionsBeforeScaling(t *testing.T) {
+	previousDivides := settings.DIVIDES
+	previousMultiplier := settings.Audio.HitsoundPositionMultiplier
+	t.Cleanup(func() {
+		settings.DIVIDES = previousDivides
+		settings.Audio.HitsoundPositionMultiplier = previousMultiplier
+	})
+
+	settings.DIVIDES = 1
+	settings.Audio.HitsoundPositionMultiplier = 0.2
+
+	tests := []struct {
+		name string
+		xPos float64
+		want float64
+	}{
+		{name: "far left authored point", xPos: -29156, want: -0.1},
+		{name: "far right authored point", xPos: 3322, want: 0.1},
+		{name: "center", xPos: 256, want: 0},
+		{name: "invalid point", xPos: math.NaN(), want: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := sampleBalance(test.xPos); got != test.want {
+				t.Fatalf("sampleBalance(%v) = %v, want %v", test.xPos, got, test.want)
+			}
+		})
+	}
+}

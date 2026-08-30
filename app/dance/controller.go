@@ -139,9 +139,11 @@ func (controller *GenericController) InitCursors() {
 
 	queue := controller.bMap.GetObjectsCopy()
 
-	// Convert retarded (0 length / 0ms) sliders to pseudo-circles
+	// Treat pathological and singular sliders as one normal hit-note target.
+	// Their authored slider data remains owned by the gameplay object, but
+	// generated cursors must not traverse an unstable or disproportionate path.
 	for i := range queue {
-		if s, ok := queue[i].(*objects.Slider); ok && s.IsRetarded() {
+		if s, ok := queue[i].(*objects.Slider); ok && (s.IsPathological() || s.IsSingular()) {
 			queue = utils.PreprocessQueue(i, queue, true)
 		}
 	}
@@ -149,9 +151,7 @@ func (controller *GenericController) InitCursors() {
 	// Convert sliders to pseudo-circles for tag cursors
 	if !settings.CursorDance.ComboTag && !settings.CursorDance.Battle &&
 		settings.CursorDance.TAGSliderDance && participantCount > 1 {
-		for i := range queue {
-			queue = utils.PreprocessQueue(i, queue, true)
-		}
+		queue = utils.ExpandSliderDanceQueue(queue)
 	}
 
 	if !settings.CursorDance.Resolve2BAfterTAG {

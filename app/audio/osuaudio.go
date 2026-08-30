@@ -154,6 +154,19 @@ func finite(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
+func sampleBalance(xPos float64) float64 {
+	if settings.DIVIDES != 1 || !finite(xPos) || !finite(settings.Audio.HitsoundPositionMultiplier) {
+		return 0
+	}
+
+	// Slider paths may intentionally leave the osu! playfield. Position-based
+	// audio still uses the playfield as its spatial domain; clamp before the
+	// multiplier so an authored out-of-bounds coordinate cannot become a hard
+	// left/right pan.
+	xPos = mutils.Clamp(xPos, 0, 512)
+	return mutils.Clamp((xPos-256)/512*settings.Audio.HitsoundPositionMultiplier, -1, 1)
+}
+
 // LoadSamples loads the standard skin samples used as the final fallback for
 // every hit-sound bank. Skin.GetSample owns this cache; this package only
 // stores the references needed for bank resolution.
@@ -223,7 +236,7 @@ func playSampleAt(eventTime float64, sampleSet, hitsoundIndex, index int, volume
 
 	balance := 0.0
 	if settings.DIVIDES == 1 {
-		balance = mutils.Clamp((xPos-256)/512*settings.Audio.HitsoundPositionMultiplier, -1, 1)
+		balance = sampleBalance(xPos)
 	}
 
 	for _, listener := range snapshotListeners() {
@@ -308,7 +321,8 @@ func effectiveSampleVolume(timingVolume, customVolume float64) float64 {
 	return max(minimumVolume, min(1, volume))
 }
 
-// PlaySliderLoopsAt updates the continuous slider samples owned by state.
+// PlaySliderLoopsAt updates the continuous slider samples owned by one
+// ordinary slider.
 // Existing loops are rebalanced as the slider ball moves, matching lazer's
 // continuously updated positional sample balance.
 func PlaySliderLoopsAt(state *SliderLoopState, eventTime float64, sampleSet, additionSet, hitsound, index int, volume float64, objNum int64, xPos float64) {
@@ -327,7 +341,7 @@ func PlaySliderLoopsAt(state *SliderLoopState, eventTime float64, sampleSet, add
 
 	balance := 0.0
 	if settings.DIVIDES == 1 {
-		balance = mutils.Clamp((xPos-256)/512*settings.Audio.HitsoundPositionMultiplier, -1, 1)
+		balance = sampleBalance(xPos)
 	}
 
 	if hitsound&2 > 0 {

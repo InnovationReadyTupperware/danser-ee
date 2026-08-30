@@ -8,6 +8,11 @@ import (
 const BEZIER_QUANTIZATION = 0.5
 const BEZIER_QUANTIZATIONSQ = BEZIER_QUANTIZATION * BEZIER_QUANTIZATION
 
+// maxBezierApproximationPoints is a last-resort malformed-input guard. It is
+// intentionally much larger than ordinary osu! curves and is not used to
+// reduce the detail of valid pathological sliders in normal maps.
+const maxBezierApproximationPoints = 65536
+
 // Item the type of the stack
 
 // ItemStack the stack of Items
@@ -49,17 +54,22 @@ type BezierApproximator struct {
 }
 
 func NewBezierApproximator(controlPoints []vector.Vector2f) *BezierApproximator {
-	return &BezierApproximator{count: len(controlPoints), controlPoints: controlPoints, subdivisionBuffer1: make([]vector.Vector2f, len(controlPoints)), subdivisionBuffer2: make([]vector.Vector2f, len(controlPoints)*2-1)}
+	return &BezierApproximator{
+		count:              len(controlPoints),
+		controlPoints:      controlPoints,
+		subdivisionBuffer1: make([]vector.Vector2f, len(controlPoints)),
+		subdivisionBuffer2: make([]vector.Vector2f, max(0, len(controlPoints)*2-1)),
+	}
 }
 
-/// <summary>
-/// Make sure the 2nd order derivative (approximated using finite elements) is within tolerable bounds.
-/// NOTE: The 2nd order derivative of a 2d curve represents its curvature, so intuitively this function
-///       checks (as the name suggests) whether our approximation is _locally_ "flat". More curvy parts
-///       need to have a denser approximation to be more "flat".
-/// </summary>
-/// <param name="controlPoints">The control points to check for flatness.</param>
-/// <returns>Whether the control points are flat enough.</returns>
+// / <summary>
+// / Make sure the 2nd order derivative (approximated using finite elements) is within tolerable bounds.
+// / NOTE: The 2nd order derivative of a 2d curve represents its curvature, so intuitively this function
+// /       checks (as the name suggests) whether our approximation is _locally_ "flat". More curvy parts
+// /       need to have a denser approximation to be more "flat".
+// / </summary>
+// / <param name="controlPoints">The control points to check for flatness.</param>
+// / <returns>Whether the control points are flat enough.</returns>
 func IsFlatEnough(controlPoints []vector.Vector2f) bool {
 	for i := 1; i < len(controlPoints)-1; i++ {
 		if controlPoints[i-1].Sub(controlPoints[i].Scl(2)).Add(controlPoints[i+1]).LenSq() > BEZIER_QUANTIZATIONSQ {
@@ -70,14 +80,14 @@ func IsFlatEnough(controlPoints []vector.Vector2f) bool {
 	return true
 }
 
-/// <summary>
-/// Subdivides n control points representing a bezier curve into 2 sets of n control points, each
-/// describing a bezier curve equivalent to a half of the original curve. Effectively this splits
-/// the original curve into 2 curves which result in the original curve when pieced back together.
-/// </summary>
-/// <param name="controlPoints">The control points to split.</param>
-/// <param name="l">Output: The control points corresponding to the left half of the curve.</param>
-/// <param name="r">Output: The control points corresponding to the right half of the curve.</param>
+// / <summary>
+// / Subdivides n control points representing a bezier curve into 2 sets of n control points, each
+// / describing a bezier curve equivalent to a half of the original curve. Effectively this splits
+// / the original curve into 2 curves which result in the original curve when pieced back together.
+// / </summary>
+// / <param name="controlPoints">The control points to split.</param>
+// / <param name="l">Output: The control points corresponding to the left half of the curve.</param>
+// / <param name="r">Output: The control points corresponding to the right half of the curve.</param>
 func (approximator *BezierApproximator) Subdivide(controlPoints, l, r []vector.Vector2f) {
 	midpoints := approximator.subdivisionBuffer1
 
@@ -96,12 +106,12 @@ func (approximator *BezierApproximator) Subdivide(controlPoints, l, r []vector.V
 	}
 }
 
-/// <summary>
-/// This uses <a href="https://en.wikipedia.org/wiki/De_Casteljau%27s_algorithm">De Casteljau's algorithm</a> to obtain an optimal
-/// piecewise-linear approximation of the bezier curve with the same amount of points as there are control points.
-/// </summary>
-/// <param name="controlPoints">The control points describing the bezier curve to be approximated.</param>
-/// <param name="output">The points representing the resulting piecewise-linear approximation.</param>
+// / <summary>
+// / This uses <a href="https://en.wikipedia.org/wiki/De_Casteljau%27s_algorithm">De Casteljau's algorithm</a> to obtain an optimal
+// / piecewise-linear approximation of the bezier curve with the same amount of points as there are control points.
+// / </summary>
+// / <param name="controlPoints">The control points describing the bezier curve to be approximated.</param>
+// / <param name="output">The points representing the resulting piecewise-linear approximation.</param>
 func (approximator *BezierApproximator) Approximate(controlPoints []vector.Vector2f, output *[]vector.Vector2f) {
 	l := approximator.subdivisionBuffer2
 	r := approximator.subdivisionBuffer1
@@ -121,12 +131,12 @@ func (approximator *BezierApproximator) Approximate(controlPoints []vector.Vecto
 	}
 }
 
-/// <summary>
-/// Creates a piecewise-linear approximation of a bezier curve, by adaptively repeatedly subdividing
-/// the control points until their approximation error vanishes below a given threshold.
-/// </summary>
-/// <param name="controlPoints">The control points describing the curve.</param>
-/// <returns>A list of vectors representing the piecewise-linear approximation.</returns>
+// / <summary>
+// / Creates a piecewise-linear approximation of a bezier curve, by adaptively repeatedly subdividing
+// / the control points until their approximation error vanishes below a given threshold.
+// / </summary>
+// / <param name="controlPoints">The control points describing the curve.</param>
+// / <returns>A list of vectors representing the piecewise-linear approximation.</returns>
 func (approximator *BezierApproximator) CreateBezier() []vector.Vector2f {
 	output := make([]vector.Vector2f, 0)
 
@@ -154,6 +164,14 @@ func (approximator *BezierApproximator) CreateBezier() []vector.Vector2f {
 	for toFlatten.Count() > 0 {
 		parent := toFlatten.Pop()
 		if IsFlatEnough(parent) {
+			if len(output)+approximator.count >= maxBezierApproximationPoints {
+				if len(output) == 0 || output[len(output)-1] != parent[0] {
+					output = append(output, parent[0])
+				}
+				output = append(output, approximator.controlPoints[approximator.count-1])
+				return output
+			}
+
 			// If the control points we currently operate on are sufficiently "flat", we use
 			// an extension to De Casteljau's algorithm to obtain a piecewise-linear approximation
 			// of the bezier curve represented by our control points, consisting of the same amount

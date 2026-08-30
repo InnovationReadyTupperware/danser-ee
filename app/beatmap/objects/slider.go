@@ -27,8 +27,16 @@ import (
 )
 
 const (
-	maxPathLength = 100_000_000 // Sanity limits, XNOR reaches 10M pixel length so 100M should be enough
-	maxRepeats    = 10_000      // Same limit as osu!
+	// These are parser safety ceilings. They are deliberately separate from
+	// SliderWorkloadClass: a valid slider can be expensive without being
+	// malformed, and workload classification must never shorten it.
+	parserMaxPathLength         = 100_000_000
+	parserMaxRepeats            = 10_000
+	parserMaxCurveControlPoints = 4096
+	// This is a last-resort derived-event safety budget. It is intentionally
+	// far above ordinary maps and does not cap authored curve geometry or the
+	// movement path used by cursor dance.
+	maxDerivedSliderPoints = 1_000_000
 )
 
 type PathLine struct {
@@ -96,24 +104,53 @@ type Slider struct {
 	updatedAtLeastOnce bool
 
 	lastScorePoint int
+
+	timingComputed     bool
+	stablePathComputed bool
+
+	workloadClassComputed bool
+	workloadClass         SliderWorkloadClass
 }
 
 func NewSlider(data []string) *Slider {
+	if len(data) < 8 {
+		return nil
+	}
+
+	startX, errX := strconv.ParseFloat(data[0], 32)
+	startY, errY := strconv.ParseFloat(data[1], 32)
+	startTime, errTime := strconv.ParseFloat(data[2], 64)
+	if errX != nil || errY != nil || errTime != nil ||
+		math.IsNaN(startX) || math.IsInf(startX, 0) ||
+		math.IsNaN(startY) || math.IsInf(startY, 0) ||
+		math.IsNaN(startTime) || math.IsInf(startTime, 0) {
+		return nil
+	}
+
 	slider := &Slider{
 		HitObject: commonParse(data, 10),
 	}
 
 	slider.PositionDelegate = slider.PositionAt
 
-	slider.pixelLength, _ = strconv.ParseFloat(data[7], 64)
-	slider.RepeatCount, _ = strconv.Atoi(data[6])
-
-	if slider.pixelLength*float64(slider.RepeatCount) > maxPathLength*10 {
+	var err error
+	slider.pixelLength, err = strconv.ParseFloat(data[7], 64)
+	if err != nil || math.IsNaN(slider.pixelLength) || math.IsInf(slider.pixelLength, 0) || slider.pixelLength < 0 {
 		return nil
 	}
 
-	slider.pixelLength = min(slider.pixelLength, maxPathLength)
-	slider.RepeatCount = max(1, min(slider.RepeatCount, maxRepeats)) // The same limit as in Lazer; malformed maps must still have one span.
+	slider.RepeatCount, err = strconv.Atoi(data[6])
+	if err != nil {
+		return nil
+	}
+	slider.RepeatCount = max(1, slider.RepeatCount)
+
+	if slider.pixelLength > float64(parserMaxPathLength*10)/float64(slider.RepeatCount) {
+		return nil
+	}
+
+	slider.pixelLength = min(slider.pixelLength, parserMaxPathLength)
+	slider.RepeatCount = min(slider.RepeatCount, parserMaxRepeats)
 
 	slider.multiCurve = slider.parseCurve(data[5])
 	if slider.multiCurve == nil {
@@ -121,10 +158,27 @@ func NewSlider(data []string) *Slider {
 	}
 
 	if slider.pixelLength == 0 {
-		slider.pixelLength = float64(slider.multiCurve.GetLength())
+		derivedLength := float64(slider.multiCurve.GetLength())
+		if !finiteSliderValue(derivedLength) || derivedLength < 0 || derivedLength > parserMaxPathLength {
+			return nil
+		}
+		slider.pixelLength = derivedLength
 	}
 
+	if !finiteSliderValue(float64(slider.multiCurve.GetLength())) || !finiteSliderValue(slider.multiCurve.GetLengthLazer()) {
+		return nil
+	}
+	for _, line := range slider.multiCurve.GetLines() {
+		if !finiteSliderCoordinate(line.Point1.X) || !finiteSliderCoordinate(line.Point1.Y) ||
+			!finiteSliderCoordinate(line.Point2.X) || !finiteSliderCoordinate(line.Point2.Y) ||
+			!finiteSliderValue(float64(line.GetLength())) {
+			return nil
+		}
+	}
+	slider.updateWorkloadClass()
+
 	slider.EndTime = slider.StartTime
+	slider.EndTimeLazer = slider.StartTime
 	slider.EndPosRaw = slider.multiCurve.PointAt(1.0)
 	slider.Pos = slider.StartPosRaw
 
@@ -189,6 +243,10 @@ func NewSlider(data []string) *Slider {
 }
 
 func (slider *Slider) parseCurve(curveData string) *curves.MultiCurve {
+	if strings.Count(curveData, "|")+1 > parserMaxCurveControlPoints*2 {
+		return nil
+	}
+
 	list := strings.Split(curveData, "|")
 
 	var defs []curves.CurveDef
@@ -199,6 +257,7 @@ func (slider *Slider) parseCurve(curveData string) *curves.MultiCurve {
 	}
 
 	nextType := curves.CType(-1)
+	controlPointCount := 1
 
 	for i, j := 0, 0; i < len(list); i++ {
 		split := strings.Split(list[i], ":")
@@ -212,14 +271,27 @@ func (slider *Slider) parseCurve(curveData string) *curves.MultiCurve {
 				}
 			}
 		} else {
-			x, _ := strconv.ParseFloat(split[0], 32)
-			y, _ := strconv.ParseFloat(split[1], 32)
+			if len(split) != 2 || len(cDef.Points) >= parserMaxCurveControlPoints || controlPointCount >= parserMaxCurveControlPoints {
+				return nil
+			}
 
-			vec := vector.NewVec2f(float32(x), float32(y))
+			x, errX := strconv.ParseFloat(split[0], 64)
+			y, errY := strconv.ParseFloat(split[1], 64)
+			if errX != nil || errY != nil || math.IsNaN(x) || math.IsInf(x, 0) || math.IsNaN(y) || math.IsInf(y, 0) {
+				return nil
+			}
+
+			fx, fy := float32(x), float32(y)
+			if math.IsNaN(float64(fx)) || math.IsInf(float64(fx), 0) || math.IsNaN(float64(fy)) || math.IsInf(float64(fy), 0) {
+				return nil
+			}
+
+			vec := vector.NewVec2f(fx, fy)
 
 			if j > 0 || vec != slider.StartPosRaw { // skip the first point if it's the same as start position.
 				cDef.Points = append(cDef.Points, vec)
 			}
+			controlPointCount++
 
 			j++
 
@@ -247,13 +319,13 @@ func (slider *Slider) parseCurve(curveData string) *curves.MultiCurve {
 	// validation
 	for _, def := range defs {
 		if def.CurveType == curves.CBezier {
-			var controlDistance float32
+			var controlDistance float64
 
 			for i := 1; i < len(def.Points); i++ {
-				controlDistance += def.Points[i].Dst(def.Points[i-1])
+				controlDistance += float64(def.Points[i].Dst(def.Points[i-1]))
 			}
 
-			if controlDistance >= 2*maxPathLength { // Skip sliders which are too computationally expensive
+			if controlDistance >= 2*parserMaxPathLength {
 				return nil
 			}
 		}
@@ -294,8 +366,11 @@ func (slider *Slider) GetPartLen() float32 {
 }
 
 func (slider *Slider) PositionAt(time float64) vector.Vector2f {
-	if slider.IsRetarded() {
+	if !slider.hasUsableStableTraversal() {
 		return slider.StartPosRaw
+	}
+	if !finiteSliderValue(time) {
+		time = slider.StartTime
 	}
 
 	index := sort.Search(len(slider.scorePath), func(i int) bool {
@@ -345,13 +420,13 @@ func (slider *Slider) GetStackedPositionAtModLazer(time float64, diff *difficult
 func (slider *Slider) GetAsDummyCircles() []IHitObject {
 	circles := []IHitObject{slider.createDummyCircle(slider.GetStartTime(), true, false)}
 
-	if slider.IsRetarded() {
+	if slider.IsPathological() || slider.IsSingular() {
 		return circles
 	}
 
 	for i, p := range slider.ScorePoints {
 		time := p.Time
-		if i == len(slider.ScorePoints)-1 && settings.KNOCKOUT && !slider.diff.IsLazer() { // Lazer ends work differently so skip -36ms
+		if i == len(slider.ScorePoints)-1 && settings.KNOCKOUT && slider.diff != nil && !slider.diff.IsLazer() { // Lazer ends work differently so skip -36ms
 			time = math.Floor(max(slider.StartTime+(slider.EndTime-slider.StartTime)/2, slider.EndTime-36))
 		}
 
@@ -362,35 +437,85 @@ func (slider *Slider) GetAsDummyCircles() []IHitObject {
 }
 
 func (slider *Slider) createDummyCircle(time float64, inheritStart, inheritEnd bool) *Circle {
-	circle := DummyCircleInherit(slider.GetPositionAt(time), time, true, inheritStart, inheritEnd)
-	circle.StackLeniency = slider.StackLeniency
-	circle.StackIndexMap = slider.StackIndexMap
-	circle.ComboSet = slider.ComboSet
+	// Slider dance points inherit the source slider's stack map. Build that
+	// representation directly instead of creating DummyCircleInherit's throwaway
+	// map and immediately replacing it; dense Aspire sliders can otherwise make
+	// thousands of avoidable map allocations during queue expansion.
+	pos := slider.GetPositionAt(time)
+	circle := &Circle{HitObject: &HitObject{
+		StartPosRaw:   pos,
+		EndPosRaw:     pos,
+		StartTime:     time,
+		EndTime:       time,
+		StackLeniency: slider.StackLeniency,
+		StackIndexMap: slider.StackIndexMap,
+		ComboSet:      slider.ComboSet,
+	}}
+	circle.SliderPoint = true
+	circle.SliderPointStart = inheritStart
+	circle.SliderPointEnd = inheritEnd
+	circle.silent = true
+	circle.textureName = "sliderstart"
 
 	return circle
 }
 
 func (slider *Slider) SetTiming(timings *Timings, beatmapVersion int, diffCalcOnly bool) {
+	slider.resetTimingData()
 	slider.Timings = timings
+	slider.timingComputed = timings != nil
+	if timings == nil {
+		slider.stablePathComputed = true
+		slider.updateWorkloadClass()
+		return
+	}
 	slider.TPoint = timings.GetPointAt(slider.StartTime)
 
 	slider.calculateFollowPointsLazer(beatmapVersion)
 
 	if diffCalcOnly { // We're not interested in stable-like path in difficulty calculator mode
+		slider.updateWorkloadClass()
 		return
 	}
 
 	slider.calculateFollowPointsStable(beatmapVersion)
+	slider.updateWorkloadClass()
+}
+
+func (slider *Slider) resetTimingData() {
+	slider.EndTime = slider.StartTime
+	slider.EndTimeLazer = slider.StartTime
+	slider.TPoint = TimingPoint{}
+	slider.partLen = 0
+	slider.spanDuration = 0
+	slider.scorePath = slider.scorePath[:0]
+	slider.TickPoints = slider.TickPoints[:0]
+	slider.TickReverse = slider.TickReverse[:0]
+	slider.ScorePoints = slider.ScorePoints[:0]
+	slider.ScorePointsLazer = slider.ScorePointsLazer[:0]
+	slider.timingComputed = false
+	slider.stablePathComputed = false
+	slider.workloadClassComputed = false
 }
 
 func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 	const maxLzLength = 100000
 
+	if slider.Timings == nil || slider.multiCurve == nil || slider.RepeatCount <= 0 {
+		return
+	}
+
 	nanTimingPoint := math.IsNaN(slider.TPoint.beatLength)
 
 	cLength := slider.multiCurve.GetLengthLazer()
+	if !finiteSliderValue(cLength) || cLength <= 0 {
+		return
+	}
 
 	velocity := 100 * slider.Timings.SliderMult / slider.TPoint.GetBeatLengthLazer()
+	if !finiteSliderValue(velocity) || velocity <= 0 {
+		return
+	}
 
 	scoringDistance := velocity * slider.TPoint.GetBaseBeatLength()
 
@@ -400,29 +525,41 @@ func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 	}
 
 	tickDistance := scoringDistance / slider.Timings.TickRate * tickDistanceMultiplier
+	validTickDistance := finiteSliderValue(tickDistance) && tickDistance > 0
 
-	if slider.RepeatCount <= 0 || velocity <= 0 || math.IsNaN(velocity) || math.IsInf(velocity, 0) {
+	endTime := slider.StartTime + float64(slider.RepeatCount)*cLength/velocity
+	if !finiteSliderValue(endTime) || endTime <= slider.StartTime {
 		return
 	}
 
-	slider.EndTimeLazer = slider.StartTime + float64(slider.RepeatCount)*cLength/velocity
+	slider.EndTimeLazer = endTime
 
 	slider.spanDuration = (slider.EndTimeLazer - slider.StartTime) / float64(slider.RepeatCount)
+	if !finiteSliderValue(slider.spanDuration) || slider.spanDuration <= 0 {
+		slider.EndTimeLazer = slider.StartTime
+		slider.spanDuration = 0
+		return
+	}
 
 	length := min(maxLzLength, cLength)
 
-	tickDistance = mutils.Clamp(tickDistance, 0, length)
+	if validTickDistance {
+		tickDistance = mutils.Clamp(tickDistance, 0, length)
+		validTickDistance = tickDistance > 0
+	}
 
 	minDistanceFromEnd := velocity * 10
 
 	// Lazer like score point calculations. Clean AF, but not unreliable enough for stable's replay processing. Would need more testing.
 	edgeIndex := 1
+	maxTickPoints := max(0, maxDerivedSliderPoints-slider.RepeatCount)
+	generatedTickPoints := 0
 	for span := 0; span < int(slider.RepeatCount); span++ {
 		spanStartTime := slider.StartTime + float64(span)*slider.spanDuration
 		reversed := span%2 == 1
 
 		// Skip ticks if timingPoint has NaN beatLength
-		for d := tickDistance; d <= length && !nanTimingPoint && tickDistance != 0; d += tickDistance {
+		for d := tickDistance; d <= length && !nanTimingPoint && validTickDistance && generatedTickPoints < maxTickPoints; d += tickDistance {
 			if d >= length-minDistanceFromEnd {
 				break
 			}
@@ -436,6 +573,7 @@ func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 			slider.ScorePointsLazer = append(slider.ScorePointsLazer, TickPoint{
 				Time: spanStartTime + timeProgress*slider.spanDuration,
 			})
+			generatedTickPoints++
 		}
 
 		slider.ScorePointsLazer = append(slider.ScorePointsLazer, TickPoint{
@@ -451,6 +589,12 @@ func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 }
 
 func (slider *Slider) calculateFollowPointsStable(beatmapVersion int) {
+	slider.stablePathComputed = true
+
+	if slider.Timings == nil || slider.multiCurve == nil {
+		return
+	}
+
 	nanTimingPoint := math.IsNaN(slider.TPoint.beatLength)
 
 	lines := slider.multiCurve.GetLines()
@@ -458,27 +602,38 @@ func (slider *Slider) calculateFollowPointsStable(beatmapVersion int) {
 	startTime := slider.StartTime
 
 	velocity := slider.Timings.GetVelocity(slider.TPoint)
+	if !finiteSliderValue(velocity) || velocity <= 0 {
+		return
+	}
 
 	cLength := float64(slider.multiCurve.GetLength())
+	if !finiteSliderValue(cLength) || cLength <= 0 {
+		return
+	}
 
 	minDistanceFromEnd := velocity * 0.01
 
 	tickDistance := slider.Timings.GetTickDistance(slider.TPoint)
+	validTickDistance := finiteSliderValue(tickDistance) && tickDistance > 0
 	if beatmapVersion < 8 {
 		tickDistance = slider.Timings.GetScoringDistance()
+		validTickDistance = finiteSliderValue(tickDistance) && tickDistance > 0
 	}
 
-	if slider.multiCurve.GetLength() > 0 && tickDistance > slider.pixelLength {
+	if validTickDistance && slider.multiCurve.GetLength() > 0 && tickDistance > slider.pixelLength {
 		tickDistance = slider.pixelLength
+		validTickDistance = tickDistance > 0
 	}
 
 	// Sanity limit to 32768 ticks per repeat
-	if cLength/tickDistance > 32768 {
+	if validTickDistance && cLength/tickDistance > 32768 {
 		tickDistance = cLength / 32768
 	}
 
 	scoringLengthTotal := 0.0
 	scoringDistance := 0.0
+	maxTickPoints := max(0, maxDerivedSliderPoints-slider.RepeatCount)
+	generatedTickPoints := 0
 
 	// Stable-like score point processing, ugly AF.
 	for i := range slider.RepeatCount {
@@ -509,6 +664,9 @@ func (slider *Slider) calculateFollowPointsStable(beatmapVersion int) {
 			distance := float32(line.GetCustomLength())
 
 			progress := 1000.0 * float64(distance) / velocity
+			if !finiteSliderValue(progress) {
+				return
+			}
 
 			slider.scorePath = append(slider.scorePath, PathLine{Time1: int64(startTime), Time2: int64(startTime + progress), Line: curves.NewLinear(p1, p2)})
 
@@ -517,7 +675,7 @@ func (slider *Slider) calculateFollowPointsStable(beatmapVersion int) {
 
 			scoringDistance += float64(distance)
 
-			for scoringDistance >= tickDistance && !skipTick {
+			for scoringDistance >= tickDistance && !skipTick && validTickDistance && generatedTickPoints < maxTickPoints {
 				scoringLengthTotal += tickDistance
 				scoringDistance -= tickDistance
 				distanceToEnd -= tickDistance
@@ -529,10 +687,28 @@ func (slider *Slider) calculateFollowPointsStable(beatmapVersion int) {
 
 				scoreTime := slider.StartTime + math.Floor(float64(float32(scoringLengthTotal))/velocity*1000)
 
-				point := TickPoint{scoreTime, slider.GetPositionAt(scoreTime), animation.NewGlider(0.0), animation.NewGlider(0.0), false, false, -1}
+				var fade, scale *animation.Glider
+				if !slider.IsPathological() {
+					fade = animation.NewGlider(0.0)
+					scale = animation.NewGlider(0.0)
+				}
+				point := TickPoint{scoreTime, slider.GetPositionAt(scoreTime), fade, scale, false, false, -1}
 				slider.TickPoints = append(slider.TickPoints, point)
 				slider.ScorePoints = append(slider.ScorePoints, point)
+				generatedTickPoints++
 			}
+		}
+
+		if !validTickDistance || generatedTickPoints >= maxTickPoints {
+			scoreTime := slider.StartTime + math.Floor(float64(i+1)*cLength/velocity*1000)
+			if i == slider.RepeatCount-1 {
+				scoreTime = slider.EndTime
+			}
+
+			point := TickPoint{scoreTime, slider.GetPositionAt(scoreTime), nil, nil, true, (i + 1) == slider.RepeatCount, i + 1}
+			slider.TickReverse = append(slider.TickReverse, point)
+			slider.ScorePoints = append(slider.ScorePoints, point)
+			continue
 		}
 
 		scoringLengthTotal += scoringDistance
@@ -693,30 +869,36 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 	slider.follower = sprite.NewAnimation(followerFrames, skin.GetInfo().GetFrameTime(max(1, len(followerFrames))), true, 0.0, vector.NewVec2d(0, 0), vector.Centre)
 	slider.follower.SetAlpha(0.0)
 
-	spanDuration := slider.visualSpanDuration()
-	for i := 1; i <= slider.RepeatCount; i++ {
-		circleTime := slider.StartTime + spanDuration*float64(i)
+	// Pathological and singular sliders use the normal hit-note presentation
+	// for generated movement and slider-detail audio. Keep the authored slider
+	// data for gameplay and body rendering, but avoid allocating endpoint
+	// objects that the presentation policy will never traverse or animate.
+	if !slider.IsPathological() && !slider.IsSingular() {
+		spanDuration := slider.visualSpanDuration()
+		for i := 1; i <= slider.RepeatCount; i++ {
+			circleTime := slider.StartTime + spanDuration*float64(i)
 
-		appearTime := slider.StartTime - math.Floor(slider.diff.Preempt)
-		bounceStartTime := slider.StartTime - min(math.Floor(slider.diff.Preempt), 15000)
+			appearTime := slider.StartTime - math.Floor(slider.diff.Preempt)
+			bounceStartTime := slider.StartTime - min(math.Floor(slider.diff.Preempt), 15000)
 
-		if i > 1 {
-			appearTime = circleTime - math.Floor(slider.partLen*2)
-			bounceStartTime = appearTime
-		}
+			if i > 1 {
+				appearTime = circleTime - math.Floor(slider.partLen*2)
+				bounceStartTime = appearTime
+			}
 
-		circle := NewSliderEndCircle(vector.NewVec2f(0, 0), appearTime, bounceStartTime, circleTime, i == 1, i == slider.RepeatCount)
-		copySliderHOData(circle.HitObject, slider.HitObject)
-		circle.SetTiming(slider.Timings, 14, false)
-		circle.SetDifficulty(diff)
+			circle := NewSliderEndCircle(vector.NewVec2f(0, 0), appearTime, bounceStartTime, circleTime, i == 1, i == slider.RepeatCount)
+			copySliderHOData(circle.HitObject, slider.HitObject)
+			circle.SetTiming(slider.Timings, 14, false)
+			circle.SetDifficulty(diff)
 
-		slider.endCircles = append(slider.endCircles, circle)
-		slider.edges = append(slider.edges, circle)
+			slider.endCircles = append(slider.endCircles, circle)
+			slider.edges = append(slider.edges, circle)
 
-		if i%2 == 0 {
-			slider.headEndCircles = append(slider.headEndCircles, circle)
-		} else {
-			slider.tailEndCircles = append(slider.tailEndCircles, circle)
+			if i%2 == 0 {
+				slider.headEndCircles = append(slider.headEndCircles, circle)
+			} else {
+				slider.tailEndCircles = append(slider.tailEndCircles, circle)
+			}
 		}
 	}
 
@@ -740,10 +922,6 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 	slider.body = sliderrenderer.NewBody(slider.multiCurve, vFlip, hFlip, float32(slider.diff.CircleRadius))
 }
 
-func (slider *Slider) IsRetarded() bool {
-	return len(slider.scorePath) == 0 || slider.StartTime == slider.EndTime
-}
-
 func (slider *Slider) Update(time float64) bool {
 	if !slider.updatedAtLeastOnce {
 		slider.initScorePointAnimations()
@@ -763,7 +941,10 @@ func (slider *Slider) Update(time float64) bool {
 		}
 	}
 
-	if slider.isSliding {
+	// Pathological sliders are represented as one generated hit-note target.
+	// Do not replay their dense nested events here; the head hit remains handled
+	// by HitEdge while gameplay still owns the authored judgement data.
+	if slider.isSliding && !slider.IsPathological() {
 		points := slider.ScorePoints
 		if slider.diff != nil && slider.diff.IsLazer() && len(slider.ScorePointsLazer) > 0 {
 			points = slider.ScorePointsLazer
@@ -834,12 +1015,14 @@ func (slider *Slider) Update(time float64) bool {
 		s.Update(time)
 	}
 
-	for _, p := range slider.TickPoints {
-		if p.fade != nil {
-			p.fade.Update(time)
-		}
-		if p.scale != nil {
-			p.scale.Update(time)
+	if !slider.IsPathological() {
+		for _, p := range slider.TickPoints {
+			if p.fade != nil {
+				p.fade.Update(time)
+			}
+			if p.scale != nil {
+				p.scale.Update(time)
+			}
 		}
 	}
 
@@ -900,6 +1083,10 @@ func (slider *Slider) ArmStart(clicked bool, time float64) {
 // slider body itself is not initialized here because its snaking range is a
 // function of the current frame and must remain seek-safe.
 func (slider *Slider) initScorePointAnimations() {
+	if slider.IsPathological() {
+		return
+	}
+
 	slSnInS := slider.StartTime - slider.diff.Preempt
 	slSnInE := slider.StartTime - slider.diff.Preempt*2/3*(1.0-clampSnakeMultiplier(settings.Objects.Sliders.Snaking.FadeMultiplier)) +
 		slider.visualSpanDuration()*clampSnakeMultiplier(settings.Objects.Sliders.Snaking.DurationMultiplier)
@@ -1061,7 +1248,7 @@ func (slider *Slider) AnimateSliderBreak(time float64) {
 }
 
 func (slider *Slider) PlaySlideSamples(time float64) {
-	if slider.audioSubmissionDisabled {
+	if slider.audioSubmissionDisabled || slider.IsPathological() || slider.IsSingular() {
 		return
 	}
 
@@ -1120,13 +1307,13 @@ func (slider *Slider) HitEdge(index int, time float64, isHit bool) {
 		slider.AnimateSliderPoint(index, time, isHit)
 	}
 
-	if isHit && (index == 0 || index == slider.RepeatCount || !slider.IsRetarded()) {
+	if isHit && (index == 0 || (!slider.IsPathological() && (index == slider.RepeatCount || !slider.IsSingular()))) {
 		slider.PlayEdgeSample(index)
 	}
 }
 
 func (slider *Slider) PlayTickAt(eventTime float64) {
-	if slider.audioSubmissionDisabled {
+	if slider.audioSubmissionDisabled || slider.IsPathological() {
 		return
 	}
 
@@ -1259,7 +1446,7 @@ func (slider *Slider) Draw(time float64, color color2.Color, batch *batch.QuadBa
 
 	if settings.DIVIDES < settings.Objects.Colors.MandalaTexturesTrigger {
 		if time < visualEndTime {
-			if settings.Objects.Sliders.DrawScorePoints {
+			if !slider.IsPathological() && settings.Objects.Sliders.DrawScorePoints {
 				shifted := color.Shift(float32(settings.Objects.Colors.Sliders.ScorePointColorOffset), 0, 0)
 
 				scorePoint := skin.GetTexture("sliderscorepoint")

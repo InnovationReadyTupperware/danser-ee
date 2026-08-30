@@ -3,11 +3,11 @@ package movers
 import (
 	"math"
 
+	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/beatmap/objects"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/framework/math/curves"
 	"github.com/wieku/danser-go/framework/math/math32"
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"github.com/wieku/danser-go/framework/math/vector"
 )
 
@@ -20,21 +20,36 @@ const (
 type SplineMover struct {
 	*basicMover
 
-	curve    *curves.Spline
-	objs     []objects.IHitObject
-	lastTime float64
+	curve     *curves.Spline
+	objs      []objects.IHitObject
+	lastTime  float64
+	points    []vector.Vector2f
+	timing    []float64
+	timeDiff  []float32
+	solver    curves.BSplineSolver
+	beziers   []curves.Bezier
+	curvePath []curves.Curve
 }
 
 func NewSplineMover() MultiPointMover {
 	return &SplineMover{basicMover: &basicMover{}, lastTime: -math.MaxFloat64}
 }
 
+func (mover *SplineMover) Reset(diff *difficulty.Difficulty, id int) {
+	mover.basicMover.Reset(diff, id)
+	mover.lastTime = -math.MaxFloat64
+	mover.curve = nil
+	mover.objs = mover.objs[:0]
+}
+
 func (mover *SplineMover) SetObjects(objs []objects.IHitObject) int {
 	config := settings.CursorDance.MoverSettings.Spline[mover.id%len(settings.CursorDance.MoverSettings.Spline)]
 
 	mover.objs = mover.objs[:0]
-	points := make([]vector.Vector2f, 0)
-	timing := make([]float64, 0)
+	mover.points = mover.points[:0]
+	mover.timing = mover.timing[:0]
+	points := mover.points
+	timing := mover.timing
 
 	var angle float32
 	var stream bool
@@ -170,16 +185,34 @@ func (mover *SplineMover) SetObjects(objs []objects.IHitObject) int {
 		mover.objs = append(mover.objs, o)
 	}
 
-	timeDiff := make([]float32, len(timing)-1)
+	// Keep the grown backing arrays on the mover. Without assigning the local
+	// append results back, every rebuild would discard its buffers and repeat
+	// the dense-path allocation spike.
+	mover.points = points
+	mover.timing = timing
+
+	neededTimeDiff := max(0, len(timing)-1)
+	if cap(mover.timeDiff) < neededTimeDiff {
+		mover.timeDiff = make([]float32, neededTimeDiff)
+	} else {
+		mover.timeDiff = mover.timeDiff[:neededTimeDiff]
+	}
+	timeDiff := mover.timeDiff
 
 	for j := range timeDiff {
 		timeDiff[j] = float32(timing[j+1] - timing[j])
 	}
 
-	beziers := curves.SolveBSpline(points)
-	beziersC := make([]curves.Curve, len(beziers))
+	beziers := mover.solver.Solve(points, mover.beziers)
+	mover.beziers = beziers
+	if cap(mover.curvePath) < len(beziers) {
+		mover.curvePath = make([]curves.Curve, len(beziers))
+	} else {
+		mover.curvePath = mover.curvePath[:len(beziers)]
+	}
 
-	for j, b := range beziers {
+	for j := range beziers {
+		b := &mover.beziers[j]
 		if timeDiff[j] > 600 {
 			scl := timeDiff[j] / 2
 
@@ -187,10 +220,16 @@ func (mover *SplineMover) SetObjects(objs []objects.IHitObject) int {
 			b.Points[2] = b.Points[3].Add(b.Points[2].Sub(b.Points[3]).Nor().Scl(scl))
 		}
 
-		beziersC[j] = b
+		mover.curvePath[j] = &mover.beziers[j]
 	}
 
-	mover.curve = curves.NewSplineW(beziersC, timeDiff)
+	if len(mover.beziers) == 0 {
+		mover.curve = nil
+	} else if mover.curve == nil {
+		mover.curve = curves.NewSplineW(mover.curvePath, timeDiff)
+	} else {
+		mover.curve.SetCurvesW(mover.curvePath, timeDiff)
+	}
 
 	return i + 1
 }
@@ -199,30 +238,33 @@ func (mover *SplineMover) Update(time float64) vector.Vector2f {
 	useMover := true
 	var overridePos vector.Vector2f
 
-	for i := 0; i < len(mover.objs); i++ {
-		g := mover.objs[i]
-
+	writeIndex := 0
+	for _, g := range mover.objs {
 		gStartTime := mover.GetObjectsStartTime(g)
 
 		if gStartTime > time {
-			break
+			mover.objs[writeIndex] = g
+			writeIndex++
+			continue
 		}
 
 		if mover.lastTime <= gStartTime {
 			useMover = false
-
-			mover.objs = append(mover.objs[:i], mover.objs[i+1:]...)
-			i--
-
 			overridePos = mover.GetObjectsStartPosition(g)
+			continue
 		}
+
+		mover.objs[writeIndex] = g
+		writeIndex++
 	}
+	clear(mover.objs[writeIndex:])
+	mover.objs = mover.objs[:writeIndex]
 
 	mover.lastTime = time
 
-	if useMover {
-		t := mutils.Clamp((time-mover.startTime)/(mover.endTime-mover.startTime), 0, 1)
-		return mover.curve.PointAt(float32(t))
+	if useMover && mover.curve != nil {
+		t := movementProgress(time, mover.startTime, mover.endTime)
+		return mover.curve.PointAt(t)
 	}
 
 	return overridePos

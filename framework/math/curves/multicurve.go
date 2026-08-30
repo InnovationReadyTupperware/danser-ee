@@ -38,6 +38,9 @@ type MultiCurve struct {
 func NewMultiCurve(curveDefs []CurveDef) *MultiCurve {
 	lines := make([]Linear, 0)
 	points := make([]vector.Vector2f, 0)
+	if len(curveDefs) == 0 {
+		return &MultiCurve{sections: []float32{0}, lines: lines, points: points, cumLength: []float64{0}}
+	}
 
 	for _, def := range curveDefs {
 		var cPoints1 []vector.Vector2f
@@ -51,6 +54,9 @@ func NewMultiCurve(curveDefs []CurveDef) *MultiCurve {
 			cPoints1 = processBezier(def.Points)
 		case CCatmull:
 			cPoints1 = processCatmull(def.Points)
+		}
+		if len(cPoints1) == 0 {
+			continue
 		}
 
 		cPoints2 := cPoints1
@@ -87,7 +93,13 @@ func NewMultiCurve(curveDefs []CurveDef) *MultiCurve {
 		cumLength[i+1] = cumLength[i] + float64(points[i+1].Dst(points[i]))
 	}
 
-	firstPoint := curveDefs[0].Points[0]
+	firstPoint := vector.Vector2f{}
+	for _, def := range curveDefs {
+		if len(def.Points) > 0 {
+			firstPoint = def.Points[0]
+			break
+		}
+	}
 
 	sections := make([]float32, len(lines)+1)
 	sections[0] = 0.0

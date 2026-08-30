@@ -1,10 +1,12 @@
 package movers
 
 import (
+	"math"
+	"strings"
+
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/beatmap/objects"
 	"github.com/wieku/danser-go/framework/math/vector"
-	"strings"
 )
 
 const sixtyTime = 1000.0 / 60
@@ -62,6 +64,30 @@ func (mover *basicMover) GetStartTime() float64 {
 
 func (mover *basicMover) GetEndTime() float64 {
 	return mover.endTime
+}
+
+// movementProgress keeps generated movers finite when a malformed or dense
+// object queue produces a zero-length movement window. Valid positive windows
+// use the same clamp behavior as the original movers.
+func movementProgress(time, start, end float64) float32 {
+	if math.IsNaN(time) || math.IsInf(time, 0) || math.IsNaN(start) || math.IsInf(start, 0) || math.IsNaN(end) || math.IsInf(end, 0) {
+		return 0
+	}
+	if end <= start {
+		if time >= end {
+			return 1
+		}
+		return 0
+	}
+
+	progress := (time - start) / (end - start)
+	if progress <= 0 {
+		return 0
+	}
+	if progress >= 1 {
+		return 1
+	}
+	return float32(progress)
 }
 
 func GetMoverByName(name string) MultiPointMover {

@@ -1,12 +1,13 @@
 package movers
 
 import (
+	"math"
+
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
 	"github.com/wieku/danser-go/app/beatmap/objects"
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/framework/math/curves"
 	"github.com/wieku/danser-go/framework/math/math32"
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"github.com/wieku/danser-go/framework/math/vector"
 )
 
@@ -18,6 +19,7 @@ type BezierMover struct {
 	pt            vector.Vector2f
 	previousSpeed float32
 	invert        float32
+	points        [4]vector.Vector2f
 }
 
 func NewBezierMover() MultiPointMover {
@@ -45,14 +47,20 @@ func (mover *BezierMover) SetObjects(objs []objects.IHitObject) int {
 
 	dst := startPos.Dst(endPos)
 
+	duration := mover.endTime - mover.startTime
 	if mover.previousSpeed < 0 {
-		mover.previousSpeed = dst / float32(mover.endTime-mover.startTime)
+		if duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0) {
+			mover.previousSpeed = dst / float32(duration)
+		} else {
+			mover.previousSpeed = 0
+		}
 	}
 
 	s1, ok1 := start.(objects.ILongObject)
 	s2, ok2 := end.(objects.ILongObject)
 
-	var points []vector.Vector2f
+	points := mover.points[:]
+	pointCount := 0
 
 	genScale := mover.previousSpeed
 
@@ -60,23 +68,27 @@ func (mover *BezierMover) SetObjects(objs []objects.IHitObject) int {
 	sliderAggressiveness := float32(config.SliderAggressiveness)
 
 	if startPos == endPos {
-		points = []vector.Vector2f{startPos, endPos}
+		points[0], points[1] = startPos, endPos
+		pointCount = 2
 	} else if ok1 && ok2 {
 		endAngle := s1.GetEndAngleMod(mover.diff)
 		startAngle := s2.GetStartAngleMod(mover.diff)
 		mover.pt = vector.NewVec2fRad(endAngle, s1.GetStackedPositionAtMod(mover.startTime-10, mover.diff).Dst(startPos)*aggressiveness*sliderAggressiveness/10).Add(startPos)
 		pt2 := vector.NewVec2fRad(startAngle, s2.GetStackedPositionAtMod(mover.endTime+10, mover.diff).Dst(endPos)*aggressiveness*sliderAggressiveness/10).Add(endPos)
-		points = []vector.Vector2f{startPos, mover.pt, pt2, endPos}
+		points[0], points[1], points[2], points[3] = startPos, mover.pt, pt2, endPos
+		pointCount = 4
 	} else if ok1 {
 		endAngle := s1.GetEndAngleMod(mover.diff)
 		pt1 := vector.NewVec2fRad(endAngle, s1.GetStackedPositionAtMod(mover.startTime-10, mover.diff).Dst(startPos)*aggressiveness*sliderAggressiveness/10).Add(startPos)
 		mover.pt = vector.NewVec2fRad(endPos.AngleRV(mover.pt), genScale*aggressiveness).Add(endPos)
-		points = []vector.Vector2f{startPos, pt1, mover.pt, endPos}
+		points[0], points[1], points[2], points[3] = startPos, pt1, mover.pt, endPos
+		pointCount = 4
 	} else if ok2 {
 		startAngle := s2.GetStartAngleMod(mover.diff)
 		mover.pt = vector.NewVec2fRad(startPos.AngleRV(mover.pt), genScale*aggressiveness).Add(startPos)
 		pt1 := vector.NewVec2fRad(startAngle, s2.GetStackedPositionAtMod(mover.endTime+10, mover.diff).Dst(endPos)*aggressiveness*sliderAggressiveness/10).Add(endPos)
-		points = []vector.Vector2f{startPos, mover.pt, pt1, endPos}
+		points[0], points[1], points[2], points[3] = startPos, mover.pt, pt1, endPos
+		pointCount = 4
 	} else {
 		angle := startPos.AngleRV(mover.pt)
 		if math32.IsNaN(angle) {
@@ -84,17 +96,26 @@ func (mover *BezierMover) SetObjects(objs []objects.IHitObject) int {
 		}
 		mover.pt = vector.NewVec2fRad(angle, mover.previousSpeed*aggressiveness).Add(startPos)
 
-		points = []vector.Vector2f{startPos, mover.pt, endPos}
+		points[0], points[1], points[2] = startPos, mover.pt, endPos
+		pointCount = 3
 	}
 
-	mover.curve = curves.NewBezierNA(points)
+	mover.curve = curves.NewBezierNA(points[:pointCount])
 
-	mover.previousSpeed = (dst + 1.0) / float32(mover.endTime-mover.startTime)
+	if duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0) {
+		mover.previousSpeed = (dst + 1.0) / float32(duration)
+	} else {
+		mover.previousSpeed = 0
+	}
 
 	return 2
 }
 
 func (mover *BezierMover) Update(time float64) vector.Vector2f {
-	t := mutils.Clamp((time-mover.startTime)/(mover.endTime-mover.startTime), 0, 1)
+	if mover.curve == nil {
+		return mover.pt
+	}
+
+	t := movementProgress(time, mover.startTime, mover.endTime)
 	return mover.curve.PointAt(float32(t))
 }

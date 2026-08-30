@@ -98,6 +98,10 @@ func NewBody(curve *curves.MultiCurve, vFlip, hFlip bool, hitCircleRadius float3
 }
 
 func (body *Body) setupLinesAndBounds(curve *curves.MultiCurve, vFlip, hFlip bool) {
+	if curve == nil {
+		return
+	}
+
 	lines := curve.GetLines()
 	if lines == nil || len(lines) == 0 {
 		return
@@ -119,7 +123,9 @@ func (body *Body) setupLinesAndBounds(curve *curves.MultiCurve, vFlip, hFlip boo
 
 		length := line.GetLength()
 
-		if length == 0 {
+		if !finiteFloat32(line.Point1.X) || !finiteFloat32(line.Point1.Y) ||
+			!finiteFloat32(line.Point2.X) || !finiteFloat32(line.Point2.Y) ||
+			!finiteFloat32(length) || length <= 0 {
 			continue
 		}
 
@@ -136,6 +142,11 @@ func (body *Body) setupLinesAndBounds(curve *curves.MultiCurve, vFlip, hFlip boo
 		})
 
 		body.totalLength += length
+		if !finiteFloat32(body.totalLength) {
+			body.sections = body.sections[:0]
+			body.totalLength = 0
+			return
+		}
 	}
 }
 
@@ -421,7 +432,7 @@ func (body *Body) modifyBuffer(index int, point vector.Vector2f, length float32)
 }
 
 func (body *Body) DrawNormal(projection mgl32.Mat4, stackOffset vector.Vector2f, scale float32, bodyInner, bodyOuter, borderInner, borderOuter color2.Color) {
-	if body == nil || body.framebuffer == nil || body.disposed || len(body.sections) == 0 {
+	if body == nil || body.framebuffer == nil || body.bodySprite == nil || body.disposed || len(body.sections) == 0 {
 		return
 	}
 
@@ -473,15 +484,38 @@ func (body *Body) ensureFBO(baseProjView mgl32.Mat4) {
 
 	dimensions := bottomRightScreen.Sub(topLeftScreen).Abs()
 
-	body.framebuffer = buffer.NewFrameDepth(int(dimensions.X), int(dimensions.Y), false)
+	if !finiteFloat32(topLeftWorld.X) || !finiteFloat32(topLeftWorld.Y) ||
+		!finiteFloat32(bottomRightWorld.X) || !finiteFloat32(bottomRightWorld.Y) ||
+		!finiteFloat32(dimensions.X) || !finiteFloat32(dimensions.Y) ||
+		dimensions.X < 1 || dimensions.Y < 1 || dimensions.X >= float32(math.MaxInt32) || dimensions.Y >= float32(math.MaxInt32) {
+		return
+	}
+
+	width := int(math.Ceil(float64(dimensions.X)))
+	height := int(math.Ceil(float64(dimensions.Y)))
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	var maxTextureSize int32
+	gl.GetIntegerv(gl.MAX_TEXTURE_SIZE, &maxTextureSize)
+	if maxTextureSize > 0 && (width > int(maxTextureSize) || height > int(maxTextureSize)) {
+		return
+	}
+
+	body.framebuffer = buffer.NewFrameDepth(width, height, false)
 
 	tex := body.framebuffer.Texture().GetRegion()
 
 	body.bodySprite = sprite.NewSpriteSingle(&tex, 0, bottomRightWorld.Sub(topLeftWorld).Scl(0.5).Add(topLeftWorld).Copy64(), vector.Centre)
-	body.bodySprite.SetScale(float64((bottomRightWorld.X - topLeftWorld.X) / dimensions.X))
+	body.bodySprite.SetScale(float64((bottomRightWorld.X - topLeftWorld.X) / float32(width)))
 	body.bodySprite.SetVFlip(true)
 
 	body.baseProjection = mgl32.Ortho(topLeftWorld.X, bottomRightWorld.X, bottomRightWorld.Y, topLeftWorld.Y, 1, -1)
+}
+
+func finiteFloat32(value float32) bool {
+	return !math.IsNaN(float64(value)) && !math.IsInf(float64(value), 0)
 }
 
 func (body *Body) calculateDistortionMatrix(baseProjView, invProjView mgl32.Mat4) {

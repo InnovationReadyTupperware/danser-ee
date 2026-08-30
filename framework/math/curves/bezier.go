@@ -22,15 +22,22 @@ func NewBezier(points []vector.Vector2f) *Bezier {
 // Creates a bezier curve with non-approximated length.
 // To calculate that length, call (*Bezier).CalculateLength()
 func NewBezierNA(points []vector.Vector2f) *Bezier {
-	bz := &Bezier{Points: points}
+	bz := &Bezier{}
+	bz.SetPoints(points)
+	return bz
+}
+
+// SetPoints updates a non-approximated Bezier curve in place. Reusable curve
+// builders use this to avoid allocating one curve object for every rebuild.
+func (bz *Bezier) SetPoints(points []vector.Vector2f) {
+	bz.Points = points
+	bz.controlLength = 0
 
 	for i := 1; i < len(bz.Points); i++ {
 		bz.controlLength += bz.Points[i].Dst(bz.Points[i-1])
 	}
 
 	bz.ApproxLength = bz.controlLength
-
-	return bz
 }
 
 // Calculates the approximate length of the curve to 2 decimal points of accuracy in most cases

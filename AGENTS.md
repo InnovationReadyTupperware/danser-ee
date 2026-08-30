@@ -140,6 +140,15 @@ These are the recurring failure modes worth keeping in mind during review.
   not a pre-rendered video.
 - **Cursor dance:** Generated cursor movement derived from the beatmap and
   cursor-dance settings instead of a player's recorded input.
+- **Singular slider:** A slider whose effective stable traversal has no usable
+  path or no positive time span. Gameplay retains the authored slider and its
+  head timing; cursor-dance expansion represents it as one effective point.
+  Singular is a workload flag and can coexist with pathological geometry.
+- **Pathological slider:** A valid osu!standard slider whose authored geometry,
+  score-point density, or overlap makes ordinary per-slider presentation work
+  disproportionately expensive. It is an optimization classification, not a
+  parser rejection; generated cursor movement treats it as one normal
+  hit-note target and does not traverse its authored path.
 - **TAG:** A generated multi-cursor arrangement where cursors take turns on
   objects. In solo knockout, the generated cursors are full scored
   participants instead.
