@@ -187,6 +187,13 @@ These are the recurring failure modes worth keeping in mind during review.
   surrounding context is still available.
 - Use US English and ASCII punctuation in new identifiers, labels, comments,
   and documentation. Do not add decorative banner comments or separators.
+- The upstream maintainer intentionally uses lowercase `danser` as the short
+  brand; this is a branding convention, not a typo. Preserve that spelling in
+  the middle of sentences, settings descriptions, logs, and inherited runtime
+  labels. Capitalize it as `Danser` when it begins a normal sentence. Use
+  `danser-ee` for the fork's compact name and reserve `Danser Enterprise
+  Edition` for deliberate long-form display branding. Do not globally
+  title-case `danser`.
 
 ## Development and verification
 

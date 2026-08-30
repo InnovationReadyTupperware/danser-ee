@@ -4,7 +4,7 @@ import (
 	"runtime/debug"
 )
 
-var ProgramName = "danser-go"
+var ProgramName = "danser-ee"
 
 var CommitHash = "Unknown"
 

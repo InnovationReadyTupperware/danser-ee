@@ -348,7 +348,7 @@ func (l *launcher) startContext(ctx context.Context) {
 		iconName += "-s"
 	}
 
-	if err := gcontext.SDLCreateWindow(800, 534, "danser-go "+build.VERSION+" launcher", gcontext.OptionalProps{
+	if err := gcontext.SDLCreateWindow(800, 534, "Danser Enterprise Edition "+build.VERSION+" launcher", gcontext.OptionalProps{
 		IconName:       iconName,
 		ScaleToMonitor: true,
 		BuiltinMSAA:    true,

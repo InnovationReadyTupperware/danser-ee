@@ -25,7 +25,7 @@ func GetLatestVersionFromGitHubContext(ctx context.Context) (url string, tag str
 	if ctx == nil {
 		return "", "", fmt.Errorf("nil context")
 	}
-	request, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/Wieku/danser-go/releases/latest", nil)
+	request, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/innovationreadytupperware/danser-ee/releases/latest", nil)
 	if err != nil {
 		return "", "", err
 	}
@@ -111,7 +111,7 @@ func CheckForUpdateContext(ctx context.Context) (UpdateStatus, string, error) {
 		return Ignored, "", nil
 	}
 
-	log.Println("Checking Github for a new version of danser...")
+	log.Println("Checking GitHub for a new version of danser-ee...")
 
 	url, tag, err := GetLatestVersionFromGitHubContext(ctx)
 	if err != nil {

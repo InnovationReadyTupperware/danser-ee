@@ -125,7 +125,7 @@ func drawAbout(dTex texture.Texture) {
 	})
 
 	centerTable("about2", -1, func() {
-		imgui.TextUnformatted("danser-go " + build.VERSION)
+		imgui.TextUnformatted("danser-ee " + build.VERSION)
 	})
 
 	centerTable("about3", -1, func() {
