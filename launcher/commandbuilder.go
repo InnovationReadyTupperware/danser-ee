@@ -8,6 +8,7 @@ import (
 
 	"github.com/wieku/danser-go/app/beatmap"
 	"github.com/wieku/danser-go/app/beatmap/difficulty"
+	"github.com/wieku/danser-go/app/ffmpeg"
 	"github.com/wieku/danser-go/framework/math/math32"
 	"github.com/wieku/rplpa"
 	"golang.org/x/exp/constraints"
@@ -266,10 +267,17 @@ func (b *builder) getArgumentsChecked() (args []string, err error) {
 
 	if currentMode != Play && currentPMode != Watch {
 		oEmpty := true
+		outputName := strings.TrimSpace(b.outputName)
+		if currentPMode == Record && b.outputName != "" {
+			if validationErr := ffmpeg.ValidateOutputName(b.outputName); validationErr != nil {
+				return nil, fmt.Errorf("invalid recording output name: %w", validationErr)
+			}
+			outputName = b.outputName
+		}
 
-		if tr := strings.TrimSpace(b.outputName); tr != "" {
+		if outputName != "" {
 			oEmpty = false
-			args = append(args, "-out", tr)
+			args = append(args, "-out", outputName)
 		}
 
 		if currentPMode == Record {

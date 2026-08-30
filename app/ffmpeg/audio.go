@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,26 +16,23 @@ import (
 	"github.com/wieku/danser-go/app/settings"
 	"github.com/wieku/danser-go/framework/bass"
 	"github.com/wieku/danser-go/framework/files"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/platform"
 )
 
 const MaxAudioBuffers = 2000
 
-var cmdAudio *exec.Cmd
+var (
+	cmdAudio         *exec.Cmd
+	audioPipe        io.WriteCloser
+	audioPool        chan []byte
+	audioWriteQueue  chan []byte
+	audioWriteGroup  sync.WaitGroup
+	audioFailure     stickyError
+	audioDiagnostics *diagnosticTail
+)
 
-var audioPipe io.WriteCloser
-
-var audioPool chan []byte
-
-var audioWriteQueue chan []byte
-var endSyncAudio *sync.WaitGroup
-
-func startAudio(audioFPS float64) {
-	tempDir := filepath.Join(settings.Recording.GetOutputDir(), output+"_temp")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		panic(err)
-	}
+func startAudio(audioFPS float64) error {
+	audioFailure = stickyError{}
+	audioDiagnostics = new(diagnosticTail)
 
 	inputName := "-"
 	outputInfo := bass.GetOutputInfo()
@@ -46,9 +44,9 @@ func startAudio(audioFPS float64) {
 	}
 
 	if runtime.GOOS != "windows" {
-		pipe, err := files.NewNamedPipe(tempDir, "")
+		pipe, err := files.NewNamedPipe(sessionDir, "")
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("create audio input pipe: %w", err)
 		}
 
 		inputName = pipe.Path()
@@ -57,103 +55,135 @@ func startAudio(audioFPS float64) {
 
 	options := []string{
 		"-y",
-
 		"-f", "f32le",
 		"-acodec", "pcm_f32le",
 		"-ar", strconv.Itoa(outputInfo.SampleRate),
 		"-ac", strconv.Itoa(outputInfo.Channels),
 		"-i", inputName,
-
-		"-nostats", //hide audio encoding statistics because video ones are more important
+		"-nostats",
 		"-vn",
 	}
 
 	audioFilters := strings.TrimSpace(settings.Recording.AudioFilters)
-	if len(audioFilters) > 0 {
+	if audioFilters != "" {
 		options = append(options, "-af", audioFilters)
 	}
-
 	options = append(options, "-c:a", settings.Recording.AudioCodec, "-strict", "-2")
 
 	encOptions, err := settings.Recording.GetAudioOptions().GenerateFFmpegArgs()
 	if err != nil {
-		panic(fmt.Sprintf("encoder \"%s\": %s", settings.Recording.AudioCodec, err))
-	} else if encOptions != nil {
-		options = append(options, encOptions...)
+		closeAudioPipe()
+		return fmt.Errorf("audio encoder %q options: %w", settings.Recording.AudioCodec, err)
 	}
+	options = append(options, encOptions...)
+	options = append(options, filepath.Join(sessionDir, "audio."+settings.Recording.Container))
 
-	options = append(options, filepath.Join(tempDir, "audio."+settings.Recording.Container))
+	log.Println("Recorder: Running audio FFmpeg with options:", options)
 
-	log.Println("Running ffmpeg with options:", options)
-
-	cmdAudio, err = platform.PrepareFFMpeg("ffmpeg", options...)
+	cmdAudio, err = prepareFFmpeg("ffmpeg", options...)
 	if err != nil {
-		panic(err)
+		closeAudioPipe()
+		return fmt.Errorf("prepare audio encoder: %w", err)
 	}
-
 	if runtime.GOOS == "windows" {
 		audioPipe, err = cmdAudio.StdinPipe()
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("create audio encoder stdin: %w", err)
 		}
 	}
+	cmdAudio.Stdout, cmdAudio.Stderr = diagnosticWriters(audioDiagnostics)
 
-	if settings.Recording.ShowFFmpegLogs {
-		cmdAudio.Stdout = os.Stdout
-		cmdAudio.Stderr = os.Stderr
-	}
-
-	err = cmdAudio.Start()
-	if err != nil {
-		panic(fmt.Sprintf("ffmpeg's audio process failed to start! Please check if audio parameters are entered correctly or audio codec is supported by provided container. Error: %s", err))
+	if err = cmdAudio.Start(); err != nil {
+		closeAudioPipe()
+		return fmt.Errorf("start audio encoder %s: %w", commandDescription(cmdAudio), err)
 	}
 
 	audioBufSize := bass.GetMixerRequiredBufferSize(1 / audioFPS)
+	if audioBufSize <= 0 {
+		closeErr := closeAudioPipe()
+		waitErr := cmdAudio.Wait()
+		return errors.Join(fmt.Errorf("audio mixer returned invalid buffer size %d", audioBufSize), closeErr, waitErr)
+	}
 
 	audioPool = make(chan []byte, MaxAudioBuffers)
-
 	for range MaxAudioBuffers {
 		audioPool <- make([]byte, audioBufSize)
 	}
-
 	audioWriteQueue = make(chan []byte, MaxAudioBuffers)
 
-	endSyncAudio = &sync.WaitGroup{}
-	endSyncAudio.Add(1)
-
-	goroutines.RunOS(func() {
+	audioWriteGroup.Go(func() {
+		writeFailed := false
 		for data := range audioWriteQueue {
-			if _, err := audioPipe.Write(data); err != nil {
-				panic(fmt.Sprintf("ffmpeg's audio process finished abruptly! Please check if you have enough storage or audio parameters are entered correctly. Error: %s", err))
+			if !writeFailed {
+				if _, writeErr := audioPipe.Write(data); writeErr != nil {
+					audioFailure.set(fmt.Errorf("write audio encoder input: %w", writeErr))
+					writeFailed = true
+					_ = audioPipe.Close()
+				}
 			}
 
 			audioPool <- data
 		}
-
-		endSyncAudio.Done()
 	})
+
+	return nil
 }
 
-func stopAudio() {
-	log.Println("Audio finished! Stopping audio pipe...")
+func stopAudio() error {
+	if cmdAudio == nil {
+		return nil
+	}
 
+	log.Println("Recorder: Waiting for audio encoder input to finish")
 	close(audioWriteQueue)
+	audioWriteGroup.Wait()
 
-	endSyncAudio.Wait()
+	closeErr := closeAudioPipe()
+	waitErr := cmdAudio.Wait()
+	if waitErr != nil {
+		waitErr = fmt.Errorf("wait for audio encoder: %w", waitErr)
+	}
 
-	_ = audioPipe.Close()
+	cmdAudio = nil
+	stageErr := errors.Join(audioFailure.get(), closeErr, waitErr)
+	if stageErr != nil {
+		return withDiagnostics("audio encoder failed", stageErr, audioDiagnostics)
+	}
 
-	log.Println("Audio pipe closed. Waiting for audio ffmpeg process to finish...")
-
-	_ = cmdAudio.Wait()
-
-	log.Println("Audio process finished.")
+	return nil
 }
 
-func PushAudio() {
+func closeAudioPipe() error {
+	if audioPipe == nil {
+		return nil
+	}
+
+	err := audioPipe.Close()
+	audioPipe = nil
+	if errors.Is(err, os.ErrClosed) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("close audio encoder input: %w", err)
+	}
+
+	return nil
+}
+
+// PushAudio submits the next mixer block to the audio encoder.
+func PushAudio() error {
+	if err := audioFailure.get(); err != nil {
+		return err
+	}
+
 	data := <-audioPool
+	if err := audioFailure.get(); err != nil {
+		audioPool <- data
+		return err
+	}
 
 	bass.ProcessMixer(data)
-
 	audioWriteQueue <- data
+
+	return audioFailure.get()
 }

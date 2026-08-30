@@ -3,6 +3,7 @@
 package files
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,8 @@ func NewNamedPipe(path, name string) (*NamedPipe, error) {
 
 	_, err = unix.FcntlInt(file.Fd(), unix.F_SETPIPE_SZ, 65536)
 	if err != nil {
+		_ = file.Close()
+		_ = os.Remove(fPath)
 		return nil, err
 	}
 
@@ -65,12 +68,10 @@ func (namedPipe *NamedPipe) Write(p []byte) (n int, err error) {
 }
 
 func (namedPipe *NamedPipe) Close() (err error) {
-	err = namedPipe.file.Close()
-	if err != nil {
-		return
-	}
-
-	return os.Remove(namedPipe.name)
+	return errors.Join(
+		namedPipe.file.Close(),
+		os.Remove(filepath.Join(namedPipe.path, namedPipe.name)),
+	)
 }
 
 // Name returns a system name of the pipe to use in IPC

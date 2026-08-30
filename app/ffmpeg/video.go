@@ -1,7 +1,7 @@
 package ffmpeg
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -22,42 +22,34 @@ import (
 	"github.com/wieku/danser-go/framework/goroutines"
 	"github.com/wieku/danser-go/framework/graphics/effects"
 	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/platform"
 	"github.com/wieku/danser-go/framework/util/pixconv"
 )
 
 const MaxVideoBuffers = 10
 
-var cmdVideo *exec.Cmd
-
-var videoPipe io.WriteCloser
-
-var videoWriteQueue chan *PBO
-var endSyncVideo *sync.WaitGroup
-
-var videoError string
-var videoErrorWait *sync.WaitGroup
-
-var freePBOPool chan *PBO
-
-var frameReadQueue = make([]*PBO, 0)
-
-var blend *effects.Blend
-
-var w, h int
-
-var limiter *frame.Limiter
-
-var parsedFormat pixconv.PixFmt
+var (
+	cmdVideo          *exec.Cmd
+	videoPipe         io.WriteCloser
+	videoWriteQueue   chan *PBO
+	videoWriteGroup   sync.WaitGroup
+	videoFailure      stickyError
+	videoDiagnostics  *diagnosticTail
+	freePBOPool       chan *PBO
+	frameReadQueue    = make([]*PBO, 0)
+	blend             *effects.Blend
+	w, h              int
+	limiter           *frame.Limiter
+	parsedFormat      pixconv.PixFmt
+	rgbToYuvConverter *effects.RGBYUV
+	frameNumber       int64 = -1
+)
 
 type PBO struct {
 	handle     uint32
 	memPointer unsafe.Pointer
 	data       []byte
-
 	convFormat pixconv.PixFmt
-
-	sync uintptr
+	sync       uintptr
 }
 
 func createPBO(format pixconv.PixFmt) *PBO {
@@ -65,25 +57,25 @@ func createPBO(format pixconv.PixFmt) *PBO {
 	pbo.convFormat = format
 
 	glSize := w * h * 3
-
 	if pbo.convFormat == pixconv.I420 || pbo.convFormat == pixconv.NV12 {
 		glSize = w * h * 3 / 2
 	}
 
 	gl.CreateBuffers(1, &pbo.handle)
 	gl.NamedBufferStorage(pbo.handle, glSize, gl.Ptr(nil), gl.MAP_PERSISTENT_BIT|gl.MAP_COHERENT_BIT|gl.MAP_READ_BIT)
-
 	pbo.memPointer = gl.MapNamedBufferRange(pbo.handle, 0, glSize, gl.MAP_PERSISTENT_BIT|gl.MAP_COHERENT_BIT|gl.MAP_READ_BIT)
-
 	pbo.data = unsafe.Slice((*byte)(pbo.memPointer), glSize)
 
 	return pbo
 }
 
-var rgbToYuvConverter *effects.RGBYUV
-
-func startVideo(fps, _w, _h int) {
-	w, h = _w, _h
+func startVideo(fps, width, height int) error {
+	w, h = width, height
+	frameNumber = -1
+	frameReadQueue = frameReadQueue[:0]
+	videoFailure = stickyError{}
+	videoDiagnostics = new(diagnosticTail)
+	videoWriteGroup = sync.WaitGroup{}
 
 	if settings.Recording.MotionBlur.Enabled {
 		fps /= settings.Recording.MotionBlur.OversampleMultiplier
@@ -91,15 +83,13 @@ func startVideo(fps, _w, _h int) {
 
 	encoder := strings.ToLower(settings.Recording.Encoder)
 	outputFormat := strings.ToLower(settings.Recording.PixelFormat)
-
-	if strings.HasSuffix(encoder, "_qsv") { // qsv works best with nv12 format
+	if strings.HasSuffix(encoder, "_qsv") {
 		outputFormat = "nv12"
 	} else if encoder == "libsvtav1" {
 		outputFormat = "yuv420p"
 	}
 
 	parsedFormat = pixconv.ARGB
-
 	switch outputFormat {
 	case "yuv420p":
 		parsedFormat = pixconv.I420
@@ -110,31 +100,21 @@ func startVideo(fps, _w, _h int) {
 	}
 
 	var filters []string
-
 	inputPixFmt := "rgb24"
 	if parsedFormat != pixconv.ARGB {
 		inputPixFmt = outputFormat
 	} else {
 		filters = append(filters, "vflip")
 	}
-
-	videoFilters := strings.TrimSpace(settings.Recording.Filters)
-	if len(videoFilters) > 0 {
+	if videoFilters := strings.TrimSpace(settings.Recording.Filters); videoFilters != "" {
 		filters = append(filters, videoFilters)
 	}
 
-	tempDir := filepath.Join(settings.Recording.GetOutputDir(), output+"_temp")
-
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		panic(err)
-	}
-
 	inputName := "-"
-
 	if runtime.GOOS != "windows" {
-		pipe, err := files.NewNamedPipe(tempDir, "")
+		pipe, err := files.NewNamedPipe(sessionDir, "")
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("create video input pipe: %w", err)
 		}
 
 		inputName = pipe.Path()
@@ -142,15 +122,14 @@ func startVideo(fps, _w, _h int) {
 	}
 
 	options := []string{
-		"-y",  //(optional) overwrite output file if it exists
-		"-an", // no audio
+		"-y",
+		"-an",
 		"-f", "rawvideo",
 		"-c:v", "rawvideo",
-		"-s", fmt.Sprintf("%dx%d", w, h), //size of one frame
+		"-s", fmt.Sprintf("%dx%d", w, h),
 		"-pix_fmt", inputPixFmt,
-		"-r", strconv.Itoa(fps), //frames per second
+		"-r", strconv.Itoa(fps),
 	}
-
 	if inputPixFmt != "rgb24" {
 		options = append(options,
 			"-color_range", "1",
@@ -159,15 +138,10 @@ func startVideo(fps, _w, _h int) {
 			"-color_primaries", "1",
 		)
 	}
-
-	options = append(options,
-		"-i", inputName, //The input comes from a videoPipe
-	)
-
+	options = append(options, "-i", inputName)
 	if len(filters) > 0 {
 		options = append(options, "-vf", strings.Join(filters, ","))
 	}
-
 	options = append(options,
 		"-c:v", encoder,
 		"-color_range", "1",
@@ -176,153 +150,112 @@ func startVideo(fps, _w, _h int) {
 		"-color_primaries", "1",
 		"-movflags", "+write_colr",
 	)
-
 	if parsedFormat == pixconv.ARGB {
 		options = append(options, "-pix_fmt", outputFormat)
 	}
 
 	encOptions, err := settings.Recording.GetEncoderOptions().GenerateFFmpegArgs()
 	if err != nil {
-		panic(fmt.Sprintf("encoder \"%s\": %s", encoder, err))
-	} else if encOptions != nil {
-		options = append(options, encOptions...)
+		closeVideoPipe()
+		return fmt.Errorf("video encoder %q options: %w", encoder, err)
 	}
+	options = append(options, encOptions...)
+	options = append(options, filepath.Join(sessionDir, "video."+settings.Recording.Container))
 
-	options = append(options, filepath.Join(tempDir, "video."+settings.Recording.Container))
-
-	log.Println("Running ffmpeg with options:", options)
-
-	cmdVideo, err = platform.PrepareFFMpeg("ffmpeg", options...)
+	log.Println("Recorder: Running video FFmpeg with options:", options)
+	cmdVideo, err = prepareFFmpeg("ffmpeg", options...)
 	if err != nil {
-		panic(err)
+		closeVideoPipe()
+		return fmt.Errorf("prepare video encoder: %w", err)
 	}
-
 	if runtime.GOOS == "windows" {
 		videoPipe, err = cmdVideo.StdinPipe()
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("create video encoder stdin: %w", err)
 		}
 	}
-
-	rFile, oFile, err := os.Pipe()
-	if err != nil {
-		panic(err)
-	}
-
-	outList := []io.Writer{oFile}
-	errList := []io.Writer{oFile}
-
-	if settings.Recording.ShowFFmpegLogs {
-		outList = append(outList, os.Stdout)
-		errList = append(errList, os.Stderr)
-	}
-
-	cmdVideo.Stdout = io.MultiWriter(outList...)
-	cmdVideo.Stderr = io.MultiWriter(errList...)
-
-	err = cmdVideo.Start()
-	if err != nil {
-		panic(fmt.Sprintf("ffmpeg's video process failed to start! Please check if video parameters are entered correctly or video codec is supported by provided container. Error: %s", err))
-	}
+	cmdVideo.Stdout, cmdVideo.Stderr = diagnosticWriters(videoDiagnostics)
 
 	freePBOPool = make(chan *PBO, MaxVideoBuffers)
+	videoWriteQueue = make(chan *PBO, MaxVideoBuffers)
+	limiter = frame.NewLimiter(settings.Recording.EncodingFPSCap)
 
 	goroutines.CallMain(func() {
 		if parsedFormat != pixconv.ARGB {
 			rgbToYuvConverter = effects.NewRGBYUV(w, h, parsedFormat != pixconv.I444 && parsedFormat != pixconv.I422)
 		}
-
 		for range MaxVideoBuffers {
 			freePBOPool <- createPBO(parsedFormat)
 		}
-
 		if settings.Recording.MotionBlur.Enabled {
 			bFrames := settings.Recording.MotionBlur.BlendFrames
 			blend = effects.NewBlend(w, h, bFrames, calculateWeights(bFrames))
 		}
 	})
 
-	videoWriteQueue = make(chan *PBO, MaxVideoBuffers)
+	if err = cmdVideo.Start(); err != nil {
+		closeVideoPipe()
+		return fmt.Errorf("start video encoder %s: %w", commandDescription(cmdVideo), err)
+	}
 
-	limiter = frame.NewLimiter(settings.Recording.EncodingFPSCap)
-
-	videoErrorWait = &sync.WaitGroup{}
-	videoErrorWait.Add(1)
-
-	goroutines.Run(func() {
-		sc := bufio.NewScanner(rFile)
-
-		for sc.Scan() {
-			line := sc.Text()
-
-			_, cutLine, ok := strings.Cut(line, "] ") //searching for encoder error
-
-			if ok {
-				lineLower := strings.ToLower(cutLine)
-
-				if strings.Contains(lineLower, "error setting") ||
-					strings.Contains(lineLower, "error initializing") ||
-					strings.Contains(lineLower, "error creating") ||
-					strings.Contains(lineLower, "invalid") ||
-					strings.Contains(lineLower, "incompatible") ||
-					strings.Contains(lineLower, "not divisible") ||
-					strings.Contains(lineLower, "exceeds") ||
-					strings.Contains(lineLower, "failed") ||
-					strings.Contains(lineLower, "no capable devices found") ||
-					strings.Contains(lineLower, "does not support") {
-
-					videoError = encoder + ": " + cutLine
-
-					oFile.Close()
-				}
-			}
-		}
-
-		videoErrorWait.Done()
-	})
-
-	endSyncVideo = &sync.WaitGroup{}
-	endSyncVideo.Add(1)
-
-	goroutines.RunOS(func() {
+	videoWriteGroup.Go(func() {
+		writeFailed := false
 		for pbo := range videoWriteQueue {
-			if _, err2 := videoPipe.Write(pbo.data); err2 != nil {
-				errorMsg := err2.Error()
-
-				videoErrorWait.Wait()
-
-				if videoError != "" {
-					errorMsg = videoError
+			if !writeFailed {
+				if _, writeErr := videoPipe.Write(pbo.data); writeErr != nil {
+					videoFailure.set(fmt.Errorf("write video encoder input: %w", writeErr))
+					writeFailed = true
+					_ = videoPipe.Close()
 				}
-
-				panic(fmt.Sprintf("ffmpeg's video process finished abruptly! Please check if you have enough storage or video parameters are entered correctly. Error: %s", errorMsg))
 			}
 
 			freePBOPool <- pbo
 		}
-
-		endSyncVideo.Done()
 	})
+
+	return nil
 }
 
-func stopVideo() {
-	log.Println("Waiting for video to finish writing...")
+func stopVideo() error {
+	if cmdVideo == nil {
+		return nil
+	}
 
-	checkData(true, true)
-
+	log.Println("Recorder: Waiting for video encoder input to finish")
+	readErr := checkData(true, true)
 	close(videoWriteQueue)
+	videoWriteGroup.Wait()
 
-	endSyncVideo.Wait()
+	closeErr := closeVideoPipe()
+	waitErr := cmdVideo.Wait()
+	if waitErr != nil {
+		waitErr = fmt.Errorf("wait for video encoder: %w", waitErr)
+	}
 
-	log.Println("Finished! Stopping video pipe...")
+	cmdVideo = nil
+	stageErr := errors.Join(readErr, videoFailure.get(), closeErr, waitErr)
+	if stageErr != nil {
+		return withDiagnostics("video encoder failed", stageErr, videoDiagnostics)
+	}
 
-	_ = videoPipe.Close()
+	return nil
+}
 
-	log.Println("Video pipe closed. Waiting for video ffmpeg process to finish...")
+func closeVideoPipe() error {
+	if videoPipe == nil {
+		return nil
+	}
 
-	_ = cmdVideo.Wait()
+	err := videoPipe.Close()
+	videoPipe = nil
+	if errors.Is(err, os.ErrClosed) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("close video encoder input: %w", err)
+	}
 
-	log.Println("Video process finished.")
+	return nil
 }
 
 func PreFrame() {
@@ -333,53 +266,50 @@ func PreFrame() {
 	}
 }
 
-var frameNumber = int64(-1)
+// MakeFrame reads back and submits one rendered frame when it is due.
+func MakeFrame() error {
+	if err := videoFailure.get(); err != nil {
+		return err
+	}
 
-func MakeFrame() {
 	frameNumber++
-
 	if settings.Recording.MotionBlur.Enabled {
 		blend.End()
-
 		if frameNumber%int64(settings.Recording.MotionBlur.OversampleMultiplier) != 0 {
-			return
+			return nil
 		}
-
 		if rgbToYuvConverter != nil {
 			rgbToYuvConverter.Begin()
 		}
-
 		blend.Blend()
 	}
 
 	var yuvFull, yuvHalf []texture.Texture
-
 	if rgbToYuvConverter != nil {
 		rgbToYuvConverter.End()
-
 		yuvFull, yuvHalf = rgbToYuvConverter.Draw()
 	}
 
-	checkData(len(freePBOPool) == 0, false) // Force wait for at least one frame to be retrieved if pbo pool is empty
-
-	pbo := <-freePBOPool // Wait for free PBO
-
-	//gl.MemoryBarrier(gl.PIXEL_BUFFER_BARRIER_BIT)
+	if err := checkData(len(freePBOPool) == 0, false); err != nil {
+		return err
+	}
+	pbo := <-freePBOPool
+	if err := videoFailure.get(); err != nil {
+		freePBOPool <- pbo
+		return err
+	}
 
 	gl.BindBuffer(gl.PIXEL_PACK_BUFFER, pbo.handle)
-
 	gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
 
 	if pbo.convFormat == pixconv.NV12 {
 		gl.GetTextureSubImage(yuvFull[0].GetID(), 0, 0, 0, 0, int32(w), int32(h), 1, gl.RED, gl.UNSIGNED_BYTE, int32(w*h), gl.Ptr(nil))
-
 		gl.GetTextureSubImage(yuvHalf[0].GetID(), 0, 0, 0, 0, int32(w/2), int32(h/2), 1, gl.RG, gl.UNSIGNED_BYTE, int32(w*h/2), gl.PtrOffset(w*h))
 	} else if pbo.convFormat == pixconv.I420 {
 		gl.GetTextureSubImage(yuvFull[0].GetID(), 0, 0, 0, 0, int32(w), int32(h), 1, gl.RED, gl.UNSIGNED_BYTE, int32(w*h), gl.Ptr(nil))
-
 		gl.GetTextureSubImage(yuvHalf[0].GetID(), 0, 0, 0, 0, int32(w/2), int32(h/2), 1, gl.RED, gl.UNSIGNED_BYTE, int32(w*h/4), gl.PtrOffset(w*h))
 		gl.GetTextureSubImage(yuvHalf[1].GetID(), 0, 0, 0, 0, int32(w/2), int32(h/2), 1, gl.RED, gl.UNSIGNED_BYTE, int32(w*h/4), gl.PtrOffset(w*h*5/4))
-	} else if pbo.convFormat != pixconv.ARGB { //Read as yuv444p
+	} else if pbo.convFormat != pixconv.ARGB {
 		gl.GetTextureSubImage(yuvFull[0].GetID(), 0, 0, 0, 0, int32(w), int32(h), 1, gl.RED, gl.UNSIGNED_BYTE, int32(w*h), gl.Ptr(nil))
 		gl.GetTextureSubImage(yuvFull[1].GetID(), 0, 0, 0, 0, int32(w), int32(h), 1, gl.RED, gl.UNSIGNED_BYTE, int32(w*h), gl.PtrOffset(w*h))
 		gl.GetTextureSubImage(yuvFull[2].GetID(), 0, 0, 0, 0, int32(w), int32(h), 1, gl.RED, gl.UNSIGNED_BYTE, int32(w*h), gl.PtrOffset(w*h*2))
@@ -388,26 +318,25 @@ func MakeFrame() {
 	}
 
 	pbo.sync = gl.FenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
-
 	gl.Flush()
-
 	frameReadQueue = append(frameReadQueue, pbo)
 
-	checkData(false, false)
-
+	if err := checkData(false, false); err != nil {
+		return err
+	}
 	limiter.Sync()
+
+	return videoFailure.get()
 }
 
-func checkData(waitForFirst, waitForAll bool) { // I tried to do that on another thread, but it needs another opengl context and creates other funky problems
+func checkData(waitForFirst, waitForAll bool) error {
 	for i := 0; len(frameReadQueue) > 0; i++ {
 		pbo := frameReadQueue[0]
-
 		status := int32(gl.SIGNALED)
 
-		if (i == 0 && waitForFirst) || waitForAll {
+		if i == 0 && waitForFirst || waitForAll {
 			for {
 				iStat := gl.ClientWaitSync(pbo.sync, 0, gl.TIMEOUT_IGNORED)
-
 				if iStat == gl.ALREADY_SIGNALED || iStat == gl.CONDITION_SATISFIED {
 					break
 				}
@@ -417,13 +346,17 @@ func checkData(waitForFirst, waitForAll bool) { // I tried to do that on another
 		}
 
 		if status != gl.SIGNALED {
-			return
+			return videoFailure.get()
 		}
 
 		gl.DeleteSync(pbo.sync)
-
 		frameReadQueue = frameReadQueue[1:]
-
-		videoWriteQueue <- pbo
+		if videoFailure.get() != nil {
+			freePBOPool <- pbo
+		} else {
+			videoWriteQueue <- pbo
+		}
 	}
+
+	return videoFailure.get()
 }

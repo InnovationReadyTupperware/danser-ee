@@ -123,6 +123,44 @@ func TestSoloKnockoutRequiresOnlyMapSelection(t *testing.T) {
 	}
 }
 
+func TestRecordingArgumentsRejectOutputPaths(t *testing.T) {
+	oldMode := launcherConfig.CurrentMode
+	oldPMode := launcherConfig.CurrentPMode
+	t.Cleanup(func() {
+		launcherConfig.CurrentMode = oldMode
+		launcherConfig.CurrentPMode = oldPMode
+	})
+
+	launcherConfig.CurrentMode = CursorDance
+	launcherConfig.CurrentPMode = Record
+	builder := newBuilder()
+	builder.currentMap = &beatmap.BeatMap{MD5: "map-md5"}
+	builder.outputName = `..\outside`
+
+	if _, err := builder.getArgumentsChecked(); err == nil {
+		t.Fatal("recording arguments accepted an output path")
+	}
+}
+
+func TestRecordingArgumentsRejectSurroundingWhitespace(t *testing.T) {
+	oldMode := launcherConfig.CurrentMode
+	oldPMode := launcherConfig.CurrentPMode
+	t.Cleanup(func() {
+		launcherConfig.CurrentMode = oldMode
+		launcherConfig.CurrentPMode = oldPMode
+	})
+
+	launcherConfig.CurrentMode = CursorDance
+	launcherConfig.CurrentPMode = Record
+	builder := newBuilder()
+	builder.currentMap = &beatmap.BeatMap{MD5: "map-md5"}
+	builder.outputName = " recording"
+
+	if _, err := builder.getArgumentsChecked(); err == nil {
+		t.Fatal("recording arguments accepted surrounding whitespace")
+	}
+}
+
 func containsArgument(args []string, want string) bool {
 	for _, arg := range args {
 		if arg == want {

@@ -3,6 +3,7 @@ package app
 import "C"
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -146,7 +147,7 @@ func run() {
 		quickstart := flag.Bool("quickstart", false, "Sets -skip flag, sets LeadInTime and LeadInHold settings temporarily to 0")
 
 		record := flag.Bool("record", false, "Records a video")
-		out := flag.String("out", "", "If -ss flag is used, sets the name of screenshot, extension is PNG. If not, it overrides -record flag, specifies the name of recorded video file, extension is managed by settings")
+		out := flag.String("out", "", "If -ss is used, sets the screenshot name. Otherwise, specifies a recorded-video base name without directories; existing videos are not overwritten. Extensions are managed automatically.")
 		ss := flag.Float64("ss", math.NaN(), "Screenshot mode. Snap single frame from danser at given time in seconds. Specify the name of file by -out, resolution is managed by Recording settings")
 
 		mods := flag.String("mods", "", "Specify beatmap/play mods")
@@ -222,6 +223,11 @@ func run() {
 		recordMode = *record
 		screenshotMode = !math.IsNaN(*ss)
 		screenshotTime = *ss
+		if recordMode {
+			if err := ffmpeg.ValidateOutputName(output); err != nil {
+				panic(fmt.Errorf("invalid recording output name: %w", err))
+			}
+		}
 
 		if *record && *play {
 			panic("Incompatible flags selected: -record, -play")
@@ -650,7 +656,9 @@ func run() {
 	})
 
 	if recordMode {
-		mainLoopRecord()
+		if err := mainLoopRecord(); err != nil {
+			panic(err)
+		}
 	} else if screenshotMode {
 		mainLoopSS()
 	} else {
@@ -658,7 +666,7 @@ func run() {
 	}
 }
 
-func mainLoopRecord() {
+func mainLoopRecord() (recordingErr error) {
 	count := int64(0)
 
 	fps := float64(settings.Recording.FPS)
@@ -676,7 +684,18 @@ func mainLoopRecord() {
 		fbo = buffer.NewFrameMultisampleScreen(w, h, false, 0)
 	})
 
-	ffmpeg.StartFFmpeg(int(fps), w, h, audioFPS, output)
+	if err := ffmpeg.StartFFmpeg(int(fps), w, h, audioFPS, output); err != nil {
+		return err
+	}
+	stopped := false
+	defer func() {
+		if stopped {
+			return
+		}
+
+		_, stopErr := ffmpeg.StopFFmpeg()
+		recordingErr = errors.Join(recordingErr, stopErr)
+	}()
 
 	updateFPS := max(fps, 1000)
 	updateDelta := 1000 / updateFPS
@@ -700,15 +719,19 @@ func mainLoopRecord() {
 	for !p.Update(updateDelta) {
 		deltaSumA += updateDelta
 		for deltaSumA >= audioDelta {
-			ffmpeg.PushAudio()
+			if err := ffmpeg.PushAudio(); err != nil {
+				return fmt.Errorf("Recorder: submit audio: %w", err)
+			}
 
 			deltaSumA -= audioDelta
 		}
 
 		deltaSumF += updateDelta
 		if deltaSumF >= fpsDelta {
+			var frameErr error
 			goroutines.CallMain(func() {
 				fbo.Bind()
+				defer fbo.Unbind()
 
 				ffmpeg.PreFrame()
 
@@ -716,9 +739,10 @@ func mainLoopRecord() {
 				pushFrame()
 				viewport.Pop()
 
-				ffmpeg.MakeFrame()
-
-				fbo.Unbind()
+				frameErr = ffmpeg.MakeFrame()
+				if frameErr != nil {
+					return
+				}
 
 				count++
 
@@ -744,14 +768,21 @@ func mainLoopRecord() {
 					lastRealTime = qpc.GetMilliTimeF()
 				}
 			})
+			if frameErr != nil {
+				return fmt.Errorf("Recorder: submit video frame: %w", frameErr)
+			}
 
 			deltaSumF -= fpsDelta
 		}
 	}
 
+	var stopErr error
 	goroutines.CallMain(func() {
-		ffmpeg.StopFFmpeg()
+		_, stopErr = ffmpeg.StopFFmpeg()
 	})
+	stopped = true
+
+	return stopErr
 }
 
 func mainLoopSS() {
