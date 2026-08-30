@@ -135,6 +135,8 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Feature                         |                                    danser-ee                                    |             danser-go (fork base)             |
 |---------------------------------|:-------------------------------------------------------------------------------:|:---------------------------------------------:|
 | Accurate recording sync         |                                       ✅                                        |                source-clocked                 |
+| Recording output publication    |             ✅ Validated base names, isolated sessions, no-replace publish             |       ❌ Output-derived temp paths and overwrite publish       |
+| Recording failure recovery      |        ✅ Checked encoder exits, bounded diagnostics, retained intermediates         | ❌❌❌ Unchecked encoder exits; destructive cleanup on mux-start failure |
 | Timestamped hitsound scheduling |              nominal event timestamps on the master-mixer timeline              | ❌ Frame-triggered playback; not mixer-locked |
 | Audio lifecycle safety          | serialized BASS access, cancellable voices, and explicit map/storyboard cleanup |                       -                       |
 | Offline audio output            |    mixer-clocked rendering with actual output format and zero-filled blocks     |           source-clocked rendering            |
