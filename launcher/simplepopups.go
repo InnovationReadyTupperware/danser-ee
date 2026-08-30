@@ -151,7 +151,7 @@ func drawAbout(dTex texture.Texture) {
 
 		centerTable("aboutgithub", -1, func() {
 			if imgui.Button("GitHub") {
-				platform.OpenURL("https://wieku.me/danser")
+				platform.OpenURL("https://github.com/InnovationReadyTupperware/danser-ee")
 			}
 		})
 
