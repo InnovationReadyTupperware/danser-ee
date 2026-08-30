@@ -109,8 +109,8 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Slider visual timing              |                        fractional end-time evaluation                         |            integer timing             |
 | Slider snaking                    |                           frame-computed, seek-safe                           |         pre-scheduled gliders         |
 | Slider hit animations             |                          configurable, on by default                          |                   -                   |
-| Slider tail/endpoint visuals      |                        skin-aware; no forced tail pop                         |          universal fallback           |
-| Slider body fade policy           |                  timed body fade; short tail fade by default                  |          instant by default           |
+| Slider tail hit animation         |                       skin-native endpoint pipeline                       |          universal endpoint fallback           |
+| Slider body fade policy           |                  timed body fade; short post-end fade by default                  |          instant body fade by default           |
 
 ### Hit-error, spinner, and HUD behavior
 
