@@ -2,9 +2,10 @@ package bmath
 
 import (
 	"cmp"
-	"github.com/wieku/danser-go/framework/math/animation/easing"
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"slices"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 type EType int

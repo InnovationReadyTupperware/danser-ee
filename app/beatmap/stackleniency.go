@@ -3,8 +3,8 @@ package beatmap
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 )
 
 //Original code by: https://github.com/ppy/osu/blob/master/osu.Game.Rulesets.Osu/Beatmaps/OsuBeatmapProcessor.cs

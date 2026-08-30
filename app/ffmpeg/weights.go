@@ -3,8 +3,8 @@ package ffmpeg
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/math/animation/easing"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
 )
 
 var easings = []easing.Easing{

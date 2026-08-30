@@ -2,14 +2,15 @@ package discord
 
 import (
 	"fmt"
-	"github.com/hugolgst/rich-go/client"
-	"github.com/wieku/danser-go/app/graphics"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/build"
-	"github.com/wieku/danser-go/framework/goroutines"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/hugolgst/rich-go/client"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/build"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
 )
 
 const appId = "658093518396588032"

@@ -3,10 +3,10 @@ package preprocessing
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/framework/math/mutils"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 const (

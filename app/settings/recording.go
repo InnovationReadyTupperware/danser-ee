@@ -7,9 +7,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/platform"
-	"github.com/wieku/danser-go/framework/util"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
 )
 
 var Recording = initRecording()

@@ -1,9 +1,10 @@
 package osu
 
 import (
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 type scoreV1Processor struct {

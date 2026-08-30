@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 func TestScheduledMixerTime(t *testing.T) {

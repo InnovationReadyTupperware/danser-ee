@@ -1,4 +1,4 @@
-module github.com/wieku/danser-go
+module github.com/innovationreadytupperware/danser-ee
 
 go 1.27.0
 

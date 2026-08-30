@@ -1,10 +1,11 @@
 package sprite
 
 import (
-	"github.com/wieku/danser-go/framework/graphics/batch"
 	"math"
 	"sort"
 	"sync"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
 )
 
 type Manager struct {

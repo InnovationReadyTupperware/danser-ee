@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 )
 
 func TestCalculateSpinnerRequirementsUsesExactLazerDuration(t *testing.T) {

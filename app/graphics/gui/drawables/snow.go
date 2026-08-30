@@ -1,14 +1,14 @@
 package drawables
 
 import (
-	"github.com/wieku/danser-go/app/graphics"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/mutils"
-	"github.com/wieku/danser-go/framework/math/vector"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 
 	"math"
 	"math/rand"

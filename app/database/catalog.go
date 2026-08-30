@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wieku/danser-go/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 )
 
 const catalogShardCount = 256

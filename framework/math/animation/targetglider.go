@@ -1,8 +1,9 @@
 package animation
 
 import (
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 type TargetGlider struct {

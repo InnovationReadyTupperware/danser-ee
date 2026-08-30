@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/ffmpeg"
-	"github.com/wieku/danser-go/framework/math/math32"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/ffmpeg"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/math32"
 	"github.com/wieku/rplpa"
 	"golang.org/x/exp/constraints"
 )

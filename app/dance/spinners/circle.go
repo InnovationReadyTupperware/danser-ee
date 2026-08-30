@@ -1,6 +1,6 @@
 package spinners
 
-import "github.com/wieku/danser-go/framework/math/vector"
+import "github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 
 // CircleMover traces the simplest spinner path: a constant-radius orbit.
 type CircleMover struct {

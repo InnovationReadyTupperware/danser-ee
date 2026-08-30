@@ -1,14 +1,14 @@
 package performance
 
 import (
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/api"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp211112"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp220930"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp241007"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp250306"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp251020"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp26xxxx"
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp211112"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp220930"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp241007"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp251020"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 var diffCalcInit func() api.IDifficultyCalculator

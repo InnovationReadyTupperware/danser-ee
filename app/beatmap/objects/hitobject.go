@@ -1,10 +1,11 @@
 package objects
 
 import (
-	"github.com/wieku/danser-go/app/audio"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/audio"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type IHitObject interface {

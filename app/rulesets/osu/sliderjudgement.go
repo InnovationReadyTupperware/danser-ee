@@ -1,7 +1,7 @@
 package osu
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 )
 
 const lazerSliderTailLeniency = 36.0

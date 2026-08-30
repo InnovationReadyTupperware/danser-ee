@@ -3,18 +3,6 @@ package play
 import (
 	"errors"
 	"fmt"
-	"github.com/wieku/danser-go/app/osuapi"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/app/utils"
-	"github.com/wieku/danser-go/framework/assets"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/font"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"io"
 	"log"
 	"net/http"
@@ -22,6 +10,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/innovationreadytupperware/danser-ee/app/osuapi"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/skin"
+	"github.com/innovationreadytupperware/danser-ee/app/utils"
+	"github.com/innovationreadytupperware/danser-ee/framework/assets"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type ScoreboardEntry struct {

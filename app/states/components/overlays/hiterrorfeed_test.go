@@ -3,9 +3,9 @@ package overlays
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/rulesets/osu"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {

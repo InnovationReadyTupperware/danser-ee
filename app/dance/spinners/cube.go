@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/wieku/danser-go/framework/math/math32"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/math32"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 var cubeVertices = []mgl32.Vec4{

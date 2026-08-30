@@ -3,7 +3,7 @@ package play
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/rulesets/osu"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
 )
 
 func TestSliderJudgmentMarkerFor(t *testing.T) {

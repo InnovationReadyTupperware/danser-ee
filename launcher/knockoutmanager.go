@@ -6,7 +6,7 @@ import (
 
 	"github.com/AllenDang/cimgui-go/imgui"
 
-	"github.com/wieku/danser-go/app/utils"
+	"github.com/innovationreadytupperware/danser-ee/app/utils"
 )
 
 type knockoutManagerPopup struct {

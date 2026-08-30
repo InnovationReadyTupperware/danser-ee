@@ -4,10 +4,10 @@ import (
 	"math"
 	"slices"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp26xxxx/evaluators"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp26xxxx/preprocessing"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/putils"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/evaluators"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 )
 
 const (

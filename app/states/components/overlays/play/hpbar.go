@@ -1,16 +1,17 @@
 package play
 
 import (
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/math/animation"
-	"github.com/wieku/danser-go/framework/math/animation/easing"
-	"github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/skin"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type HpBar struct {

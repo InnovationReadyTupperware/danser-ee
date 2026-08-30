@@ -3,8 +3,8 @@ package evaluators
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp26xxxx/preprocessing"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/putils"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 )
 
 const (

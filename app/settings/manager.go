@@ -3,15 +3,16 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/files"
-	"github.com/wieku/danser-go/framework/goroutines"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
 )
 
 var currentConfig *Config

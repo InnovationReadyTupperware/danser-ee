@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wieku/danser-go/build"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/platform"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
-	"github.com/wieku/danser-go/framework/util"
+	"github.com/innovationreadytupperware/danser-ee/build"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
 )
 
 type managedProcess struct {

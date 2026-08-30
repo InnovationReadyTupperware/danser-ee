@@ -5,10 +5,10 @@ import (
 
 	"github.com/AllenDang/cimgui-go/imgui"
 
-	"github.com/wieku/danser-go/build"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/math/mutils"
-	"github.com/wieku/danser-go/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/build"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
 )
 
 func drawSpeedMenu(bld *builder) {

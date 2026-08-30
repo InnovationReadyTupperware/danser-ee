@@ -3,7 +3,7 @@ package launcher
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 )
 
 func TestKnockoutArgumentsIncludeSelectedReplays(t *testing.T) {

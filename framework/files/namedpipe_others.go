@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/wieku/danser-go/framework/util"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
 )
 
 type NamedPipe struct {

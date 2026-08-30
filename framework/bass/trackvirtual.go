@@ -4,7 +4,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/wieku/danser-go/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 // TrackVirtual advances against the master output clock without producing

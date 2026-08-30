@@ -1,12 +1,13 @@
 package movers
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/framework/math/curves"
-	"github.com/wieku/danser-go/framework/math/mutils"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/curves"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type AggressiveMover struct {

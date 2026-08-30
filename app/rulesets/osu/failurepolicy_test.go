@@ -3,8 +3,8 @@ package osu
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
 )
 
 func newFailurePolicyTestRuleset() (*OsuRuleSet, *difficultyPlayer, *subSet) {

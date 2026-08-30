@@ -1,12 +1,13 @@
 package video
 
 import (
-	"github.com/go-gl/gl/v3.3-core/gl"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"sync"
+
+	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type Video struct {

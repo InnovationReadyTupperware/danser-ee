@@ -5,16 +5,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/dance/movers"
-	"github.com/wieku/danser-go/app/dance/schedulers"
-	"github.com/wieku/danser-go/app/dance/spinners"
-	"github.com/wieku/danser-go/app/dance/utils"
-	"github.com/wieku/danser-go/app/graphics"
-	"github.com/wieku/danser-go/app/rulesets/osu"
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/movers"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/schedulers"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/spinners"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/utils"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 type Controller interface {

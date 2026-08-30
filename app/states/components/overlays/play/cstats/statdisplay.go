@@ -2,11 +2,6 @@ package cstats
 
 import (
 	"bytes"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/font"
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"log"
 	"maps"
 	"reflect"
@@ -15,6 +10,12 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type Stat struct {

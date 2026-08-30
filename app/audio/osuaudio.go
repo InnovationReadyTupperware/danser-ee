@@ -8,10 +8,10 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/bass"
-	"github.com/wieku/danser-go/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/skin"
+	"github.com/innovationreadytupperware/danser-ee/framework/bass"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 const (

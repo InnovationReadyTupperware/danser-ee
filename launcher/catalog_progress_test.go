@@ -3,7 +3,7 @@ package launcher
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/database"
+	"github.com/innovationreadytupperware/danser-ee/app/database"
 )
 
 func TestCatalogProgressMessage(t *testing.T) {

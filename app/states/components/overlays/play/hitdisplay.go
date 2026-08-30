@@ -1,14 +1,15 @@
 package play
 
 import (
-	"github.com/wieku/danser-go/app/graphics"
-	"github.com/wieku/danser-go/app/rulesets/osu"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/font"
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"strconv"
+
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type HitDisplay struct {

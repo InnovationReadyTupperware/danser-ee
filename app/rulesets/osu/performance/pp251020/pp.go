@@ -3,11 +3,11 @@ package pp251020
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/api"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp251020/skills"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/putils"
-	"github.com/wieku/danser-go/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp251020/skills"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 const (

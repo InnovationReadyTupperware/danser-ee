@@ -18,15 +18,15 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp250306"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/utils"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/files"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/math/mutils"
-	"github.com/wieku/danser-go/framework/util"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/utils"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
 )
 
 var dbFile *sql.DB

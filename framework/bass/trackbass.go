@@ -14,7 +14,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 // TrackBass is a tempo-capable music stream attached to the master mixer.

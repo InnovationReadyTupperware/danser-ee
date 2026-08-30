@@ -3,7 +3,7 @@ package launcher
 import (
 	"sync"
 
-	"github.com/wieku/danser-go/app/database"
+	"github.com/innovationreadytupperware/danser-ee/app/database"
 )
 
 type songSelectCatalogRequest struct {

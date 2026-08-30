@@ -1,7 +1,7 @@
 package settings
 
 import (
-	color2 "github.com/wieku/danser-go/framework/math/color"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 var Cursor = initCursor()

@@ -2,10 +2,10 @@ package common
 
 import (
 	"github.com/go-gl/mathgl/mgl32"
-	"github.com/wieku/danser-go/app/bmath/camera"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/graphics/shape"
-	color2 "github.com/wieku/danser-go/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/app/bmath/camera"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/shape"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 type Boundaries struct {

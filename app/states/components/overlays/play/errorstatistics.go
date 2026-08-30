@@ -4,7 +4,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 // scalarStatistics stores population variance using Welford's online

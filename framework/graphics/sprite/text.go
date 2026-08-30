@@ -1,9 +1,9 @@
 package sprite
 
 import (
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/font"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type TextSprite struct {

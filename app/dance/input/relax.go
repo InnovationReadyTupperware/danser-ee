@@ -1,8 +1,8 @@
 package input
 
 import (
-	"github.com/wieku/danser-go/app/graphics"
-	"github.com/wieku/danser-go/app/rulesets/osu"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
 )
 
 const leniency = 12

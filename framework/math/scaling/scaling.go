@@ -1,7 +1,7 @@
 package scaling
 
 import (
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type Scaling int

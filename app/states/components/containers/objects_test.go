@@ -3,8 +3,8 @@ package containers
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 func TestRemoveExpiredRenderablesBeforeDrawing(t *testing.T) {

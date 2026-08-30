@@ -2,7 +2,7 @@ package blend
 
 import (
 	"github.com/go-gl/gl/v3.3-core/gl"
-	color2 "github.com/wieku/danser-go/framework/math/color"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 type data struct {

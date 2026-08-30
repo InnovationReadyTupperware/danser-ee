@@ -3,8 +3,8 @@ package objects
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/audio"
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/audio"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 func TestPathologicalSliderClassificationUsesOptimizationMetadata(t *testing.T) {

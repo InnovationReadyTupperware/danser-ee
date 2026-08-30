@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
 )
 
 var Credentails = &credentials{

@@ -2,17 +2,18 @@ package osuapi
 
 import (
 	"context"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/platform"
-	"github.com/wieku/danser-go/framework/util"
-	"golang.org/x/oauth2"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
+	"golang.org/x/oauth2"
 )
 
 type AuthResult int

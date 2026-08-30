@@ -1,13 +1,14 @@
 package common
 
 import (
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/framework/bass"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	"github.com/wieku/danser-go/framework/math/mutils"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/framework/bass"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type BeatSynced struct {

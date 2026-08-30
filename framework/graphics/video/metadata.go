@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wieku/danser-go/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
 )
 
 type Metadata struct {

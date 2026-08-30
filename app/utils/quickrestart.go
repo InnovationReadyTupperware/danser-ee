@@ -4,9 +4,9 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 )
 
 func QuickRestart() {

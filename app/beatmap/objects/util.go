@@ -3,7 +3,7 @@ package objects
 import (
 	"strconv"
 
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 func CreateObject(data []string) (object IHitObject) {

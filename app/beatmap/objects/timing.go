@@ -4,7 +4,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/wieku/danser-go/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 const (

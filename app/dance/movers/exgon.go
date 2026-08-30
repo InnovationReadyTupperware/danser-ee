@@ -1,12 +1,13 @@
 package movers
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/math/animation/easing"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math/rand"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type ExGonMover struct {

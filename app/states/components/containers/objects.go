@@ -7,18 +7,18 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/graphics/sliderrenderer"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	"github.com/wieku/danser-go/framework/math/animation"
-	"github.com/wieku/danser-go/framework/math/animation/easing"
-	"github.com/wieku/danser-go/framework/math/vector"
-	"github.com/wieku/danser-go/framework/profiler"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics/sliderrenderer"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/skin"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/profiler"
 )
 
 type renderableProxy struct {

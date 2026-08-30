@@ -13,8 +13,8 @@ import (
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
 
-	"github.com/wieku/danser-go/build"
-	"github.com/wieku/danser-go/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/build"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
 )
 
 func StartLogging(logName string) {

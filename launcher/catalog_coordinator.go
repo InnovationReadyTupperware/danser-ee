@@ -7,7 +7,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/wieku/danser-go/app/database"
+	"github.com/innovationreadytupperware/danser-ee/app/database"
 )
 
 // Catalog updates larger than this are published as a worker-built snapshot.

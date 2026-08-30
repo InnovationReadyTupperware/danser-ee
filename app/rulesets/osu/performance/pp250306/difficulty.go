@@ -5,12 +5,12 @@ import (
 	"math"
 	"time"
 
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/api"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp250306/preprocessing"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp250306/skills"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306/skills"
 )
 
 const (

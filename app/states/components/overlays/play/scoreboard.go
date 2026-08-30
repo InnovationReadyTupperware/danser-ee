@@ -1,20 +1,21 @@
 package play
 
 import (
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/osuapi"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	"github.com/wieku/danser-go/framework/math/animation"
-	"github.com/wieku/danser-go/framework/math/animation/easing"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/osuapi"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/skin"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 const spacing = 57.6

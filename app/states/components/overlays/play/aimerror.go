@@ -2,21 +2,22 @@ package play
 
 import (
 	"fmt"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/graphics"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/skin"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/font"
-	"github.com/wieku/danser-go/framework/graphics/shape"
-	"github.com/wieku/danser-go/framework/graphics/sprite"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/math/animation"
-	"github.com/wieku/danser-go/framework/math/animation/easing"
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
 	"strconv"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/skin"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/shape"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 const baseSpaceSize = 64.0

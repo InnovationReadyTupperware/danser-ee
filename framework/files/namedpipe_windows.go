@@ -9,8 +9,8 @@ import (
 
 	"github.com/Microsoft/go-winio"
 
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/util"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
 )
 
 type NamedPipe struct {

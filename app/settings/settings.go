@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
 	"github.com/itchio/lzma"
-	"github.com/wieku/danser-go/framework/files"
 )
 
 type defaultsFactory struct{}

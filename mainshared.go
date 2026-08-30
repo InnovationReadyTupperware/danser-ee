@@ -3,10 +3,11 @@ package main
 import "C"
 
 import (
-	"github.com/wieku/danser-go/app"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/launcher"
 	"os"
+
+	"github.com/innovationreadytupperware/danser-ee/app"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/launcher"
 )
 
 //export danserMain

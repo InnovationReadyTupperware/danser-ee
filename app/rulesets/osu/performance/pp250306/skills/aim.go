@@ -1,10 +1,11 @@
 package skills
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp250306/evaluators"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp250306/preprocessing"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306/evaluators"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306/preprocessing"
 )
 
 const (

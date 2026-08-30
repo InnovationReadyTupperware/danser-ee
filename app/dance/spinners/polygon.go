@@ -3,7 +3,7 @@ package spinners
 import (
 	"math"
 
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 // polygonRadiusAtAngle returns the distance from a polygon's center to its

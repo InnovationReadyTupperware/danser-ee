@@ -2,14 +2,14 @@ package shape
 
 import (
 	"github.com/go-gl/mathgl/mgl32"
-	"github.com/wieku/danser-go/framework/graphics/attribute"
-	"github.com/wieku/danser-go/framework/graphics/blend"
-	"github.com/wieku/danser-go/framework/graphics/buffer"
-	"github.com/wieku/danser-go/framework/graphics/shader"
-	"github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/math32"
-	"github.com/wieku/danser-go/framework/math/vector"
-	"github.com/wieku/danser-go/framework/profiler"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/attribute"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/blend"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/buffer"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/shader"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/math32"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/profiler"
 )
 
 const defaultRendererSize = 2000

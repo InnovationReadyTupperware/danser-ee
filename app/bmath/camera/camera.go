@@ -3,8 +3,8 @@ package camera
 import (
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 const OsuWidth = 512.0

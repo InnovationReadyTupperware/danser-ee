@@ -10,9 +10,9 @@ import (
 	"github.com/AllenDang/cimgui-go/imgui"
 	"github.com/Zyko0/go-sdl3/sdl"
 
-	appUtils "github.com/wieku/danser-go/app/utils"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/platform"
+	appUtils "github.com/innovationreadytupperware/danser-ee/app/utils"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
 )
 
 type messageType int

@@ -1,13 +1,14 @@
 package utils
 
 import (
-	"github.com/go-gl/gl/v3.3-core/gl"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/graphics/texture"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
 )
 
 func MakeScreenshot(w, h int, name string, async bool) {

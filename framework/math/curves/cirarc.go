@@ -1,9 +1,10 @@
 package curves
 
 import (
-	. "github.com/wieku/danser-go/framework/math/math87"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
+
+	. "github.com/innovationreadytupperware/danser-ee/framework/math/math87"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 const osuPi float32 = 3.14159274

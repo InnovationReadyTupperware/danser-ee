@@ -8,9 +8,9 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/gl/v3.3-core/gl"
 
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/graphics/history"
-	"github.com/wieku/danser-go/framework/profiler"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/history"
+	"github.com/innovationreadytupperware/danser-ee/framework/profiler"
 )
 
 type PersistentBufferObject struct {

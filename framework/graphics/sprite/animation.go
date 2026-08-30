@@ -1,10 +1,11 @@
 package sprite
 
 import (
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type Animation struct {

@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"golang.org/x/oauth2"
 )
 

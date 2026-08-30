@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wieku/danser-go/app/database"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
-	"github.com/wieku/danser-go/framework/qpc"
+	"github.com/innovationreadytupperware/danser-ee/app/database"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
+	"github.com/innovationreadytupperware/danser-ee/framework/qpc"
 )
 
 // launcherEventKind identifies work that crossed from a worker into the

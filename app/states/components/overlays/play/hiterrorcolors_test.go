@@ -3,8 +3,8 @@ package play
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/app/rulesets/osu"
-	color2 "github.com/wieku/danser-go/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 func TestHitErrorColorForUsesLazerJudgmentResult(t *testing.T) {

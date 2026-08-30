@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
 )
 
 const diagnosticTailLimit = 64 * 1024

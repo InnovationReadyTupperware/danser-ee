@@ -1,10 +1,11 @@
 package evaluators
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp220930/preprocessing"
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp220930/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 const (

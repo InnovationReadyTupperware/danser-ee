@@ -21,33 +21,33 @@ import (
 
 	"github.com/wieku/rplpa"
 
-	"github.com/wieku/danser-go/app/audio"
-	"github.com/wieku/danser-go/app/beatmap"
-	difficulty2 "github.com/wieku/danser-go/app/beatmap/difficulty"
-	camera2 "github.com/wieku/danser-go/app/bmath/camera"
-	"github.com/wieku/danser-go/app/database"
-	"github.com/wieku/danser-go/app/discord"
-	"github.com/wieku/danser-go/app/ffmpeg"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/states"
-	"github.com/wieku/danser-go/app/utils"
-	"github.com/wieku/danser-go/build"
-	"github.com/wieku/danser-go/framework/assets"
-	"github.com/wieku/danser-go/framework/bass"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/frame"
-	"github.com/wieku/danser-go/framework/goroutines"
-	batch2 "github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/blend"
-	"github.com/wieku/danser-go/framework/graphics/buffer"
-	"github.com/wieku/danser-go/framework/graphics/font"
-	"github.com/wieku/danser-go/framework/graphics/viewport"
-	"github.com/wieku/danser-go/framework/math/vector"
-	"github.com/wieku/danser-go/framework/platform"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
-	"github.com/wieku/danser-go/framework/profiler"
-	"github.com/wieku/danser-go/framework/qpc"
-	"github.com/wieku/danser-go/framework/util"
+	"github.com/innovationreadytupperware/danser-ee/app/audio"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	difficulty2 "github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	camera2 "github.com/innovationreadytupperware/danser-ee/app/bmath/camera"
+	"github.com/innovationreadytupperware/danser-ee/app/database"
+	"github.com/innovationreadytupperware/danser-ee/app/discord"
+	"github.com/innovationreadytupperware/danser-ee/app/ffmpeg"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/states"
+	"github.com/innovationreadytupperware/danser-ee/app/utils"
+	"github.com/innovationreadytupperware/danser-ee/build"
+	"github.com/innovationreadytupperware/danser-ee/framework/assets"
+	"github.com/innovationreadytupperware/danser-ee/framework/bass"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/frame"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	batch2 "github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/blend"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/buffer"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/viewport"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
+	"github.com/innovationreadytupperware/danser-ee/framework/profiler"
+	"github.com/innovationreadytupperware/danser-ee/framework/qpc"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
 )
 
 const (
@@ -130,7 +130,7 @@ func run() {
 
 		knockout := flag.Bool("knockout", false, "Use (classic) knockout feature. Replays are sourced from \"replays/{a}\" where {a} is an md5 hash of .osu file. Danser automatically organizes replay files put directly in \"replays\", using maps' md5s provided by the replay files.")
 		knockout2 := flag.String("knockout2", "", "Use (new) knockout feature, JSON list of paths to compatible replay files has to be provided. \"Knockout.ExcludeMods\" and \"Knockout.MaxPlayers\" options are ignored, they have to be filtered beforehand.")
-		soloKnockout := flag.Bool("solo-knockout", false, "Run map-driven knockout with generated Danser participants. Use -cursors and -tag to configure mirrors and participants.")
+		soloKnockout := flag.Bool("solo-knockout", false, "Run map-driven knockout with generated danser participants. Use -cursors and -tag to configure mirrors and participants.")
 
 		speed := flag.Float64("speed", 1.0, "Specify music's speed, set to 1.5 to have DoubleTime mod experience")
 		pitch := flag.Float64("pitch", 1.0, "Specify music's pitch, set to 1.5 with -speed=1.5 to have Nightcore mod experience")

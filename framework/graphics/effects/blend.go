@@ -1,12 +1,12 @@
 package effects
 
 import (
-	"github.com/wieku/danser-go/framework/assets"
-	"github.com/wieku/danser-go/framework/graphics/attribute"
-	"github.com/wieku/danser-go/framework/graphics/buffer"
-	"github.com/wieku/danser-go/framework/graphics/shader"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/graphics/viewport"
+	"github.com/innovationreadytupperware/danser-ee/framework/assets"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/attribute"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/buffer"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/shader"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/viewport"
 )
 
 type Blend struct {

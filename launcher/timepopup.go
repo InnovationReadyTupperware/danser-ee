@@ -4,17 +4,17 @@ import (
 	"github.com/AllenDang/cimgui-go/imgui"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/api"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/app/states/components/overlays/play"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/graphics/buffer"
-	"github.com/wieku/danser-go/framework/graphics/viewport"
-	"github.com/wieku/danser-go/framework/math/math32"
-	"github.com/wieku/danser-go/framework/util"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/states/components/overlays/play"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/buffer"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/viewport"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/math32"
+	"github.com/innovationreadytupperware/danser-ee/framework/util"
 )
 
 type timePopup struct {

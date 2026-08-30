@@ -3,8 +3,8 @@ package common
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/audio"
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/audio"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 const barsPerSegment = 4

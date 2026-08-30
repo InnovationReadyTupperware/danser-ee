@@ -1,8 +1,8 @@
 package utils
 
 import (
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/mutils"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 func GetColorsSV(baseHue, hueShift float64, times int, S, V, alpha float64) []color2.Color {

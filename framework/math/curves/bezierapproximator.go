@@ -1,8 +1,9 @@
 package curves
 
 import (
-	"github.com/wieku/danser-go/framework/math/vector"
 	"sync"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 const BEZIER_QUANTIZATION = 0.5

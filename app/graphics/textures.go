@@ -3,8 +3,8 @@ package graphics
 import (
 	"strconv"
 
-	"github.com/wieku/danser-go/app/utils"
-	"github.com/wieku/danser-go/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/app/utils"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
 )
 
 //TODO: Refactor this

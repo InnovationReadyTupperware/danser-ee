@@ -2,16 +2,17 @@ package cstats
 
 import (
 	"fmt"
-	"github.com/spf13/cast"
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	"github.com/wieku/danser-go/framework/math/animation"
 	"math"
 	"strconv"
 	"sync"
 	"text/template"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation"
+	"github.com/spf13/cast"
 )
 
 type StatDisplay struct {

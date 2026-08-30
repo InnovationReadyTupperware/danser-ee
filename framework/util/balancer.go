@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wieku/danser-go/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
 )
 
 func Balance[T, B any](workers int, candidates []T, workerFunc func(a T) (B, bool)) []B {

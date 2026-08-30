@@ -9,14 +9,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/assets"
-	"github.com/wieku/danser-go/framework/bass"
-	"github.com/wieku/danser-go/framework/files"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/graphics/font"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	"github.com/wieku/danser-go/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/assets"
+	"github.com/innovationreadytupperware/danser-ee/framework/bass"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 type Source int

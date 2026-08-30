@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wieku/danser-go/build"
+	"github.com/innovationreadytupperware/danser-ee/build"
 )
 
 // GetLatestVersionFromGitHub makes a request to GitHub and returns url and tag of the latest version found

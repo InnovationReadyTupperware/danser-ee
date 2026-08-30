@@ -1,8 +1,8 @@
 package color
 
 import (
-	"github.com/wieku/danser-go/framework/math/math32"
-	"github.com/wieku/danser-go/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/math32"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 const (

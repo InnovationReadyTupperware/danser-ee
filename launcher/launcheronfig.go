@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/files"
-	"github.com/wieku/danser-go/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 var launcherConfig = &launcherConf{

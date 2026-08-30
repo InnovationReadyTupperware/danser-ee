@@ -4,15 +4,15 @@ import (
 	"math/rand"
 	"slices"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/dance/input"
-	"github.com/wieku/danser-go/app/dance/movers"
-	"github.com/wieku/danser-go/app/dance/spinners"
-	"github.com/wieku/danser-go/app/dance/utils"
-	"github.com/wieku/danser-go/app/graphics"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/input"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/movers"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/spinners"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/utils"
+	"github.com/innovationreadytupperware/danser-ee/app/graphics"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type GenericScheduler struct {

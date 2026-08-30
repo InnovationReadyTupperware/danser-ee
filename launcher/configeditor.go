@@ -15,15 +15,15 @@ import (
 
 	"github.com/AllenDang/cimgui-go/imgui"
 
-	"github.com/wieku/danser-go/app/osuapi"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/math32"
-	"github.com/wieku/danser-go/framework/math/mutils"
-	"github.com/wieku/danser-go/framework/platform"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
+	"github.com/innovationreadytupperware/danser-ee/app/osuapi"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/math32"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 )
 
 const padY = 30

@@ -1,8 +1,9 @@
 package osu
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/objects"
 	"math"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 )
 
 type objstate struct {

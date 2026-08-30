@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wieku/danser-go/framework/qpc"
+	"github.com/innovationreadytupperware/danser-ee/framework/qpc"
 )
 
 const (

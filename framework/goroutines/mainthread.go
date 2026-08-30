@@ -2,8 +2,9 @@ package goroutines
 
 import (
 	"errors"
-	"github.com/wieku/danser-go/framework/profiler"
 	"runtime"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/profiler"
 )
 
 // CallQueueCap is the capacity of the call queue. This means how many calls to CallNonBlock will not

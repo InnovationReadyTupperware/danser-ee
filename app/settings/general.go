@@ -1,8 +1,9 @@
 package settings
 
 import (
-	"github.com/wieku/danser-go/framework/env"
 	"path/filepath"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
 )
 
 var General = initGeneral()

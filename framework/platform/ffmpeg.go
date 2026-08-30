@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/wieku/danser-go/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
 )
 
 const errMsg = "ffmpeg not found! Please make sure it's installed in danser directory or in PATH. Follow download instructions at https://github.com/Wieku/danser-go/wiki/FFmpeg"

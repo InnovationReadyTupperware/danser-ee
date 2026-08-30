@@ -3,8 +3,8 @@ package osu
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/beatmap"
-	"github.com/wieku/danser-go/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 )
 
 type scoreV3Processor struct {

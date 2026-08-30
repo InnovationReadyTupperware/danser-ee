@@ -1,12 +1,13 @@
 package skills
 
 import (
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/rulesets/osu/performance/pp241007/preprocessing"
-	"github.com/wieku/danser-go/framework/collections"
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"math"
 	"slices"
+
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp241007/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/framework/collections"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 type Skill struct {

@@ -11,7 +11,7 @@ import (
 	"github.com/Zyko0/go-sdl3/sdl"
 	"github.com/go-gl/gl/v3.3-core/gl"
 
-	"github.com/wieku/danser-go/framework/graphics/hacks"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/hacks"
 )
 
 // GLInit initializes OpenGL, checks for needed extensions, eventually sets up GPU debug logs
@@ -35,7 +35,7 @@ func GLInit(debugLogs bool, additionalExtensions ...string) error {
 
 	lVendor := strings.ToLower(glVendor)
 
-	// HACK HACK HACK: please see github.com/wieku/danser-go/framework/graphics/hacks.IsIntel for more info
+	// HACK HACK HACK: please see github.com/innovationreadytupperware/danser-ee/framework/graphics/hacks.IsIntel for more info
 	if strings.Contains(lVendor, "intel") {
 		hacks.IsIntel = true
 	}
@@ -46,7 +46,7 @@ func GLInit(debugLogs bool, additionalExtensions ...string) error {
 		forceAMDHack = true
 	}
 
-	// HACK HACK HACK: please see github.com/wieku/danser-go/framework/graphics/hacks.IsOldAMD for more info
+	// HACK HACK HACK: please see github.com/innovationreadytupperware/danser-ee/framework/graphics/hacks.IsOldAMD for more info
 	if forceAMDHack || (strings.Contains(lVendor, "amd") || strings.Contains(lVendor, "ati")) &&
 		(strings.Contains(glVersion, "15.201.") || strings.Contains(glVersion, "15.200.")) {
 		hacks.IsOldAMD = true

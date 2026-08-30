@@ -2,14 +2,15 @@ package buffer
 
 import (
 	"fmt"
-	"github.com/go-gl/gl/v3.3-core/gl"
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/graphics/attribute"
-	"github.com/wieku/danser-go/framework/graphics/hacks"
-	"github.com/wieku/danser-go/framework/graphics/history"
-	"github.com/wieku/danser-go/framework/graphics/shader"
-	"github.com/wieku/danser-go/framework/profiler"
 	"runtime"
+
+	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/attribute"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/hacks"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/history"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/shader"
+	"github.com/innovationreadytupperware/danser-ee/framework/profiler"
 )
 
 type bufferHolder struct {

@@ -1,7 +1,7 @@
 package database
 
 import (
-	"github.com/wieku/danser-go/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 )
 
 type M20201118 struct{}

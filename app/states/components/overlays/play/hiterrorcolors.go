@@ -3,9 +3,9 @@ package play
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/rulesets/osu"
-	color2 "github.com/wieku/danser-go/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 var (

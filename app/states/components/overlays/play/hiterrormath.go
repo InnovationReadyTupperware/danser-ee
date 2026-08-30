@@ -3,7 +3,7 @@ package play
 import (
 	"math"
 
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 )
 
 const (

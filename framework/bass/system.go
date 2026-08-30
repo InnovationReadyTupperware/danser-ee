@@ -15,7 +15,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/wieku/danser-go/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 var masterMixer C.HSTREAM

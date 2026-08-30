@@ -1,6 +1,6 @@
 package profiler
 
-import "github.com/wieku/danser-go/framework/qpc"
+import "github.com/innovationreadytupperware/danser-ee/framework/qpc"
 
 type ProfileType string
 

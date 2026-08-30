@@ -1,12 +1,13 @@
 package objects
 
 import (
-	"github.com/wieku/danser-go/app/audio"
-	"github.com/wieku/danser-go/framework/graphics/batch"
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/vector"
 	"strconv"
 	"strings"
+
+	"github.com/innovationreadytupperware/danser-ee/app/audio"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 type Renderable interface {

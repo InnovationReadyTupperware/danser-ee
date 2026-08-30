@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wieku/danser-go/framework/assets"
-	"github.com/wieku/danser-go/framework/files"
-	"github.com/wieku/danser-go/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/assets"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 const latestVersion = 2.7

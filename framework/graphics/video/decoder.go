@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/platform"
-	"github.com/wieku/danser-go/framework/util/pixconv"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/util/pixconv"
 )
 
 const BufferSize = 3

@@ -1,10 +1,11 @@
 package storyboard
 
 import (
-	"github.com/wieku/danser-go/framework/math/animation"
 	"log"
 	"math"
 	"strconv"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation"
 )
 
 type LoopProcessor struct {

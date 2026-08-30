@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wieku/danser-go/app/audio"
-	"github.com/wieku/danser-go/app/beatmap/difficulty"
-	"github.com/wieku/danser-go/app/beatmap/objects"
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/app/audio"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
 )
 
 type BeatMap struct {

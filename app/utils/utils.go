@@ -3,14 +3,15 @@ package utils
 import (
 	"archive/zip"
 	"fmt"
-	"github.com/wieku/danser-go/framework/assets"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	_ "golang.org/x/image/bmp"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/assets"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	_ "golang.org/x/image/bmp"
 )
 
 func getPixmap(name string) (*texture.Pixmap, error) {

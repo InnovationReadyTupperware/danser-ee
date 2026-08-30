@@ -1,9 +1,10 @@
 package animation
 
 import (
-	"github.com/wieku/danser-go/framework/math/animation/easing"
-	"github.com/wieku/danser-go/framework/math/mutils"
 	"sort"
+
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 type event struct {

@@ -13,9 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/wieku/danser-go/app/settings"
-	"github.com/wieku/danser-go/framework/bass"
-	"github.com/wieku/danser-go/framework/files"
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/bass"
+	"github.com/innovationreadytupperware/danser-ee/framework/files"
 )
 
 const MaxAudioBuffers = 2000

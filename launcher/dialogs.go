@@ -7,9 +7,9 @@ import (
 
 	"github.com/Zyko0/go-sdl3/sdl"
 
-	"github.com/wieku/danser-go/framework/goroutines"
-	"github.com/wieku/danser-go/framework/platform"
-	"github.com/wieku/danser-go/framework/platform/gcontext"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 )
 
 // ErrDialogCancelled is passed to picker callbacks when the user closes or

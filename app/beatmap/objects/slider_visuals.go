@@ -3,7 +3,7 @@ package objects
 import (
 	"math"
 
-	"github.com/wieku/danser-go/framework/math/mutils"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 // sliderSnakeSettings contains the visual controls which affect the body

@@ -3,7 +3,7 @@ package utils
 import (
 	"sort"
 
-	"github.com/wieku/danser-go/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 )
 
 func objectPreProcess(hitobject objects.IHitObject, sliderDance bool) ([]objects.IHitObject, bool) {

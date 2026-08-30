@@ -3,9 +3,9 @@ package play
 import (
 	"testing"
 
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	color2 "github.com/wieku/danser-go/framework/math/color"
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 func TestHitErrorJudgmentLinePoolCapsActiveLines(t *testing.T) {

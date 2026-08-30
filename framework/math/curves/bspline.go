@@ -1,7 +1,7 @@
 package curves
 
 import (
-	"github.com/wieku/danser-go/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
 // BSplineSolver retains the work buffers used by Solve. A mover can keep one

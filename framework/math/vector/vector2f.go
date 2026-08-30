@@ -2,9 +2,10 @@ package vector
 
 import (
 	"fmt"
+
 	"github.com/go-gl/mathgl/mgl32"
-	"github.com/wieku/danser-go/framework/math/math32"
-	. "github.com/wieku/danser-go/framework/math/math87"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/math32"
+	. "github.com/innovationreadytupperware/danser-ee/framework/math/math87"
 )
 
 const epsilon = 0.00001

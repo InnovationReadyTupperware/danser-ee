@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wieku/danser-go/framework/env"
-	"github.com/wieku/danser-go/framework/graphics/texture"
+	"github.com/innovationreadytupperware/danser-ee/framework/env"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
 )
 
 var zipHeader = []byte{0x50, 0x4b, 0x03, 0x04}

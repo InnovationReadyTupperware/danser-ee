@@ -1,10 +1,11 @@
 package texture
 
 import (
-	"github.com/go-gl/gl/v3.3-core/gl"
-	"github.com/wieku/danser-go/framework/goroutines"
-	color2 "github.com/wieku/danser-go/framework/math/color"
 	"runtime"
+
+	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 type TextureMultiLayer struct {

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wieku/danser-go/app/database"
+	"github.com/innovationreadytupperware/danser-ee/app/database"
 )
 
 func TestBuildSongSelectCatalogViewSortsWithoutMutatingSnapshot(t *testing.T) {

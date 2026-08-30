@@ -13,9 +13,9 @@ import (
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 
-	"github.com/wieku/danser-go/app/utils"
-	"github.com/wieku/danser-go/framework/graphics/texture"
-	color2 "github.com/wieku/danser-go/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/app/utils"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
+	color2 "github.com/innovationreadytupperware/danser-ee/framework/math/color"
 )
 
 func LoadFont(reader io.Reader) *Font {
