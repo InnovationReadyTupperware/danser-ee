@@ -67,18 +67,18 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 
 ### Core experience and launcher
 
-| Feature                         |                  danser-ee                  |          danser-go (fork base)          |
-|---------------------------------|:-------------------------------------------:|:---------------------------------------:|
-| Core danser experience          |                      ✅                      |                    ✅                   |
-| Native dialogs (SDL3)           |                      ✅                      |       sqweek/dialog (Wieku fork)       |
-| CLI no-argument behavior        |       ✅ Helpful usage, no rickroll          |           ❌ Surprise rickroll          |
+| Feature                         |                         danser-ee                          |                   danser-go (fork base)                   |
+|---------------------------------|:----------------------------------------------------------:|:---------------------------------------------------------:|
+| Core danser experience          |                             ✅                             |                            ✅                             |
+| Native dialogs (SDL3)           |                             ✅                             |                sqweek/dialog (Wieku fork)                 |
+| CLI no-argument behavior        |               ✅ Helpful usage, no rickroll                |                   ❌ Surprise rickroll                    |
 | Launcher event pipeline         | ✅ Bounded typed events with main-thread state application | ❌ Mixed cross-thread callbacks and shared launcher state |
-| Child-process supervision       |       ✅ Cancellable lifecycle and bounded diagnostics       | ❌ Shared `exec.Cmd` lifecycle and direct teardown |
-| Filesystem watcher lifecycle    |       ✅ Owned watcher with coalesced notifications          |       ❌ Global watcher lifecycle       |
-| Launcher shutdown ordering      |          ✅ Ordered cancellation, joins, and cleanup        |       ❌ Unjoined asynchronous cleanup  |
-| Startup task cancellation       |             ✅ Context-bound background tasks               |       ❌ Untracked asynchronous work    |
-| Profile persistence             |             ✅ Path-confined, checked writes                |          ❌ Unchecked profile writes    |
-| Replay and file-drop validation |             ✅ Nil-safe, normalized input boundaries         |       ❌ Unchecked selection assumptions |
+| Child-process supervision       |      ✅ Cancellable lifecycle and bounded diagnostics      |    ❌ Shared `exec.Cmd` lifecycle and direct teardown     |
+| Filesystem watcher lifecycle    |       ✅ Owned watcher with coalesced notifications        |                ❌ Global watcher lifecycle                |
+| Launcher shutdown ordering      |        ✅ Ordered cancellation, joins, and cleanup         |             ❌ Unjoined asynchronous cleanup              |
+| Startup task cancellation       |             ✅ Context-bound background tasks              |              ❌ Untracked asynchronous work               |
+| Profile persistence             |              ✅ Path-confined, checked writes              |                ❌ Unchecked profile writes                |
+| Replay and file-drop validation |          ✅ Nil-safe, normalized input boundaries          |            ❌ Unchecked selection assumptions             |
 
 ### Library and song selection
 
@@ -86,8 +86,8 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 |------------------------------------|:-------------------------------------------------------------------:|:-----------------------------------------------:|
 | Beatmap catalog startup            |                 ✅ Cache-first catalog publication                  | ❌❌❌ Synchronous full-library materialization |
 | Incremental beatmap reconciliation |             ✅ Fingerprint-driven delta reconciliation              |             ❌ Full catalog rebuild             |
-| Catalog reconciliation progress    |             ✅ Staged main-thread telemetry in the output row             |                        -                        |
-| Catalog refresh orchestration      |             ✅ Coalesced, cancellable generation coordinator              |          ❌ Shared lock around sequential refresh work          |
+| Catalog reconciliation progress    |          ✅ Staged main-thread telemetry in the output row          |                        -                        |
+| Catalog refresh orchestration      |          ✅ Coalesced, cancellable generation coordinator           |  ❌ Shared lock around sequential refresh work  |
 | Song search pipeline               |      ✅ Precomputed query index and reusable result projection      |   ❌❌❌ Per-query full result reconstruction   |
 | Song-select scrolling              | ✅ Variable-height virtualized layout with logarithmic range lookup |      ❌❌❌ Repeated full-list layout work      |
 | Song-set grouping                  |        ✅ Stable indexed grouping independent of sort order         |       ❌ Per-result directory regrouping        |
@@ -103,7 +103,7 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Replay-driven knockout lineup     |                         ✅ Explicit replay selection                          |       replay selection required       |
 | Solo knockout mode                | ✅ Map-driven generated Danser participants with shared cursor-dance controls |                   -                   |
 | Lazer's combo color normalization |                     ✅ HSPA perceived-brightness control                      |                   -                   |
-| Lazer's hit animation toggle     |                    ✅ configurable; enabled by default                       |             fixed animation            |
+| Lazer's hit animation toggle      |                      ✅ configurable; enabled by default                      |            fixed animation            |
 | Slider judgment granularity       |                per-event head, tick, repeat, and tail results                 | approximate slider tick/tail handling |
 | Slider miss judgment markers      |                red/gray X markers, skin-aware and configurable                |                   -                   |
 | Slider visual timing              |                        fractional end-time evaluation                         |            integer timing             |
@@ -230,12 +230,6 @@ Examples which should give the same result:
 
 Settings and knockout usage are detailed in the upstream [danser-go wiki](https://github.com/Wieku/danser-go/wiki).
 
-## Contributing
-
-`danser-ee` is not accepting general contributions yet. Small, focused fixes may be considered. Large features will not be accepted at this time.
-
-Bug reports are welcome. Please include enough detail to reproduce the problem when possible.
-
 ## Building the project
 
 `danser-ee` uses CGO and depends on native runtime files and project assets. A successful Go build does not make an arbitrary output directory self-contained, so development builds should be run with the repository root as their working directory.
@@ -283,6 +277,26 @@ go build ./...
 ```
 
 Use the distribution scripts when preparing release-style packages; they handle the launcher and runtime files differently from a normal development build.
+
+## If you REALLY want to contribute still... read this first
+
+`danser-ee` is not actively accepting general contributions right now.
+
+Small, focused fixes may be considered. Large features and broad changes are more likely to be deferred, closed, or reimplemented independently by the main maintainer, InnovationReadyTupperware, rather than merged from the submitted pull request.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
+It contains the detailed intake, scope, verification, and review expectations.
+
+### You must enable Modern Go Guidelines
+
+If you are using a coding harness such as OpenAI Codex, Claude Code, Cursor, or
+OpenCode for any work that may touch Go code, enable JetBrains'
+[Modern Go Guidelines](https://github.com/JetBrains/go-modern-guidelines#instructions).
+We require this because coding agents often reproduce older Go patterns:
+training data lags behind the language, and familiar examples outweigh newer
+idioms. The guidelines give the harness a current Go reference so changes begin
+with modern, idiomatic code instead of creating cleanup work for the next
+contributor.
 
 ## Credits and license
 

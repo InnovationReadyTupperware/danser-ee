@@ -1,193 +1,224 @@
-# Agent Instructions
+# Agent Instructions for danser-ee
 
-This repository is danser-ee, a maintained fork of
-[Wieku/danser-go](https://github.com/Wieku/danser-go) - a Go GUI/CLI
-visualizer for osu!standard maps that renders replays and records them to
-video. Treat it like sensitive, long-lived production software.
+## Summary
 
-After this file, read `.project/docs/index.md` and the core expectations in
-`.project/docs/expectations/user-and-project.md` and
-`.project/docs/expectations/behavioral-expectations.md`. Then use
-`.project/docs/expectations/index.md` to find situational knowledge relevant to the
-work.
+`danser-ee` is a maintained fork of `danser-go`, a Go application that turns
+osu!standard beatmaps and replay data into interactive gameplay views and
+rendered media.
 
-## Engineering Standard
+It combines interactive gameplay, visualization, and media output around one
+gameplay core. A change can affect what users see, hear, judge, or save, so
+treat those observable results as part of the feature rather than incidental
+implementation detail.
 
-Treat every change as long-lived production code maintained by multiple
-senior engineers over time. Optimize for clarity, explicit ownership,
-stable boundaries, and future modification.
+## What matters here
 
-Use clear names, small cohesive types and functions, and explicit
-separation between replay parsing, rendering, audio scheduling,
-settings/configuration, UI, and native interop. Keep responsibilities
-narrow. Do not hide cross-layer behavior behind convenience abstractions
-unless the boundary and ownership model remain obvious.
+The project sits at the intersection of game rules, animation, audio, and
+video. The promises worth protecting are simple:
 
-Default toward writing more comments, not fewer. Treat missing context as
-the more expensive failure than an occasional comment a reader didn't
-strictly need: a maintainer who has to reconstruct intent from git blame,
-native-library docs, and cross-file reading costs far more than a sentence
-that turned out to be slightly redundant. When unsure whether reasoning is
-worth writing down, write it down.
+- Replay playback should remain faithful to the source client the replay came
+  from.
+- Gameplay, audio, rendering, and recording should agree on one timeline.
+- The launcher, gameplay window, and command-line workflows should not quietly
+  grow different behavior for the same feature.
 
-Write comments that explain why a function, type, branch, constraint,
-workaround, invariant, or integration detail exists, not just what the code
-does. Capture assumptions, lifecycle expectations, timing invariants,
-platform behavior, vendor quirks (the BASS, SDL3, and OpenGL interop
-surface especially), concurrency concerns, error-handling rationale, and
-non-obvious tradeoffs. Also comment: non-obvious control flow, a choice
-made between two plausible approaches and why the chosen one won, state or
-data that crosses a module or boundary, anything that took investigation,
-reference-source reading, or a bug report to get right, and any code a
-future reader might be tempted to simplify in a way that would silently
-reintroduce a bug.
+## Hit every surface
 
-Judge comments against the returning maintainer described below, not
-against an idealized expert who already holds full context. Do not withhold
-a comment on the assumption that a sufficiently strong engineer would
-already know it; the whole point of the comment is to save that engineer
-the reconstruction work. The only comments to skip are ones that just
-restate the literal syntax of the line beneath them with no added
-reasoning.
+The most common danser regression is a change that works on the path someone
+happened to test and is missing everywhere else. Before calling a feature done,
+walk through the surfaces that apply and say which ones you checked.
 
-Do not use decorative separators, banner comments, ASCII art, boxed
-sections, or other purely decorative comment formatting.
+- **Entry points.** Running `danser` without arguments opens the GUI launcher;
+  arguments enter the command-line/gameplay path. Shared behavior deserves a
+  decision in both paths, even when one path only needs a small adapter.
+- **Launcher.** Map catalog and search, settings, replay and file-drop input,
+  mode selection, child-process progress, and launcher dialogs are all part of
+  the product. When the launcher builds arguments, verify that the gameplay
+  process receives and honors them.
+- **Gameplay window.** This is the SDL/OpenGL window where users watch or play
+  a map. Check the relevant playback, seek, pause, restart, overlay, audio,
+  and failure paths. It can be opened directly from the CLI or started by the
+  launcher.
+- **Command-line and non-interactive output.** Flags cover map and replay
+  selection, generated movement, TAG and knockout modes, recording, and
+  screenshots. Exercise the direct invocation when a change touches any of
+  those contracts.
+- **Modes and participants.** Cursor dance, replay playback, play mode,
+  replay-driven knockout, and solo knockout do not all obtain movement or
+  judgement from the same source. Include generated participants, replay
+  participants, and mixed Stable/Lazer lineups when the change can reach them.
+- **Outputs.** Watching, recording a video, and taking a screenshot have
+  different timing and finalization paths. Check the output file, progress,
+  audio sync, and failure behavior that apply.
+- **Platforms.** Windows x64 is the primary target and Linux is best effort.
+  Native dialogs, filesystem paths, OpenGL setup, and bundled runtime files
+  can behave differently even when the Go code is shared. macOS is unsupported.
 
-Write Go doc comments liberally on exported identifiers to clarify public
-behavior, ownership, invariants, failure modes, and integration contracts.
-Internal implementation comments should be as long as the underlying
-reasoning requires; do not compress a rationale into a fragment if it needs
-a full sentence or two to hold together.
+## Errors users can see
 
-Before finishing, reread the changes as a senior engineer returning six
-months later with no memory of writing this code. Add any comment you find
-yourself wishing were there, and improve unclear structure, naming,
-ownership, error handling, documentation, and intent before calling the
-work done.
+An error that exists only in a log is invisible to most GUI users. Route the
+same failure to the surface the person is actually using:
 
-Use only ASCII punctuation in repository text and source comments. Do not
-use curly quotes, smart quotes, em dashes, en dashes, or similar Unicode
-punctuation. Use `'`, `"`, and `-` instead.
+- **CLI:** write an actionable error to the normal log or command-line output,
+  include the operation and relevant map, replay, or output, and return a
+  failure result. A dialog may supplement a gameplay error, but it must not be
+  the only report for a command-line workflow.
+- **GUI launcher:** show a native or in-app error dialog when an operation
+  fails. Logging is useful for diagnosis, but it is not a substitute for a
+  visible explanation and next step.
+- **Gameplay window:** once the gameplay window exists, failures are always a
+  visual event, even when the CLI started the process. Prefer a dialog or
+  overlay parented to that window. If the launcher owns the child process,
+  surface the failure in the launcher as well; never leave the user with only
+  a child-process log.
+- **Early startup:** if SDL or the normal UI cannot be created, use the
+  platform's native fallback and still preserve a useful log entry.
 
-## Documentation Authority
+## Logging
 
-Use production code, builds, real program runs, and recent git history to
-establish what exists. `.project/docs/index.md` defines the documentation categories
-and their authority boundaries. Use `.project/docs/project-roadmap.md` for global
-milestone status and delivery sequence. Delivered work is recorded in the
-roadmap, plus an owning record under `.project/docs/implementation-history/`, in the
-same change that ships it. Specialized plans under `.project/docs/plans/`, once any
-exist, own their subsystem's architecture and remaining design; register a
-new plan's authority in `.project/docs/index.md` in the change that creates it.
+Danser uses Go's standard `log` package. Startup configures it through
+`platform.StartLogging`: the launcher and gameplay process each write a named
+log under the runtime data directory and mirror messages to standard output.
+That makes the log useful for a CLI session without assuming that a GUI user
+has a console open.
 
-Use `.project/docs/expectations/` for durable operational knowledge about this
-repository, machine, and user - never for product priority or active task
-state. Use `.project/docs/implementation-history/` only to understand why a
-completed slice took its recorded shape; it is explanatory evidence, never
-current status.
+- Prefix messages with the subsystem that owns them, as in `Launcher:`,
+  `DatabaseManager:`, or `SettingsManager:`. Describe the operation and the
+  object involved, then include the error with `%v` or `%q` formatting as
+  appropriate.
+- Keep normal lifecycle and progress messages readable. Use an explicit
+  `Warning` or `Failed` message when work was skipped, degraded, or could not
+  complete; do not silently swallow an error that changes the requested
+  result.
+- Logging is diagnostic evidence, not the GUI error surface. Pair an
+  operation failure with the dialog or gameplay-window error required above,
+  and keep the CLI log actionable enough to identify the failing operation and
+  its inputs.
+- Prefer returning or propagating errors over introducing `log.Fatal` or
+  `log.Panic` in library and worker code. Those calls terminate before the
+  owning lifecycle can clean up resources or choose the correct visual surface.
+- Never put credentials, access tokens, refresh tokens, or other secret values
+  in a log. Log a safe identifier or path when it is needed to diagnose the
+  operation.
 
-`.project/docs/osu!lazer source code/` is a shallow single-branch clone of ppy/osu
-master kept as the local citation authority for upstream osu! behavior.
-Cite it with concrete source paths; never edit it, and never commit it -
-it stays outside this repository's history by policy. History and blame are
-unavailable locally by design; the refresh procedure lives in
-`.project/docs/expectations/workarounds.md`.
+## Six ways to break the experience
 
-When two documents disagree, do not append another contradictory update.
-Verify the implementation, correct the authoritative document, and prune or
-reframe the stale claim in the same change.
+These are the recurring failure modes worth keeping in mind during review.
 
-Active documentation should describe the current project, current
-intentional relationships, and useful next implementation context. Delete
-or consolidate superseded plans, rejected approaches, and stale detail when
-they no longer help current work; Git provides historical archaeology. If
-an old lesson still constrains current implementation, state that current
-constraint in the current owning documentation. Do not retain obsolete text
-merely to preserve its history.
+1. **Wire only the path you tested.** Launcher argument construction, direct
+   CLI invocation, and the gameplay process are separate boundaries. A fix in
+   one is not automatically a fix in the others.
+2. **Treat Stable or Lazer as a global switch.** Gameplay provenance belongs to
+   each difficulty or participant: stable-versioned replays remain Stable,
+   replay-free generated playback defaults to Lazer, and a knockout can mix
+   both. Classic presentation settings do not erase that provenance.
+3. **Let the clocks drift apart.** Gameplay timestamps, the master audio mixer,
+   rendered frames, and offline recording must share a deliberate timeline.
+   Seek and decoder stalls invalidate old anchors; frame-triggered audio or
+   stale seek state produces output that looks right but sounds wrong.
+4. **Cross native or thread boundaries casually.** BASS, SDL, OpenGL, and Dear
+   ImGui own unmanaged state and thread expectations. Keep ownership and
+   teardown order explicit, and cancel and join workers before freeing what
+   they use.
+5. **Turn library work into a launcher freeze.** Catalog scans, search,
+   thumbnails, and skin or beatmap loading need bounded, cancellable work that
+   cannot block the UI frame or let stale generations overwrite newer state.
+6. **Hide recording failures or destroy the evidence.** Validate output names
+   and recording settings, observe encoder and pipe failures, and do not remove
+   recoverable intermediate output until finalization has succeeded.
 
-## Go Guidance
+## Glossary
 
-Module `github.com/wieku/danser-go`. Go is scoop-managed on this machine
-and satisfies the `go.mod` toolchain pin natively; any future pin above the
-installed release auto-downloads via GOTOOLCHAIN=auto. The JetBrains-injected
-`GOROOT` caveat is recorded in `.project/docs/expectations/workarounds.md`. Run
-`gofmt` cleanliness as mandatory and follow standard Go idiom: short
-lowercase package names, exported identifiers only when needed by callers.
+- **osu!standard:** The osu! ruleset this project visualizes and plays. Other
+  osu! rulesets are outside the supported gameplay path.
+- **osu!stable:** The original desktop osu! client. A replay from the stable
+  generation selects danser's Stable-compatible gameplay behavior.
+- **osu!lazer:** osu!'s newer client and rules implementation. Lazer-versioned
+  replays and playback without replay provenance use danser's Lazer behavior.
+- **osu! replay (`.osr`):** A file containing recorded play input and metadata.
+  Danser loads it alongside the beatmap and renders and judges the play; it is
+  not a pre-rendered video.
+- **Cursor dance:** Generated cursor movement derived from the beatmap and
+  cursor-dance settings instead of a player's recorded input.
+- **TAG:** A generated multi-cursor arrangement where cursors take turns on
+  objects. In solo knockout, the generated cursors are full scored
+  participants instead.
+- **Mandala:** Repeated or mirrored views of cursor movement and hit objects,
+  used for collage-style output. The `-cursors` setting controls the number of
+  repeated views.
+- **Knockout:** A multi-participant mode that ranks players and removes them as
+  they fail. Participants can come from selected replays or be generated by
+  danser.
+- **Solo knockout:** Map-driven knockout with generated Danser participants;
+  each participant is scored as a full play while sharing cursor-dance
+  controls.
+- **Classic (CL):** The Classic compatibility setting or mod. It restores
+  selected legacy presentation or behavior without changing whether a
+  participant's gameplay provenance is Stable or Lazer.
+- **Danser gameplay window:** The SDL/OpenGL window that displays map playback
+  or live play. It is separate from the launcher and is also the visual error
+  surface once it has been created.
+- **Launcher:** The no-argument GUI for catalog browsing, settings, mode
+  selection, and supervising a gameplay or recording process.
 
-The build uses CGO throughout - BASS audio, SDL3, and Dear ImGui bindings -
-so a MinGW-family gcc is part of the toolchain. The machine's current gcc
-provenance and its linking caveat are recorded in workarounds; treat
-linking success as compile evidence only until a run has exercised the
-audio path after a toolchain change.
+## Engineering rules
 
-Preserve upstream's architectural separation: `app/` owns gameplay-facing
-core logic, `framework/` is the upstream-owned graphics/input layer, and
-parsing, rendering, audio scheduling, and UI concerns stay in their layers.
-Divergence from upstream structure must be deliberate and recorded in
-documentation rather than incidental, and commits stay small and
-single-concern so future synchronization with upstream dev remains
-tractable.
+- Keep changes straightforward and maintainable in the existing code. Prefer
+  clear names, small cohesive types and functions, and local patterns; avoid
+  broad reorganizations or abstractions unless the task calls for them.
+- Use standard Go naming and idioms. The module is
+  `github.com/wieku/danser-go` and the toolchain target is Go 1.27.0.
+- Preserve public API names and serialized configuration keys unless a
+  compatibility-preserving migration is part of the task.
+- Document exported identifiers and non-obvious behavior. Comments should
+  explain intent, invariants, lifecycle, platform or concurrency assumptions,
+  and cross-layer decisions rather than restate syntax.
+- Before finishing, reread the change as a maintainer returning six months
+  later. Resolve unclear naming, ownership, error handling, or intent while the
+  surrounding context is still available.
+- Use US English and ASCII punctuation in new identifiers, labels, comments,
+  and documentation. Do not add decorative banner comments or separators.
 
-Native interop deserves specific care: BASS and SDL handles are unmanaged
-resources whose lifetime mistakes crash the process rather than panic
-cleanly. Comment non-obvious handle ownership, teardown ordering, and any
-call whose failure mode is silent.
+## Development and verification
 
-Upstream ships no unit tests (`*_test.go` count is zero), so `go test ./...`
-verifies nothing. Adding focused table-driven tests for isolated pure logic
-is acceptable when the maintenance cost is justified; do not scaffold test
-frameworks or broad suites unprompted.
+The program uses CGO, native runtime files, and repository assets, so run
+development commands from the repository root and keep that directory as the
+working directory for launched binaries.
 
-## Go Skills
+- Run `gofmt -l` on touched Go files and leave the result clean.
+- Run `go build ./...` to compile all packages.
+- When behavior changes, also run `go build .` and exercise the resulting
+  program from the repository root.
+- Prefer `./scripts/test.ps1 ./...` on Windows or `bash scripts/test.sh ./...`
+  on Linux and macOS. The wrappers arrange the native library search path and
+  an ignored build cache for test binaries.
+- Rendering, audio, timing, or skinning changes require a human-verification
+  note with the exact command, inputs, and expected observable behavior.
+- For packaging, release scripts, or toolchain changes,
+  validate the affected launcher and main artifacts from the repository root;
+  report any platform check that could not run.
 
-Route Go writing, reviewing, and refactoring through the vendored skills
-under `.agents/skills/`. Start from `go-skills-router` when a task spans
-several concerns or ownership between skills is unclear; when a task maps
-cleanly to one skill, load that skill directly. The router indexes an
-upstream collection larger than this checkout - its tables sometimes name
-skills that are absent here (for example `go-code-review`); fall back to
-the closest present owner instead of hunting for missing ones.
+## Pull requests
 
-Two collections coexist by scope:
+- Never make a PR unless the developer explicitly asks you to do so.
+- Conventional commit titles, plain language:
+  `fix(gameplay): show startup errors in the gameplay window`.
+- Body: explain the problem in a sentence or two, then how you fixed it. End
+  with the model and harness that did the work.
+- UI changes need before/after images. Motion or timing needs a short video.
+- Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such
+  as `.github/pr-assets/`.
+- One concern per PR. If the description says "also", split it.
 
-- Flat `go-*` skills own engineering practice: coding standards, error
-  handling, context/concurrency review, performance and test quality,
-  troubleshooting, modernization.
-- `cc-skills-golang/skills/golang-*` covers the library ecosystem: DI
-  frameworks (uber-fx, google-wire, samber-do), cobra/viper/testify/slog-
-  class libraries, gopls, linting, CI, OpenAPI. Prefer it when work centers
-  on those libraries or tools.
+## Plans and work artifacts
 
-`git-commit` generates Conventional-Commits-style messages; the commit
-convention below overrides its subject format - use it for scoping and
-atomicity discipline only.
-
-Treat all three as vendored references: read and follow them, edit them
-only as a deliberate vendor-update task.
-
-## Verification
-
-Default bar per change: `gofmt -l` clean on touched files, `go build ./...`
-compiling the tree, and a runnable artifact via `go build .` when behavior
-changed. Rendering, audio, timing, or skinning changes additionally need
-stated human-verification steps precise enough to execute mechanically:
-command, inputs, expected observable behavior. A human performs them; the
-change states them exactly.
-
-If a check cannot be run, report exactly what was skipped and why. Broader
-evidence applies when the change touches packaging or distribution scripts,
-upstream merge resolution, or toolchain-sensitive behavior - in those
-cases prove the launcher and main binary both build and launch from the
-repository root.
-
-First builds after dependency changes take minutes under CGO. Long-running
-commands do not need periodic progress commentary; wait silently and report
-in the final handoff.
-
-## Agent Progress Updates
-
-Long-running commands do not need periodic progress commentary. Start the
-command and wait silently for completion. Send an interim update only when
-the user asks, user action is required, a material result changes the task,
-or a stalled command requires a decision. The final handoff must still
-report the completed verification and any failure or skipped check.
+- Do not commit implementation plans, research notes, or agent scratch files.
+  Keep temporary working material outside the worktree.
+- Track active maintainer work in the GitHub Issue that owns it. External
+  proposals use GitHub Issues and follow [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- Put durable architecture, constraints, and decisions in `README.md` or a
+  focused documentation page when one exists. Update documentation when the
+  product changes so it describes current behavior instead of abandoned
+  intentions.
+- A merged PR is the implementation record. Close or update its linked issue
+  when the work lands; do not preserve a second checklist in the repository.
