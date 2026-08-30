@@ -23,8 +23,8 @@ const (
 	Flashlight
 	Autoplay
 	SpunOut
-	Relax2  // Autopilot
-	Perfect // Only set along with SuddenDeath. i.e: PF only gives 16416
+	Autopilot // Autopilot
+	Perfect   // Only set along with SuddenDeath. i.e: PF only gives 16416
 	Key4
 	Key5
 	Key6
@@ -53,7 +53,7 @@ const (
 
 	// DifficultyAdjustMask is outdated, use GetDiffMaskedMods instead
 	DifficultyAdjustMask    = HardRock | Easy | DoubleTime | Nightcore | HalfTime | Daycore | Flashlight | Relax
-	difficultyAdjustMaskNew = HardRock | Easy | DoubleTime | HalfTime | Flashlight | Relax | Relax2 | TouchDevice
+	difficultyAdjustMaskNew = HardRock | Easy | DoubleTime | HalfTime | Flashlight | Relax | Autopilot | TouchDevice
 )
 
 // GetDiffMaskedMods should be used instead of DifficultyAdjustMask. In 220930 deployment, HDFL is a separate mod difficulty wise
@@ -130,7 +130,7 @@ var modsStringFull = [...]string{
 	"Flashlight",
 	"Autoplay",
 	"SpunOut",
-	"Relax2",
+	"Autopilot",
 	"Perfect",
 	"Key4",
 	"Key5",
@@ -195,7 +195,7 @@ func (mods Modifier) GetScoreMultiplier() float64 {
 		multiplier *= 1.12
 	}
 
-	if (mods&Relax | mods&Relax2) > 0 {
+	if (mods&Relax | mods&Autopilot) > 0 {
 		// Relax and Autopilot have different multipliers in the two
 		// gameplay implementations. Difficulty.GetScoreMultiplier owns
 		// that decision because Modifier does not carry gameplay provenance.
@@ -356,13 +356,17 @@ func (mods Modifier) Compatible() bool {
 	}
 
 	if mods.Active(Target) ||
-		(mods.Active(HardRock) && mods.Active(Easy)) ||
-		(mods.Active(HardRock) && mods.Active(Mirror)) ||
-		((mods.Active(Nightcore) || mods.Active(DoubleTime)) && (mods.Active(HalfTime) || mods.Active(Daycore))) ||
-		((mods.Active(Perfect) || mods.Active(SuddenDeath)) && mods.Active(NoFail)) ||
-		(mods.Active(Relax) && mods.Active(Relax2)) ||
-		((mods.Active(Relax) || mods.Active(Relax2)) && (mods.Active(SuddenDeath) || mods.Active(Perfect) || mods.Active(Autoplay) || mods.Active(NoFail))) ||
-		(mods.Active(Relax2) && mods.Active(SpunOut)) {
+		(mods.Active(Easy) && mods.Active(HardRock|DifficultyAdjust)) ||
+		(mods.Active(HardRock) && mods.Active(DifficultyAdjust|Mirror)) ||
+		(mods.Active(DoubleTime|Nightcore) && mods.Active(HalfTime|Daycore)) ||
+		(mods.Active(SuddenDeath) && mods.Active(Perfect|NoFail)) ||
+		(mods.Active(Perfect) && mods.Active(NoFail)) ||
+		(mods.Active(Relax) && mods.Active(Autoplay|Autopilot)) ||
+		(mods.Active(Autopilot) && mods.Active(SpunOut|Autoplay|TouchDevice)) ||
+		(mods.Active(Autoplay) && mods.Active(SpunOut|TouchDevice)) ||
+		(mods.Active(Cinema) && mods.Active(NoFail|SuddenDeath|Perfect|Relax|Autoplay|Autopilot|SpunOut|TouchDevice)) ||
+		(mods.Active(Traceable) && mods.Active(Hidden)) ||
+		(mods.Active(ScoreV2) && mods.Active(Classic)) {
 		return false
 	}
 

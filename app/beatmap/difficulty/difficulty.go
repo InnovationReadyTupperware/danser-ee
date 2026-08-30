@@ -388,7 +388,7 @@ func (diff *Difficulty) GetRadius() float32 {
 		return float32(diff.CircleRadiusL)
 	}
 
-	if diff.Mods&Relax2 > 0 {
+	if diff.Mods&Autopilot > 0 {
 		return 100
 	}
 
@@ -396,10 +396,10 @@ func (diff *Difficulty) GetRadius() float32 {
 }
 
 func (diff *Difficulty) GetScoreMultiplier() float64 {
-	scoreMods := diff.Mods &^ (HalfTime | Daycore | DoubleTime | Nightcore | Flashlight | Relax | Relax2)
+	scoreMods := diff.Mods &^ (HalfTime | Daycore | DoubleTime | Nightcore | Flashlight | Relax | Autopilot)
 	baseMultiplier := scoreMods.GetScoreMultiplier()
 
-	if diff.Mods.Active(Relax | Relax2) {
+	if diff.Mods.Active(Relax | Autopilot) {
 		if diff.IsLazer() {
 			baseMultiplier *= 0.1
 		} else {

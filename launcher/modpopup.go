@@ -37,17 +37,17 @@ func (m *modPopup) drawModMenu() {
 
 	if imgui.BeginTable("mfa", 6) {
 		m.drawRow("Reduction:", func() {
-			m.modCheckbox(difficulty.Easy, difficulty.HardRock, difficulty.None)
+			m.modCheckbox(difficulty.Easy, difficulty.HardRock|difficulty.DifficultyAdjust, difficulty.None)
 
-			m.modCheckbox(difficulty.NoFail, difficulty.SuddenDeath|difficulty.Perfect|difficulty.Relax|difficulty.Relax2, difficulty.None)
+			m.modCheckbox(difficulty.NoFail, difficulty.SuddenDeath|difficulty.Perfect, difficulty.None)
 
 			m.modCheckboxMulti(difficulty.HalfTime, difficulty.Daycore, difficulty.DoubleTime|difficulty.Nightcore, difficulty.None)
 		})
 
 		m.drawRow("Increase:", func() {
-			m.modCheckbox(difficulty.HardRock, difficulty.Easy|difficulty.Mirror, difficulty.None)
+			m.modCheckbox(difficulty.HardRock, difficulty.Easy|difficulty.DifficultyAdjust|difficulty.Mirror, difficulty.None)
 
-			m.modCheckboxMulti(difficulty.SuddenDeath, difficulty.Perfect, difficulty.NoFail|difficulty.Relax|difficulty.Relax2, difficulty.None)
+			m.modCheckboxMulti(difficulty.SuddenDeath, difficulty.Perfect, difficulty.NoFail, difficulty.None)
 
 			m.modCheckboxMulti(difficulty.DoubleTime, difficulty.Nightcore, difficulty.HalfTime|difficulty.Daycore, difficulty.None)
 
@@ -57,15 +57,13 @@ func (m *modPopup) drawModMenu() {
 		})
 
 		m.drawRow("Special:", func() {
-			nfSD := difficulty.NoFail | difficulty.SuddenDeath | difficulty.Perfect
+			m.modCheckbox(difficulty.Relax, difficulty.Autoplay|difficulty.Autopilot, difficulty.None)
 
-			m.modCheckbox(difficulty.Relax, difficulty.Relax2|nfSD, difficulty.None)
+			m.modCheckbox(difficulty.Autopilot, difficulty.Relax|difficulty.SpunOut|difficulty.Autoplay, difficulty.None)
 
-			m.modCheckbox(difficulty.Relax2, difficulty.Relax|difficulty.SpunOut|nfSD, difficulty.None)
+			m.modCheckbox(difficulty.SpunOut, difficulty.Autopilot|difficulty.Autoplay, difficulty.None)
 
-			m.modCheckbox(difficulty.SpunOut, difficulty.Relax2, difficulty.None)
-
-			m.modCheckbox(difficulty.DifficultyAdjust, difficulty.None, difficulty.None)
+			m.modCheckbox(difficulty.DifficultyAdjust, difficulty.Easy|difficulty.HardRock, difficulty.None)
 
 			m.modCheckbox(difficulty.Mirror, difficulty.HardRock, difficulty.None)
 		})
@@ -304,9 +302,6 @@ func (m *modPopup) modCheckbox(mod, incompat, required difficulty.Modifier) (ret
 		imgui.BeginTooltip()
 
 		modTip := mod.StringFull()[0]
-		if modTip == "Relax2" {
-			modTip = "AutoPilot"
-		}
 
 		imgui.TextUnformatted(modTip)
 

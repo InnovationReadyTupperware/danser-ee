@@ -135,10 +135,10 @@ func (spinner *Spinner) processStable(player *difficultyPlayer, time int64) {
 		timeDiff = FrameTime
 	}
 
-	if player.cursor.IsReplayFrame && time > int64(spinner.hitSpinner.GetStartTime()) && time < int64(spinner.hitSpinner.GetEndTime()) {
+	if (player.cursor.IsInputFrame || player.cursor.IsReplayFrame) && time > int64(spinner.hitSpinner.GetStartTime()) && time < int64(spinner.hitSpinner.GetEndTime()) {
 		maxAccelThisFrame := player.diff.GetModifiedTime(spinner.maxAcceleration * timeDiff)
 
-		if player.diff.CheckModActive(difficulty.SpunOut) || player.diff.CheckModActive(difficulty.Relax2) {
+		if player.diff.CheckModActive(difficulty.SpunOut) || player.diff.CheckModActive(difficulty.Autopilot) {
 			state.currentVelocity = 0.03
 		} else if state.theoreticalVelocity > state.currentVelocity {
 			accel := maxAccelThisFrame

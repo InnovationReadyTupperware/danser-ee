@@ -137,7 +137,7 @@ func (pp *PPv2) Calculate(attribs api.Attributes, score api.PerfScore, diff *dif
 }
 
 func (pp *PPv2) computeAimValue() float64 {
-	if pp.diff.CheckModActive(difficulty.Relax2) {
+	if pp.diff.CheckModActive(difficulty.Autopilot) {
 		return 0
 	}
 

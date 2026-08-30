@@ -31,7 +31,7 @@ func newOsuRatingCalculator(diff *difficulty.Difficulty, totalHits int, approach
 }
 
 func (c *osuRatingCalculator) ComputeAimRating(aimDifficultyValue float64) float64 {
-	if c.diff.CheckModActive(difficulty.Relax2) {
+	if c.diff.CheckModActive(difficulty.Autopilot) {
 		return 0
 	}
 
@@ -81,7 +81,7 @@ func (c *osuRatingCalculator) ComputeSpeedRating(speedDifficultyValue float64) f
 
 	speedRating := CalculateDifficultyRating(speedDifficultyValue)
 
-	if c.diff.CheckModActive(difficulty.Relax2) {
+	if c.diff.CheckModActive(difficulty.Autopilot) {
 		speedRating *= 0.5
 	}
 
@@ -95,7 +95,7 @@ func (c *osuRatingCalculator) ComputeSpeedRating(speedDifficultyValue float64) f
 		approachRateFactor = 0.3 * (c.approachRate - 10.33)
 	}
 
-	if c.diff.CheckModActive(difficulty.Relax2) {
+	if c.diff.CheckModActive(difficulty.Autopilot) {
 		approachRateFactor = 0.0
 	}
 
@@ -124,7 +124,7 @@ func (c *osuRatingCalculator) ComputeFlashlightRating(flashlightDifficultyValue 
 
 	if c.diff.CheckModActive(difficulty.Relax) {
 		flashlightRating *= 0.7
-	} else if c.diff.CheckModActive(difficulty.Relax2) {
+	} else if c.diff.CheckModActive(difficulty.Autopilot) {
 		flashlightRating *= 0.4
 	}
 

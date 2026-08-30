@@ -100,6 +100,9 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Feature                           |                                   danser-ee                                   |         danser-go (fork base)         |
 |-----------------------------------|:-----------------------------------------------------------------------------:|:-------------------------------------:|
 | Native Classic (CL) mod           |                                      ✅                                       |          synthetic Lazer mod          |
+| Provenance-aware gameplay engine  |       ✅ Replay-aware dual-runtime judgment with Lazer-native fallback        |          legacy ruleset path          |
+| Mod conflict handling             |                    Lazer conflict rules for supported mods                    |         Legacy conflict masks         |
+| Adaptive AP judgment engine       |            ✅ Mode-aware AP judgment with CL-gated Lazer reduction            |           legacy AP window            |
 | Replay-driven knockout lineup     |                         ✅ Explicit replay selection                          |       replay selection required       |
 | Solo knockout mode                | ✅ Map-driven generated Danser participants with shared cursor-dance controls |                   -                   |
 | Lazer's combo color normalization |                     ✅ HSPA perceived-brightness control                      |                   -                   |
@@ -109,8 +112,8 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Slider visual timing              |                        fractional end-time evaluation                         |            integer timing             |
 | Slider snaking                    |                           frame-computed, seek-safe                           |         pre-scheduled gliders         |
 | Slider hit animations             |                          configurable, on by default                          |                   -                   |
-| Slider tail hit animation         |                       skin-native endpoint pipeline                       |          universal endpoint fallback           |
-| Slider body fade policy           |                  timed body fade; short post-end fade by default                  |          instant body fade by default           |
+| Slider tail hit animation         |                         skin-native endpoint pipeline                         |      universal endpoint fallback      |
+| Slider body fade policy           |                timed body fade; short post-end fade by default                |     instant body fade by default      |
 
 ### Hit-error, spinner, and HUD behavior
 
@@ -132,20 +135,20 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 
 ### Audio and recording
 
-| Feature                         |                                    danser-ee                                    |             danser-go (fork base)             |
-|---------------------------------|:-------------------------------------------------------------------------------:|:---------------------------------------------:|
-| Accurate recording sync         |                                       ✅                                        |                source-clocked                 |
-| Recording output publication    |             ✅ Validated base names, isolated sessions, no-replace publish             |       ❌ Output-derived temp paths and overwrite publish       |
-| Recording failure recovery      |        ✅ Checked encoder exits, bounded diagnostics, retained intermediates         | ❌❌❌ Unchecked encoder exits; destructive cleanup on mux-start failure |
-| Recording configuration preflight | ✅ Immutable session snapshot, exact encoder probe, GL limits, and 2 GiB allocation budget | ❌ Encoder-list check with late option and allocation failures |
-| Recording color contract        |                 ✅ BT.709 limited-range conversion and encoded metadata                  |       ❌❌❌ BT.601 pixel conversion tagged as BT.709        |
-| Motion-blur shutter timeline    |          ✅ Centered sample-clock shutter, edge-clamped history, and exact frame counts          |       ❌ Causal trailing shutter and black startup history       |
-| Timestamped hitsound scheduling |              nominal event timestamps on the master-mixer timeline              | ❌ Frame-triggered playback; not mixer-locked |
-| Audio lifecycle safety          | serialized BASS access, cancellable voices, and explicit map/storyboard cleanup |                       -                       |
-| Offline audio output            |    mixer-clocked rendering with actual output format and zero-filled blocks     |           source-clocked rendering            |
-| Extreme slider audio handling   | ✅ detail audio suppressed; playfield-bounded positional pan; head sound retained | legacy position-based slider audio; no dedicated extreme-geometry policy |
-| BASS core version               |                                    2.4.18.3                                     |                   older 2.4                   |
-| Floating-point realtime audio   |                                       ✅                                        |                 16-bit mixer                  |
+| Feature                           |                                         danser-ee                                          |                          danser-go (fork base)                           |
+|-----------------------------------|:------------------------------------------------------------------------------------------:|:------------------------------------------------------------------------:|
+| Accurate recording sync           |                                             ✅                                             |                              source-clocked                              |
+| Recording output publication      |               ✅ Validated base names, isolated sessions, no-replace publish               |            ❌ Output-derived temp paths and overwrite publish            |
+| Recording failure recovery        |           ✅ Checked encoder exits, bounded diagnostics, retained intermediates            | ❌❌❌ Unchecked encoder exits; destructive cleanup on mux-start failure |
+| Recording configuration preflight | ✅ Immutable session snapshot, exact encoder probe, GL limits, and 2 GiB allocation budget |      ❌ Encoder-list check with late option and allocation failures      |
+| Recording color contract          |                  ✅ BT.709 limited-range conversion and encoded metadata                   |             ❌❌❌ BT.601 pixel conversion tagged as BT.709              |
+| Motion-blur shutter timeline      |       ✅ Centered sample-clock shutter, edge-clamped history, and exact frame counts       |           ❌ Causal trailing shutter and black startup history           |
+| Timestamped hitsound scheduling   |                   nominal event timestamps on the master-mixer timeline                    |              ❌ Frame-triggered playback; not mixer-locked               |
+| Audio lifecycle safety            |      serialized BASS access, cancellable voices, and explicit map/storyboard cleanup       |                                    -                                     |
+| Offline audio output              |          mixer-clocked rendering with actual output format and zero-filled blocks          |                         source-clocked rendering                         |
+| Extreme slider audio handling     |     ✅ detail audio suppressed; playfield-bounded positional pan; head sound retained      | legacy position-based slider audio; no dedicated extreme-geometry policy |
+| BASS core version                 |                                          2.4.18.3                                          |                                older 2.4                                 |
+| Floating-point realtime audio     |                                             ✅                                             |                               16-bit mixer                               |
 
 ### Runtime and platform
 

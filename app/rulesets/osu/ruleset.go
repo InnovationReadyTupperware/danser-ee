@@ -126,7 +126,7 @@ type failListener func(cursor *graphics.Cursor)
 // FailurePolicy controls how a cursor's health failure is routed. It is
 // deliberately separate from mod-specific failure overrides: a generated
 // participant can be delegated to a knockout overlay while a replay-backed
-// participant in the same ruleset remains locally failure-immune.
+// participant in a knockout remains locally failure-immune.
 type FailurePolicy uint8
 
 const (
@@ -421,7 +421,7 @@ func (set *OsuRuleSet) UpdateClickFor(cursor *graphics.Cursor, time int64) {
 
 	player.alreadyStolen = false
 
-	if player.cursor.IsReplayFrame || player.cursor.IsPlayer {
+	if player.cursor.IsInputFrame || player.cursor.IsReplayFrame || player.cursor.IsPlayer {
 		set.processButtonChangesForEvent(player)
 
 		player.leftCond = !player.buttons.Left && player.cursor.LeftButton
@@ -455,7 +455,7 @@ func (set *OsuRuleSet) UpdateClickFor(cursor *graphics.Cursor, time int64) {
 		}
 	}
 
-	if player.cursor.IsReplayFrame || player.cursor.IsPlayer {
+	if player.cursor.IsInputFrame || player.cursor.IsReplayFrame || player.cursor.IsPlayer {
 		player.buttons.Left = player.cursor.LeftButton
 		player.buttons.Right = player.cursor.RightButton
 	}
@@ -498,8 +498,9 @@ func (set *OsuRuleSet) UpdateNormalFor(cursor *graphics.Cursor, time int64, proc
 		for i := 0; i < len(set.processed); i++ {
 			g := set.processed[i]
 
-			if !cursor.IsAutoplay && !cursor.IsPlayer {
-				// TODO: recreate stable's hitobject "unloading" for replays
+			if player.cursor.IsReplay && !player.diff.IsLazer() {
+				// Stable replay playback retains its legacy single-unhit-slider
+				// processing boundary. Lazer replays process every active object.
 
 				s, isSlider := g.(*Slider)
 
@@ -680,7 +681,9 @@ func (set *OsuRuleSet) CanBeHit(time int64, object HitObject, player *difficulty
 	}
 
 	hitRange := difficulty.HittableRange
-	if player.diff.CheckModActive(difficulty.Relax2) {
+	// osu!lazer applies Autopilot's reduced note-lock range only through
+	// Classic's legacy hit policy. Stable Autopilot retains the legacy range.
+	if player.diff.CheckModActive(difficulty.Autopilot) && (!player.diff.IsLazer() || player.classicNoteLock) {
 		hitRange -= 200
 	}
 
@@ -802,20 +805,25 @@ func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 		return
 	}
 
-	if player.cursor.IsReplay && (settings.Gameplay.IgnoreFailsInReplays || !subSet.replayEnded) {
+	// No Fail and Cinema unconditionally override failure. This check must not
+	// depend on replay completion: osu!lazer still blocks failure after a
+	// ReplayPlayer has consumed its final frame.
+	if player.diff.CheckModActive(difficulty.NoFail | difficulty.Cinema) {
 		return
 	}
 
-	// No Fail, Relax, and Autopilot are retained here as Danser's existing
-	// failure-suppression behavior. In osu!lazer, only No Fail implements an
-	// applicable failure override; Relax and Autopilot are intentionally left
-	// for the separate failure-override parity milestone.
-	if !subSet.replayEnded && player.diff.CheckModActive(difficulty.NoFail|difficulty.Relax|difficulty.Relax2) {
+	// A normal replay cannot fail before its final input frame. Autoplay is the
+	// exception in osu!lazer: its generated input is allowed to fail immediately
+	// when the map is not humanly beatable. IgnoreFailsInReplays remains a
+	// danser-specific opt-out for visual replay playback.
+	if player.cursor.IsReplay && (settings.Gameplay.IgnoreFailsInReplays ||
+		(!subSet.replayEnded && !player.diff.CheckModActive(difficulty.Autoplay))) {
 		return
 	}
 
-	// EZ mod gives 2 additional lives
-	if subSet.recoveries > 0 && !subSet.sdpfFail && !subSet.replayEnded {
+	// Easy's extra lives are an applicable failure override. Sudden Death and
+	// Perfect failures bypass recovery, matching their fail-condition behavior.
+	if subSet.recoveries > 0 && !subSet.sdpfFail {
 		subSet.hp.IncreaseRelative(0.8, false)
 		subSet.recoveries--
 

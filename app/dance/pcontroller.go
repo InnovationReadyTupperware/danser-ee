@@ -62,7 +62,7 @@ func (controller *PlayerController) InitCursors() {
 
 	gcontext.SetCursorVisible(false)
 
-	if controller.bMap.Diff.CheckModActive(difficulty.Relax2) {
+	if controller.bMap.Diff.CheckModActive(difficulty.Autopilot) {
 		controller.mouseController = schedulers.NewGenericScheduler(movers.NewLinearMoverSimple, 0, 0)
 		controller.mouseController.Init(controller.bMap.GetObjectsCopy(), controller.bMap.Diff, controller.cursors[0], spinners.GetMoverCtorByName("circle"), false)
 	} else if settings.Input.MouseHighPrecision {
@@ -101,7 +101,7 @@ func processKey(value *bool, expect string, event gcontext.KeyEvent) gcontext.Ac
 func (controller *PlayerController) Update(time float64, delta float64) {
 	controller.bMap.Update(time)
 
-	if !controller.bMap.Diff.CheckModActive(difficulty.Relax2) {
+	if !controller.bMap.Diff.CheckModActive(difficulty.Autopilot) {
 		mousePosition := vector.NewVec2f(gcontext.GetCursorPosition())
 
 		if controller.rawInput {
@@ -136,9 +136,11 @@ func (controller *PlayerController) Update(time float64, delta float64) {
 	controller.counter += time - controller.lastTime
 
 	if controller.counter >= 1000.0/60 {
+		controller.cursors[0].IsInputFrame = true
 		controller.cursors[0].IsReplayFrame = true
 		controller.counter -= 1000.0 / 60
 	} else {
+		controller.cursors[0].IsInputFrame = false
 		controller.cursors[0].IsReplayFrame = false
 	}
 

@@ -238,8 +238,10 @@ func (controller *GenericController) updateAt(time float64, delta float64) {
 		if int64(time)%17 == 0 {
 			cursor.LastFrameTime = int64(time) - 17
 			cursor.CurrentFrameTime = int64(time)
+			cursor.IsInputFrame = true
 			cursor.IsReplayFrame = true
 		} else {
+			cursor.IsInputFrame = false
 			cursor.IsReplayFrame = false
 		}
 
@@ -302,6 +304,7 @@ func (controller *GenericController) Seek(time float64) bool {
 		controller.ruleset.Update(int64(time))
 
 		for _, cursor := range controller.cursors {
+			cursor.IsInputFrame = false
 			cursor.IsReplayFrame = false
 			controller.ruleset.UpdateClickFor(cursor, int64(time))
 			controller.ruleset.UpdateNormalFor(cursor, int64(time), false)

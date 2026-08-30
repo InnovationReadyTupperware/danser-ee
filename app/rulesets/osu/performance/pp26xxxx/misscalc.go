@@ -174,7 +174,7 @@ func getLegacyScoreMultiplier(mods difficulty.Modifier) float64 {
 		multiplier *= 0.9
 	}
 
-	if mods.Active(difficulty.Relax | difficulty.Relax2) {
+	if mods.Active(difficulty.Relax | difficulty.Autopilot) {
 		return 0
 	}
 

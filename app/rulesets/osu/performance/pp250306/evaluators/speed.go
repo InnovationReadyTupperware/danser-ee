@@ -50,7 +50,7 @@ func EvaluateSpeed(current *preprocessing.DifficultyObject) float64 {
 	// Max distance bonus is 1 * `distance_multiplier` at single_spacing_threshold
 	distanceBonus := math.Pow(distance/speedSingleSpacingThreshold, 3.95) * speedDistanceMultiplier
 
-	if current.Diff.CheckModActive(difficulty.Relax2) {
+	if current.Diff.CheckModActive(difficulty.Autopilot) {
 		distanceBonus = 0
 	}
 

@@ -69,7 +69,14 @@ type Cursor struct {
 	LeftKey, RightKey       bool
 	LeftMouse, RightMouse   bool
 
-	IsReplayFrame bool // TODO: temporary hacky solution for spinners
+	// IsInputFrame marks a frame at which input state was sampled. Stable
+	// spinner scoring and button transitions use these discrete samples;
+	// interpolated replay frames only update cursor position.
+	IsInputFrame bool
+	// IsReplayFrame is kept as a compatibility alias for callers that still
+	// use the historical name. New code should use IsInputFrame.
+	// Deprecated: use IsInputFrame.
+	IsReplayFrame bool
 	IsPlayer      bool
 	IsAutoplay    bool
 	IsReplay      bool

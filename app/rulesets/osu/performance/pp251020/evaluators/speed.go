@@ -53,7 +53,7 @@ func EvaluateSpeed(current *preprocessing.DifficultyObject) float64 {
 	// Apply reduced small circle bonus because flow aim difficulty on small circles doesn't scale as hard as jumps
 	distanceBonus *= math.Sqrt(osuCurrObj.SmallCircleBonus)
 
-	if current.Diff.CheckModActive(difficulty.Relax2) {
+	if current.Diff.CheckModActive(difficulty.Autopilot) {
 		distanceBonus = 0
 	}
 

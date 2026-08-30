@@ -165,9 +165,16 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 		log.Println("\tReplay loaded!")
 	}
 
-	if !localReplay && settings.Knockout.AddDanser {
+	if !localReplay && (settings.Knockout.AddDanser || beatMap.Diff.CheckModActive(difficulty.Autoplay)) {
 		control := NewSubControl()
 		control.diff = beatMap.Diff.Clone()
+		if len(candidates) == 0 {
+			// Standalone Autoplay uses the generated replay path. Keep the
+			// generated participant's difficulty in sync with the map after
+			// the legacy knockout conversion adds Autoplay to the map.
+			controller.bMap.Diff.AddMod(difficulty.Autoplay)
+			control.diff.AddMod(difficulty.Autoplay)
+		}
 
 		control.danceController = NewGenericController()
 		control.danceController.SetBeatMap(beatMap)
@@ -175,9 +182,6 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 		controller.replays = append([]RpData{{settings.Knockout.DanserName, settings.Knockout.DanserName, control.diff.GetModString(), control.diff.Mods, 1, 0, 0, osu.NONE, -1, time.Now()}}, controller.replays...)
 		controller.controllers = append([]*subControl{control}, controller.controllers...)
 
-		if len(candidates) == 0 {
-			controller.bMap.Diff.AddMod(difficulty.Autoplay)
-		}
 	}
 
 	settings.PLAYERS = len(controller.replays)
@@ -320,7 +324,7 @@ func loadFrames(subController *subControl, frames []*rplpa.ReplayData) {
 
 	log.Println(fmt.Sprintf("\tMedian cv frametime: %.2fms", meanFrameTime))
 
-	if meanFrameTime <= 13 && !subController.diff.CheckModActive(difficulty.Autoplay|difficulty.Relax|difficulty.Relax2) {
+	if meanFrameTime <= 13 && !subController.diff.CheckModActive(difficulty.Autoplay|difficulty.Relax|difficulty.Autopilot) {
 		log.Println("\tWARNING!!! THIS REPLAY WAS PROBABLY TIMEWARPED!!!")
 	}
 
@@ -398,7 +402,7 @@ func (controller *ReplayController) InitCursors() {
 			controller.controllers[i].relaxController = input.NewRelaxInputProcessor(controller.ruleset, controller.cursors[i])
 		}
 
-		if controller.replays[i].ModsV.Active(difficulty.Relax2) {
+		if controller.replays[i].ModsV.Active(difficulty.Autopilot) {
 			controller.controllers[i].mouseController = schedulers.NewGenericScheduler(movers.NewLinearMoverSimple, 0, 0)
 
 			controller.controllers[i].mouseController.Init(controller.bMap.GetObjectsCopy(), c.diff, controller.cursors[i], spinners.GetMoverCtorByName("circle"), false)
@@ -452,8 +456,10 @@ func (controller *ReplayController) Seek(time float64) bool {
 		if int64(time)%17 == 0 {
 			controller.cursors[i].LastFrameTime = int64(time) - 17
 			controller.cursors[i].CurrentFrameTime = int64(time)
+			controller.cursors[i].IsInputFrame = true
 			controller.cursors[i].IsReplayFrame = true
 		} else {
+			controller.cursors[i].IsInputFrame = false
 			controller.cursors[i].IsReplayFrame = false
 		}
 
@@ -496,8 +502,10 @@ func (controller *ReplayController) updateMain(nTime float64) {
 			if int64(nTime)%17 == 0 {
 				controller.cursors[i].LastFrameTime = int64(nTime) - 17
 				controller.cursors[i].CurrentFrameTime = int64(nTime)
+				controller.cursors[i].IsInputFrame = true
 				controller.cursors[i].IsReplayFrame = true
 			} else {
+				controller.cursors[i].IsInputFrame = false
 				controller.cursors[i].IsReplayFrame = false
 			}
 
@@ -528,7 +536,7 @@ func (controller *ReplayController) processLazer(i int, c *subControl, nTime flo
 	wasUpdated := false
 
 	isRelax := (controller.replays[i].ModsV & difficulty.Relax) > 0
-	isAutopilot := (controller.replays[i].ModsV & difficulty.Relax2) > 0
+	isAutopilot := (controller.replays[i].ModsV & difficulty.Autopilot) > 0
 
 	if isAutopilot {
 		c.mouseController.Update(nTime)
@@ -551,6 +559,7 @@ func (controller *ReplayController) processLazer(i int, c *subControl, nTime flo
 
 			controller.cursors[i].LastFrameTime = controller.cursors[i].CurrentFrameTime
 			controller.cursors[i].CurrentFrameTime = replayTime
+			controller.cursors[i].IsInputFrame = true
 			controller.cursors[i].IsReplayFrame = true
 
 			if !isRelax {
@@ -589,6 +598,7 @@ func (controller *ReplayController) processLazer(i int, c *subControl, nTime flo
 				controller.cursors[i].SetPos(vector.NewVec2d(mX, mY).Copy32())
 			}
 
+			controller.cursors[i].IsInputFrame = false
 			controller.cursors[i].IsReplayFrame = false
 		}
 	} else {
@@ -608,7 +618,7 @@ func (controller *ReplayController) processStable(i int, c *subControl, nTime fl
 	wasUpdated := false
 
 	isRelax := (controller.replays[i].ModsV & difficulty.Relax) > 0
-	isAutopilot := (controller.replays[i].ModsV & difficulty.Relax2) > 0
+	isAutopilot := (controller.replays[i].ModsV & difficulty.Autopilot) > 0
 
 	if isAutopilot {
 		c.mouseController.Update(nTime)
@@ -639,6 +649,7 @@ func (controller *ReplayController) processStable(i int, c *subControl, nTime fl
 
 			controller.cursors[i].LastFrameTime = controller.cursors[i].CurrentFrameTime
 			controller.cursors[i].CurrentFrameTime = replayTime
+			controller.cursors[i].IsInputFrame = true
 			controller.cursors[i].IsReplayFrame = true
 
 			if !isRelax {
@@ -666,7 +677,9 @@ func (controller *ReplayController) processStable(i int, c *subControl, nTime fl
 				localIndex := mutils.Clamp(c.replayIndex+1, 0, len(c.frames)-1)
 				localFrame := c.frames[localIndex]
 
-				// HACK for older replays: update object ends till the next frame
+				// Stable replays before 2019-05-06 do not encode object-end
+				// processing on a replay frame. Reconstruct that interval so the
+				// historical replay judgment cadence remains observable.
 				for localTime := replayTime; localTime < int64(c.replayTime+localFrame.Time); localTime++ {
 					controller.ruleset.UpdatePostFor(controller.cursors[i], localTime, false)
 				}
@@ -691,6 +704,7 @@ func (controller *ReplayController) processStable(i int, c *subControl, nTime fl
 				controller.cursors[i].SetPos(vector.NewVec2d(mX, mY).Copy32())
 			}
 
+			controller.cursors[i].IsInputFrame = false
 			controller.cursors[i].IsReplayFrame = false
 		}
 	} else {

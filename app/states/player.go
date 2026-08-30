@@ -79,22 +79,18 @@ type Player struct {
 	// until a real mixer interval exists.
 	mixerClockActive bool
 
-	batch      *batch2.QuadBatch
-	controller dance.Controller
-	// automatedPlayback identifies the internal AT-to-generated-playback
-	// conversion. It is distinct from explicit knockout, which can also use a
-	// generated Danser participant but must allow that participant to fail.
-	automatedPlayback bool
-	background        *common.Background
-	BgScl             vector.Vector2d
-	Scl               float64
-	SclA              float64
-	fadeOut           float64
-	fadeIn            float64
-	start             bool
-	musicPlayer       bass.ITrack
-	drawStats         *frame.FrameStats
-	updateStats       *frame.FrameStats
+	batch       *batch2.QuadBatch
+	controller  dance.Controller
+	background  *common.Background
+	BgScl       vector.Vector2d
+	Scl         float64
+	SclA        float64
+	fadeOut     float64
+	fadeIn      float64
+	start       bool
+	musicPlayer bass.ITrack
+	drawStats   *frame.FrameStats
+	updateStats *frame.FrameStats
 
 	onlineOffset float64
 
@@ -184,9 +180,11 @@ type Player struct {
 	ftGraph *shape.SteppingGraph
 }
 
-func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool) *Player {
+// NewPlayer creates a gameplay player for beatMap. The legacy second argument
+// remains in the signature for caller compatibility; generated cursor
+// identity now controls failure routing independently of launch mode.
+func NewPlayer(beatMap *beatmap.BeatMap, _ bool) *Player {
 	player := new(Player)
-	player.automatedPlayback = automatedPlayback
 	audio.ResetClock()
 	player.heapGrowthRate = frame.NewExponentialMovingAverage(300 * time.Millisecond)
 	player.mBuffer = make([]byte, 0, 256)
@@ -718,11 +716,11 @@ func (player *Player) trySetupFail() {
 
 		for _, cursor := range cursors {
 			// Replay-backed knockout participants are judged for display, but
-			// their local health must never remove them. A generated Danser
-			// participant is the only participant delegated to knockout. The
-			// internal AT conversion remains visual playback and is suppressed.
+			// their local health must never remove them. Generated participants,
+			// including the internal AT playback participant, are delegated to
+			// the knockout overlay.
 			policy := osu.FailurePolicySuppress
-			if !player.automatedPlayback && generatedController != nil && generatedController.IsGeneratedCursor(cursor) {
+			if generatedController != nil && generatedController.IsGeneratedCursor(cursor) {
 				policy = osu.FailurePolicyDelegate
 			}
 
@@ -761,12 +759,7 @@ func (player *Player) trySetupFail() {
 		})
 
 		for _, cursor := range cursors {
-			policy := osu.FailurePolicyAllow
-			if player.automatedPlayback || cursor.IsReplay {
-				policy = osu.FailurePolicySuppress
-			}
-
-			ruleset.SetFailurePolicy(cursor, policy)
+			ruleset.SetFailurePolicy(cursor, osu.FailurePolicyAllow)
 		}
 
 		if len(cursors) > 0 && cursors[0].IsPlayer && !cursors[0].IsAutoplay {
