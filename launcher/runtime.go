@@ -75,6 +75,9 @@ func (l *launcher) shutdown() {
 		if l.catalogCoordinator != nil {
 			l.catalogCoordinator.close()
 		}
+		if l.selectWindow != nil {
+			l.selectWindow.shutdown()
+		}
 		l.backgroundWG.Wait()
 
 		l.closeWatcher()
@@ -157,9 +160,7 @@ func (l *launcher) applyEvent(event launcherEvent) {
 			l.catalogSnapshotGeneration.Store(event.generation)
 		}
 		l.catalogSnapshotReady.Store(true)
-		if l.selectWindow != nil {
-			l.selectWindow.updateCatalog(event.catalog)
-		}
+		l.ensureSongSelect().updateCatalog(event.catalog)
 		l.runCatalogCallbacks(event.callbacks)
 	case launcherCatalogDeltaEvent:
 		if event.generation < l.catalogGeneration.Load() {
@@ -172,9 +173,7 @@ func (l *launcher) applyEvent(event launcherEvent) {
 			}
 
 			l.catalog = l.catalog.ApplyDelta(event.delta)
-			if l.selectWindow != nil {
-				l.selectWindow.updateCatalog(l.catalog)
-			}
+			l.ensureSongSelect().updateCatalog(l.catalog)
 		}
 
 		l.runCatalogCallbacks(event.callbacks)

@@ -558,6 +558,18 @@ func ReconcileCatalog(skipDatabaseCheck bool, importListener ImportListener) Cat
 // contain work committed before cancellation, but the returned delta is only
 // published by callers that completed the operation for their generation.
 func ReconcileCatalogContext(ctx context.Context, skipDatabaseCheck bool, importListener ImportListener) (CatalogDelta, error) {
+	return ReconcileCatalogWithDeltasContext(ctx, skipDatabaseCheck, importListener, nil)
+}
+
+// CatalogDeltaListener receives catalog changes after they have been written
+// successfully. The listener must treat entries as immutable and return
+// promptly so reconciliation can continue.
+type CatalogDeltaListener func(CatalogDelta)
+
+// ReconcileCatalogWithDeltasContext updates danser's catalog and reports each
+// durable batch as it becomes available. The returned delta still contains the
+// complete operation for callers that publish only after reconciliation.
+func ReconcileCatalogWithDeltasContext(ctx context.Context, skipDatabaseCheck bool, importListener ImportListener, deltaListener CatalogDeltaListener) (CatalogDelta, error) {
 	if ctx == nil {
 		return CatalogDelta{}, errors.New("nil context")
 	}
@@ -581,7 +593,9 @@ func ReconcileCatalogContext(ctx context.Context, skipDatabaseCheck bool, import
 	if err != nil {
 		return delta, err
 	}
-	importDelta, err := importMapsContext(ctx, skipDatabaseCheck, unpackedMaps, importListener)
+	notifyCatalogDelta(deltaListener, delta)
+
+	importDelta, err := importMapsContext(ctx, skipDatabaseCheck, unpackedMaps, importListener, deltaListener)
 	if err != nil {
 		return delta, err
 	}
@@ -653,7 +667,7 @@ const (
 )
 
 func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener ImportListener) CatalogDelta {
-	delta, err := importMapsContext(context.Background(), skipDatabaseCheck, mustCheckDirs, importListener)
+	delta, err := importMapsContext(context.Background(), skipDatabaseCheck, mustCheckDirs, importListener, nil)
 	if err != nil {
 		log.Println("DatabaseManager: Map import stopped:", err)
 	}
@@ -661,7 +675,7 @@ func importMaps(skipDatabaseCheck bool, mustCheckDirs []string, importListener I
 	return delta
 }
 
-func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDirs []string, importListener ImportListener) (CatalogDelta, error) {
+func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDirs []string, importListener ImportListener, deltaListener CatalogDeltaListener) (CatalogDelta, error) {
 	const workers = 2
 	var delta CatalogDelta
 	// A cache from another Songs directory is not safe to skip, even when the
@@ -765,9 +779,13 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 			log.Println("DatabaseManager: Failed to remove stale catalog rows:", err)
 			cleanupFailed = true
 		} else {
+			cleanupDelta := CatalogDelta{Removals: make([]string, 0, len(mapsToRemove))}
 			for _, location := range mapsToRemove {
-				delta.Removals = append(delta.Removals, location.key())
+				key := location.key()
+				delta.Removals = append(delta.Removals, key)
+				cleanupDelta.Removals = append(cleanupDelta.Removals, key)
 			}
+			notifyCatalogDelta(deltaListener, cleanupDelta)
 			trySendStatus(importListener, Cleanup, len(mapsToRemove), len(mapsToRemove))
 		}
 
@@ -803,6 +821,7 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 				persistenceFailed = true
 			}
 			appendImportedDelta(&delta, entries)
+			notifyCatalogDelta(deltaListener, CatalogDelta{Upserts: entries})
 
 			imported = imported[:0]
 		}
@@ -818,6 +837,7 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 			persistenceFailed = true
 		}
 		appendImportedDelta(&delta, entries)
+		notifyCatalogDelta(deltaListener, CatalogDelta{Upserts: entries})
 	}
 
 	trySendStatus(importListener, Finished, 100, 100)
@@ -837,6 +857,14 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 	}
 
 	return delta, nil
+}
+
+func notifyCatalogDelta(listener CatalogDeltaListener, delta CatalogDelta) {
+	if listener == nil || len(delta.Upserts) == 0 && len(delta.Removals) == 0 {
+		return
+	}
+
+	listener(delta)
 }
 
 // importBeatmapsContext feeds map candidates through a bounded worker pool.

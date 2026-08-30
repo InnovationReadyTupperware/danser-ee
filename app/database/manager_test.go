@@ -163,3 +163,26 @@ func TestEnsureCatalogColumnsCanBeRetried(t *testing.T) {
 		t.Fatalf("catalog columns = %#v, want fileSize and metadataState", columns)
 	}
 }
+
+func TestNotifyCatalogDeltaPublishesOnlyChanges(t *testing.T) {
+	entry := &BeatmapEntry{Dir: "set", File: "map.osu"}
+	var received []CatalogDelta
+	listener := func(delta CatalogDelta) {
+		received = append(received, delta)
+	}
+
+	notifyCatalogDelta(listener, CatalogDelta{})
+	notifyCatalogDelta(nil, CatalogDelta{Upserts: []*BeatmapEntry{entry}})
+	notifyCatalogDelta(listener, CatalogDelta{Upserts: []*BeatmapEntry{entry}})
+	notifyCatalogDelta(listener, CatalogDelta{Removals: []string{"removed/map.osu"}})
+
+	if len(received) != 2 {
+		t.Fatalf("listener received %d deltas, want 2", len(received))
+	}
+	if len(received[0].Upserts) != 1 || received[0].Upserts[0] != entry {
+		t.Fatalf("upsert delta = %#v, want entry", received[0])
+	}
+	if len(received[1].Removals) != 1 || received[1].Removals[0] != "removed/map.osu" {
+		t.Fatalf("removal delta = %#v, want removed map key", received[1])
+	}
+}

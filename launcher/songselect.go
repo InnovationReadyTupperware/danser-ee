@@ -155,6 +155,11 @@ type searchMatch struct {
 	setIndex int
 }
 
+type songSelectScrollAnchor struct {
+	directory string
+	offset    float32
+}
+
 type songSelectPopup struct {
 	*popup
 
@@ -184,7 +189,13 @@ type songSelectPopup struct {
 
 	materialize          func(*database.BeatmapEntry) (*beatmap.BeatMap, error)
 	catalog              *database.CatalogSnapshot
-	catalogDirty         bool
+	catalogWorker        *songSelectCatalogWorker
+	catalogRevision      uint64
+	catalogViewReady     bool
+	catalogViewBuilding  bool
+	catalogProgress      func() catalogProgressState
+	pendingScrollAnchor  *songSelectScrollAnchor
+	selectNewestOnReady  bool
 	layout               variableHeightLayout
 	layoutWidth          float32
 	layoutReady          bool
@@ -192,59 +203,81 @@ type songSelectPopup struct {
 	tooltipDisabledUntil float64
 }
 
-func newSongSelectPopup(bld *builder, catalog *database.CatalogSnapshot, materialize func(*database.BeatmapEntry) (*beatmap.BeatMap, error)) *songSelectPopup {
+func newSongSelectPopup(bld *builder, catalog *database.CatalogSnapshot, materialize func(*database.BeatmapEntry) (*beatmap.BeatMap, error), progress func() catalogProgressState) *songSelectPopup {
 	mP := &songSelectPopup{
-		popup:       newPopup("Song select", popBig),
-		bld:         bld,
-		volume:      animation.NewGlider(0),
-		materialize: materialize,
+		popup:           newPopup("Song select", popBig),
+		bld:             bld,
+		volume:          animation.NewGlider(0),
+		materialize:     materialize,
+		catalogWorker:   newSongSelectCatalogWorker(),
+		catalogProgress: progress,
 	}
 
 	mP.internalDraw = mP.drawSongSelect
 	mP.setCloseListener(mP.releaseThumbnail)
 
-	mP.setCatalog(catalog)
+	mP.updateCatalog(catalog)
 
 	return mP
 }
 
-func (m *songSelectPopup) setCatalog(catalog *database.CatalogSnapshot) {
-	m.catalog = catalog
-	m.catalogDirty = false
-
-	beatmaps := make(searchEntries, 0)
-	if catalog != nil {
-		beatmaps = make(searchEntries, 0, catalog.Len())
-		catalog.ForEach(func(entry *database.BeatmapEntry) bool {
-			if searchEntry := newSearchEntry(entry); searchEntry != nil {
-				beatmaps = append(beatmaps, searchEntry)
-			}
-			return true
-		})
-	}
-
-	m.beatmaps = beatmaps
-	m.groupByDirectory = sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
-	m.groupCount = len(m.groupByDirectory)
-	m.search()
-	m.focusTheMap = true
-}
-
 func (m *songSelectPopup) updateCatalog(catalog *database.CatalogSnapshot) {
 	m.catalog = catalog
-	// Reconciliation publishes from a background worker. Rebuilding and sorting
-	// a 140k-entry view here would put that worker's main-thread callback on the
-	// input path, so defer the rebuild until the selector is opened again.
-	m.catalogDirty = true
+	m.requestCatalogView()
 }
 
-func (m *songSelectPopup) refreshCatalog() {
-	if m.catalogDirty {
-		m.setCatalog(m.catalog)
+func (m *songSelectPopup) requestCatalogView() {
+	m.catalogRevision++
+
+	if m.catalog == nil || m.catalog.Len() == 0 {
+		m.beatmaps = m.beatmaps[:0]
+		m.groupByDirectory = nil
+		m.groupCount = 0
+		m.catalogViewReady = true
+		m.catalogViewBuilding = false
+		m.pendingScrollAnchor = nil
+		m.search()
+		return
+	}
+
+	m.catalogViewBuilding = m.catalogWorker.request(songSelectCatalogRequest{
+		revision:  m.catalogRevision,
+		catalog:   m.catalog,
+		sortBy:    launcherConfig.SortMapsBy,
+		ascending: launcherConfig.SortAscending,
+	})
+}
+
+func (m *songSelectPopup) applyCatalogView(view songSelectCatalogView) {
+	if view.revision != m.catalogRevision || view.catalog != m.catalog {
+		return
+	}
+
+	hadUsableView := m.catalogViewReady && len(m.beatmaps) > 0
+	if hadUsableView && m.opened {
+		m.pendingScrollAnchor = m.captureScrollAnchor()
+	}
+
+	m.beatmaps = view.beatmaps
+	m.groupByDirectory = view.groupByDirectory
+	m.groupCount = view.groupCount
+	m.catalogViewReady = true
+	m.catalogViewBuilding = false
+	m.search()
+	if !hadUsableView {
+		m.focusTheMap = true
+	}
+	if m.selectNewestOnReady {
+		m.selectNewestOnReady = false
+		m.selectNewest()
 	}
 }
 
 func (m *songSelectPopup) update() {
+	if view, ok := m.catalogWorker.pollLatest(); ok {
+		m.applyCatalogView(view)
+	}
+
 	cT := qpc.GetMilliTimeF()
 
 	m.volume.Update(cT)
@@ -274,9 +307,10 @@ func (m *songSelectPopup) drawSongSelect() {
 
 	imgui.PushFont(Font, 20)
 
-	if imgui.BeginTableV("sortrandom", 2, 0, vec2(-1, 0), -1) {
-		imgui.TableSetupColumnV("##sortrandom1", imgui.TableColumnFlagsWidthStretch, 0, imgui.ID(0))
-		imgui.TableSetupColumnV("##sortrandom2", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(1))
+	if imgui.BeginTableV("sortrandom", 3, 0, vec2(-1, 0), -1) {
+		imgui.TableSetupColumnV("##sortcontrols", imgui.TableColumnFlagsWidthFixed, 270, imgui.ID(0))
+		imgui.TableSetupColumnV("##catalogstatus", imgui.TableColumnFlagsWidthStretch, 0, imgui.ID(1))
+		imgui.TableSetupColumnV("##random", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(2))
 
 		imgui.TableNextColumn()
 
@@ -295,10 +329,7 @@ func (m *songSelectPopup) drawSongSelect() {
 			for _, s := range sortMethods {
 				if imgui.SelectableBoolV(s.String(), s == launcherConfig.SortMapsBy, 0, vzero()) && s != launcherConfig.SortMapsBy {
 					launcherConfig.SortMapsBy = s
-					m.groupByDirectory = sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
-					m.groupCount = len(m.groupByDirectory)
-					m.search()
-					m.focusTheMap = true
+					m.requestCatalogView()
 					saveLauncherConfig()
 				}
 			}
@@ -317,14 +348,17 @@ func (m *songSelectPopup) drawSongSelect() {
 
 		if imgui.Button(sDir) {
 			launcherConfig.SortAscending = !launcherConfig.SortAscending
-			m.groupByDirectory = sortMaps(m.beatmaps, launcherConfig.SortMapsBy)
-			m.groupCount = len(m.groupByDirectory)
-			m.search()
-			m.focusTheMap = true
+			m.requestCatalogView()
 			saveLauncherConfig()
 		}
 
 		imgui.PopFont()
+
+		imgui.TableNextColumn()
+		imgui.AlignTextToFramePadding()
+		if status := m.catalogStatusMessage(); status != "" {
+			imgui.TextUnformatted(status)
+		}
 
 		imgui.TableNextColumn()
 
@@ -349,6 +383,14 @@ func (m *songSelectPopup) drawSongSelect() {
 	listWidth := imgui.ContentRegionAvail().X
 	if !m.layoutReady || math.Abs(float64(listWidth-m.layoutWidth)) > 1 {
 		m.rebuildLayout(listWidth)
+	}
+	if anchor := m.pendingScrollAnchor; anchor != nil {
+		if groupIndex, ok := m.groupByDirectory[anchor.directory]; ok {
+			if resultIndex, found := m.searchResults.findSetByGroup(groupIndex); found {
+				imgui.SetScrollYFloat(max(0, m.layout.top(resultIndex)+anchor.offset))
+			}
+		}
+		m.pendingScrollAnchor = nil
 	}
 
 	if m.focusTheMap {
@@ -383,6 +425,17 @@ func (m *songSelectPopup) drawSongSelect() {
 
 	startIndex, endIndex := m.layout.visibleRange(scrollY, imgui.ContentRegionAvail().Y)
 	var scrollCorrection float32
+	if len(m.searchResults.sets) == 0 {
+		emptyText := "No maps match your search."
+		if !m.catalogViewReady {
+			emptyText = "Preparing map library..."
+		} else if len(m.beatmaps) == 0 {
+			emptyText = "No beatmaps found."
+		}
+		textSize := imgui.CalcTextSize(emptyText)
+		imgui.SetCursorPosX(max(imgui.CursorPos().X, (imgui.ContentRegionAvail().X-textSize.X)/2))
+		imgui.TextUnformatted(emptyText)
+	}
 
 	if imgui.BeginTableV("bsetstab", 1, imgui.TableFlagsRowBg|imgui.TableFlagsPadOuterX|imgui.TableFlagsBordersH, vec2(-1, 0), -1) {
 		imgui.TableSetBgColor(imgui.TableBgTargetRowBg1, packColor(vec4(0.5, 0.5, 0.5, 1)))
@@ -1007,16 +1060,64 @@ func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []se
 }
 
 func (m *songSelectPopup) open() {
-	if m.catalogDirty {
-		m.setCatalog(m.catalog)
-	}
-
+	m.pendingScrollAnchor = nil
 	m.focusTheMap = true
 
 	m.popup.open()
 }
 
-func sortMaps(bMaps searchEntries, sortBy SortBy) map[string]int {
+func (m *songSelectPopup) hasSelectableMaps() bool {
+	return m != nil && m.catalogViewReady && len(m.beatmaps) > 0
+}
+
+func (m *songSelectPopup) selectNewestWhenReady() {
+	if m == nil {
+		return
+	}
+
+	m.selectNewestOnReady = true
+	if m.catalogViewReady && !m.catalogViewBuilding {
+		m.selectNewestOnReady = false
+		m.selectNewest()
+	}
+}
+
+func (m *songSelectPopup) catalogStatusMessage() string {
+	if m != nil && m.catalogProgress != nil {
+		if message := catalogProgressMessage(m.catalogProgress()); message != "" {
+			return message
+		}
+	}
+	if m != nil && m.catalogViewBuilding {
+		return "Updating map list..."
+	}
+
+	return ""
+}
+
+func (m *songSelectPopup) captureScrollAnchor() *songSelectScrollAnchor {
+	if m == nil || !m.layoutReady || len(m.searchResults.sets) == 0 {
+		return nil
+	}
+
+	index := m.layout.firstRowAtOrAfter(float64(m.lastScrollY))
+	if index >= len(m.searchResults.sets) {
+		index = len(m.searchResults.sets) - 1
+	}
+
+	return &songSelectScrollAnchor{
+		directory: m.searchResults.sets[index].directory,
+		offset:    m.lastScrollY - m.layout.top(index),
+	}
+}
+
+func (m *songSelectPopup) shutdown() {
+	if m != nil {
+		m.catalogWorker.shutdown()
+	}
+}
+
+func sortMaps(bMaps searchEntries, sortBy SortBy, ascending bool) map[string]int {
 	slices.SortStableFunc(bMaps, func(b1, b2 *searchEntry) int {
 		entry1 := b1.entry
 		entry2 := b2.entry
@@ -1039,7 +1140,7 @@ func sortMaps(bMaps searchEntries, sortBy SortBy) map[string]int {
 			res = cmp.Compare(entry1.Stars, entry2.Stars)
 		}
 
-		if !launcherConfig.SortAscending {
+		if !ascending {
 			res = -res
 		}
 
@@ -1049,7 +1150,7 @@ func sortMaps(bMaps searchEntries, sortBy SortBy) map[string]int {
 
 		res = cmp.Compare(b1.directoryKey, b2.directoryKey)
 
-		if !launcherConfig.SortAscending {
+		if !ascending {
 			res = -res
 		}
 

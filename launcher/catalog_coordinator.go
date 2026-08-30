@@ -224,9 +224,21 @@ func (c *catalogCoordinator) run(ctx context.Context) {
 				}, stableDelta)
 			}
 
-			delta, err := database.ReconcileCatalogContext(operationCtx, request.skipMapUpdate, c.owner.catalogImportListenerFor(request.generation))
+			_, err := database.ReconcileCatalogWithDeltasContext(
+				operationCtx,
+				request.skipMapUpdate,
+				c.owner.catalogImportListenerFor(request.generation),
+				func(delta database.CatalogDelta) {
+					c.publishCatalogUpdate(operationCtx, catalogRequest{
+						generation: request.generation,
+					}, delta)
+				},
+			)
 			if err == nil {
-				c.publishCatalogUpdate(operationCtx, request, delta)
+				// Reconciliation batches have already been published after their
+				// durable commits. This empty event retains the existing contract
+				// that request callbacks run only after the full pass succeeds.
+				c.publishCatalogUpdate(operationCtx, request, database.CatalogDelta{})
 
 				starDelta, starErr := database.UpdateCatalogStarRatingContext(operationCtx, c.owner.catalogStarRatingListenerFor(request.generation))
 				if starErr != nil && !errors.Is(starErr, context.Canceled) && !errors.Is(starErr, context.DeadlineExceeded) {

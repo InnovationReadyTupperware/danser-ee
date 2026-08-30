@@ -127,6 +127,7 @@ type catalogProgressState struct {
 	processed  int
 	target     int
 	active     bool
+	prominent  bool
 }
 
 // catalogProgressVisibilityThreshold hides tiny refreshes from the normal
@@ -482,50 +483,46 @@ func (l *launcher) catalogImportListener() database.ImportListener {
 }
 
 func (l *launcher) catalogImportListenerFor(generation uint64) database.ImportListener {
-	largeScan := false
+	prominent := false
 
 	return func(stage database.ImportStage, processed, target int) {
 		if generation != 0 && generation != l.catalogGeneration.Load() {
 			return
 		}
 
-		// Discovery and comparison intentionally stay invisible for small
-		// updates. Once discovery crosses the threshold, keep the phase visible
-		// while comparison runs even though comparison has no exact total.
+		// Store every active stage so song select can explain why its catalog is
+		// changing. The main launcher keeps small refreshes unobtrusive through
+		// the separate prominent flag.
 		switch stage {
 		case database.Discovery:
-			if processed < catalogProgressVisibilityThreshold {
-				return
+			if processed >= catalogProgressVisibilityThreshold {
+				prominent = true
 			}
-
-			largeScan = true
 			l.catalogProgress.Store(catalogProgressState{
 				generation: generation,
 				stage:      stage,
 				processed:  processed,
 				active:     true,
+				prominent:  prominent,
 			})
 		case database.Comparison:
-			if !largeScan {
-				return
-			}
-
 			l.catalogProgress.Store(catalogProgressState{
 				generation: generation,
 				stage:      database.Comparison,
 				active:     true,
+				prominent:  prominent,
 			})
 		case database.Import, database.Cleanup:
-			if target < catalogProgressVisibilityThreshold {
-				return
+			if target >= catalogProgressVisibilityThreshold {
+				prominent = true
 			}
-
 			l.catalogProgress.Store(catalogProgressState{
 				generation: generation,
 				stage:      stage,
 				processed:  processed,
 				target:     target,
 				active:     true,
+				prominent:  prominent,
 			})
 		}
 	}
@@ -560,16 +557,13 @@ func (l *launcher) catalogStarRatingListenerFor(generation uint64) func(processe
 			return
 		}
 
-		if target < catalogProgressVisibilityThreshold {
-			return
-		}
-
 		l.catalogProgress.Store(catalogProgressState{
 			generation: generation,
 			stage:      database.StarRating,
 			processed:  processed,
 			target:     target,
 			active:     true,
+			prominent:  target >= catalogProgressVisibilityThreshold,
 		})
 	}
 }
@@ -915,13 +909,8 @@ func (l *launcher) drawMain() {
 }
 
 func (l *launcher) drawCatalogProgress() {
-	value := l.catalogProgress.Load()
-	if value == nil {
-		return
-	}
-
-	progress, ok := value.(catalogProgressState)
-	if !ok || !progress.active || (progress.generation != 0 && progress.generation != l.catalogGeneration.Load()) {
+	progress := l.currentCatalogProgress()
+	if !progress.active || !progress.prominent {
 		return
 	}
 
@@ -934,6 +923,24 @@ func (l *launcher) drawCatalogProgress() {
 	imgui.TextUnformatted(message)
 	imgui.PopFont()
 	imgui.Dummy(vec2(0, 4))
+}
+
+func (l *launcher) currentCatalogProgress() catalogProgressState {
+	if l == nil {
+		return catalogProgressState{}
+	}
+
+	value := l.catalogProgress.Load()
+	if value == nil {
+		return catalogProgressState{}
+	}
+
+	progress, ok := value.(catalogProgressState)
+	if !ok || progress.generation != 0 && progress.generation != l.catalogGeneration.Load() {
+		return catalogProgressState{}
+	}
+
+	return progress
 }
 
 func catalogProgressMessage(progress catalogProgressState) string {
@@ -1297,11 +1304,18 @@ func (l *launcher) showSelect() {
 
 	imgui.PushFont(Font, 32)
 
-	if imgui.ButtonV("Select map", bSize) {
-		if l.selectWindow == nil {
-			l.selectWindow = newSongSelectPopup(l.bld, l.catalog, l.materializeCatalogEntry)
+	enabled, disabledReason := l.mapSelectionAvailability()
+	if !enabled {
+		imgui.BeginDisabled()
+	}
+	clicked := imgui.ButtonV("Select map", bSize)
+	if !enabled {
+		imgui.EndDisabled()
+		if imgui.IsItemHoveredV(imgui.HoveredFlagsAllowWhenDisabled) {
+			imgui.SetTooltip(disabledReason)
 		}
-
+	}
+	if clicked && enabled {
 		l.selectWindow.open()
 		l.openPopup(l.selectWindow)
 	}
@@ -1327,6 +1341,31 @@ func (l *launcher) showSelect() {
 	imgui.UnindentV(5)
 
 	imgui.PopFont()
+}
+
+func (l *launcher) ensureSongSelect() *songSelectPopup {
+	if l.selectWindow == nil {
+		l.selectWindow = newSongSelectPopup(l.bld, l.catalog, l.materializeCatalogEntry, l.currentCatalogProgress)
+	}
+
+	return l.selectWindow
+}
+
+func (l *launcher) mapSelectionAvailability() (bool, string) {
+	if !l.catalogSnapshotReady.Load() {
+		return false, "Loading map catalog..."
+	}
+	if l.catalog == nil || l.catalog.Len() == 0 {
+		if progress := l.currentCatalogProgress(); progress.active {
+			return false, "Scanning beatmaps..."
+		}
+		return false, "No beatmaps found in the configured Songs folder."
+	}
+	if l.selectWindow == nil || !l.selectWindow.hasSelectableMaps() {
+		return false, "Preparing map list..."
+	}
+
+	return true, ""
 }
 
 func (l *launcher) drawLowerPanel() {
@@ -1978,14 +2017,8 @@ func (l *launcher) loadOSZs(names []string) {
 		// launcher without future filesystem notifications.
 		l.setupWatcher()
 		l.reloadMaps(func() {
-			if l.selectWindow == nil {
-				l.selectWindow = newSongSelectPopup(l.bld, l.catalog, l.materializeCatalogEntry)
-			} else {
-				l.selectWindow.refreshCatalog()
-			}
-
 			if l.bld.knockoutReplays == nil && l.bld.currentReplay == nil {
-				l.selectWindow.selectNewest()
+				l.ensureSongSelect().selectNewestWhenReady()
 			}
 
 		})
