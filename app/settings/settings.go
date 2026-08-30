@@ -76,6 +76,7 @@ func LoadConfig(file *os.File) (*Config, error) {
 	}
 
 	config.normalizeSections()
+	config.normalizeRecording()
 	config.normalizeCursorDance()
 	config.migrateCursorDance()
 	config.normalizeCursorDance()
@@ -89,6 +90,73 @@ func LoadConfig(file *os.File) (*Config, error) {
 	log.Println(fmt.Sprintf(`SettingsManager: "%s" loaded!`, file.Name()))
 
 	return config, nil
+}
+
+// normalizeRecording repairs nullable recording subsections from defaults.
+// Profiles are user-editable JSON and explicit null values must not survive
+// into encoder option generation or motion-blur setup.
+func (config *Config) normalizeRecording() {
+	if config.Recording == nil {
+		config.Recording = initRecording()
+		return
+	}
+
+	configured := config.Recording
+	defaults := initRecording()
+	if configured.X264Settings == nil {
+		configured.X264Settings = defaults.X264Settings
+	}
+	if configured.X265Settings == nil {
+		configured.X265Settings = defaults.X265Settings
+	}
+	if configured.AV1Settings == nil {
+		configured.AV1Settings = defaults.AV1Settings
+	}
+	if configured.H264NvencSettings == nil {
+		configured.H264NvencSettings = defaults.H264NvencSettings
+	}
+	if configured.HEVCNvencSettings == nil {
+		configured.HEVCNvencSettings = defaults.HEVCNvencSettings
+	}
+	if configured.AV1NvencSettings == nil {
+		configured.AV1NvencSettings = defaults.AV1NvencSettings
+	}
+	if configured.H264QSVSettings == nil {
+		configured.H264QSVSettings = defaults.H264QSVSettings
+	}
+	if configured.HEVCQSVSettings == nil {
+		configured.HEVCQSVSettings = defaults.HEVCQSVSettings
+	}
+	if configured.H264AmfSettings == nil {
+		configured.H264AmfSettings = defaults.H264AmfSettings
+	}
+	if configured.HEVCAmfSettings == nil {
+		configured.HEVCAmfSettings = defaults.HEVCAmfSettings
+	}
+	if configured.AV1AmfSettings == nil {
+		configured.AV1AmfSettings = defaults.AV1AmfSettings
+	}
+	if configured.CustomSettings == nil {
+		configured.CustomSettings = defaults.CustomSettings
+	}
+	if configured.AACSettings == nil {
+		configured.AACSettings = defaults.AACSettings
+	}
+	if configured.MP3Settings == nil {
+		configured.MP3Settings = defaults.MP3Settings
+	}
+	if configured.OPUSSettings == nil {
+		configured.OPUSSettings = defaults.OPUSSettings
+	}
+	if configured.FLACSettings == nil {
+		configured.FLACSettings = defaults.FLACSettings
+	}
+	if configured.CustomAudioSettings == nil {
+		configured.CustomAudioSettings = defaults.CustomAudioSettings
+	}
+	if configured.MotionBlur == nil {
+		configured.MotionBlur = defaults.MotionBlur
+	}
 }
 
 // normalizeSections keeps explicit null top-level sections from turning a

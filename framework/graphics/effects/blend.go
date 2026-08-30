@@ -1,6 +1,8 @@
 package effects
 
 import (
+	"github.com/go-gl/gl/v3.3-core/gl"
+
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/attribute"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/buffer"
@@ -18,6 +20,7 @@ type Blend struct {
 	blendShader  *shader.RShader
 	vao          *buffer.VertexArrayObject
 	multiTexture *texture.TextureMultiLayer
+	prefilled    bool
 }
 
 func NewBlend(width, height, frames int, weights []float32) *Blend {
@@ -90,6 +93,19 @@ func (effect *Blend) Begin() {
 func (effect *Blend) End() {
 	viewport.Pop()
 	effect.fbos[effect.head].Unbind()
+	if !effect.prefilled {
+		for layer := range effect.layers {
+			if layer == effect.head {
+				continue
+			}
+			gl.CopyImageSubData(
+				effect.multiTexture.GetID(), gl.TEXTURE_2D_ARRAY, 0, 0, 0, int32(effect.head),
+				effect.multiTexture.GetID(), gl.TEXTURE_2D_ARRAY, 0, 0, 0, int32(layer),
+				int32(effect.width), int32(effect.height), 1,
+			)
+		}
+		effect.prefilled = true
+	}
 }
 
 func (effect *Blend) Blend() {

@@ -1,6 +1,8 @@
 package effects
 
 import (
+	"github.com/go-gl/mathgl/mgl32"
+
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/attribute"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/blend"
@@ -9,6 +11,23 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/viewport"
 )
+
+// bt709LimitedMatrix converts full-range nonlinear RGB into limited-range
+// BT.709 YCbCr. FFmpeg receives matching bt709/tv metadata for this stream.
+var bt709LimitedMatrix = mgl32.Mat4x3{
+	0.183302, -0.101039, 0.440938,
+	0.616640, -0.339900, -0.400505,
+	0.062250, 0.440938, -0.040431,
+	0.062745, 0.501961, 0.501961,
+}
+
+func convertBT709Limited(rgb mgl32.Vec3) mgl32.Vec3 {
+	return mgl32.Vec3{
+		bt709LimitedMatrix[0]*rgb[0] + bt709LimitedMatrix[3]*rgb[1] + bt709LimitedMatrix[6]*rgb[2] + bt709LimitedMatrix[9],
+		bt709LimitedMatrix[1]*rgb[0] + bt709LimitedMatrix[4]*rgb[1] + bt709LimitedMatrix[7]*rgb[2] + bt709LimitedMatrix[10],
+		bt709LimitedMatrix[2]*rgb[0] + bt709LimitedMatrix[5]*rgb[1] + bt709LimitedMatrix[8]*rgb[2] + bt709LimitedMatrix[11],
+	}
+}
 
 type RGBYUV struct {
 	width  int
@@ -48,6 +67,7 @@ func NewRGBYUV(width, height int, subsample bool) *RGBYUV {
 	}
 
 	effect.yuvShader = shader.NewRShader(shader.NewSource(vert, shader.Vertex), shader.NewSource(frag, shader.Fragment))
+	effect.yuvShader.SetUniform("rgbToYuv", bt709LimitedMatrix)
 
 	effect.subsampleShader = shader.NewRShader(shader.NewSource(vert, shader.Vertex), shader.NewSource(fpass, shader.Fragment))
 

@@ -84,7 +84,7 @@ func av1Common2(preset string, additional string) (ret []string, err error) {
 
 	ret = append(ret, "-preset", preset)
 
-	ret = parseCustomOptions(ret, additional)
+	ret, err = parseCustomOptions(ret, additional)
 
 	return
 }

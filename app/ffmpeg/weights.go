@@ -3,7 +3,6 @@ package ffmpeg
 import (
 	"math"
 
-	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/animation/easing"
 )
 
@@ -34,23 +33,32 @@ var easings = []easing.Easing{
 	inBack,
 	easing.OutBack,
 	inOutBack,
-	gauss,
-	gaussSymmetric,
+	flat,
+	flat,
 	pyramidSymmetric,
 	semiCircle,
 }
 
-func calculateWeights(bFrames int) []float32 {
-	var weights []float32
+func calculateWeights(bFrames, id int, gaussMultiplier float64) []float32 {
+	if bFrames == 1 {
+		return []float32{1}
+	}
+	weights := make([]float32, 0, bFrames)
 
-	id := settings.Recording.MotionBlur.BlendFunctionID
 	if id < 0 || id >= len(easings) {
 		id = 0
 	}
 
 	easeFunc := easings[id]
 	for i := range bFrames {
-		w := 1.0 + easeFunc(float64(i)/float64(bFrames-1))*100
+		t := float64(i) / float64(bFrames-1)
+		value := easeFunc(t)
+		if id == 26 {
+			value = math.Exp(-math.Pow(gaussMultiplier*(t-1), 2))
+		} else if id == 27 {
+			value = math.Exp(-math.Pow(gaussMultiplier*(t*2-1), 2))
+		}
+		w := 1.0 + value*100
 		weights = append(weights, float32(w))
 	}
 
@@ -67,14 +75,6 @@ func inBack(t float64) float64 {
 
 func inOutBack(t float64) float64 {
 	return easing.InOutBack(t) + 0.100004
-}
-
-func gauss(t float64) float64 {
-	return math.Exp(-math.Pow(settings.Recording.MotionBlur.GaussWeightsMult*(t-1), 2))
-}
-
-func gaussSymmetric(t float64) float64 {
-	return math.Exp(-math.Pow(settings.Recording.MotionBlur.GaussWeightsMult*(t*2-1), 2))
 }
 
 func pyramidSymmetric(t float64) float64 {

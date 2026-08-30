@@ -26,6 +26,7 @@ var (
 	outputRoot      string
 	sessionDir      string
 	finalOutputPath string
+	activeConfig    *RecordingSessionConfig
 )
 
 type stickyError struct {
@@ -80,7 +81,11 @@ func (t *diagnosticTail) String() string {
 func diagnosticWriters(tail *diagnosticTail) (io.Writer, io.Writer) {
 	stdout := io.Writer(tail)
 	stderr := io.Writer(tail)
-	if settings.Recording.ShowFFmpegLogs {
+	showLogs := settings.Recording.ShowFFmpegLogs
+	if activeConfig != nil {
+		showLogs = activeConfig.showFFmpegLogs
+	}
+	if showLogs {
 		stdout = io.MultiWriter(tail, os.Stdout)
 		stderr = io.MultiWriter(tail, os.Stderr)
 	}
@@ -191,56 +196,59 @@ func preCheck() error {
 	return nil
 }
 
+func defaultOutputName() string {
+	return "danser_" + time.Now().Format("2006-01-02_15-04-05")
+}
+
 // StartFFmpeg validates recording output and starts the video and audio
 // encoders. Any failure preserves the unique session directory for recovery.
 func StartFFmpeg(fps, width, height int, audioFPS float64, requestedOutput string) error {
-	outputRoot = ""
-	sessionDir = ""
-	finalOutputPath = ""
-
-	if requestedOutput == "" {
-		requestedOutput = "danser_" + time.Now().Format("2006-01-02_15-04-05")
-	}
-	if err := ValidateOutputName(requestedOutput); err != nil {
-		return recordingError("invalid output name", err)
-	}
-	if err := validateContainer(settings.Recording.Container); err != nil {
-		return recordingError("invalid recording container", err)
-	}
-	if err := preCheck(); err != nil {
+	config, err := PrepareRecording(RecordingSessionRequest{
+		Output: requestedOutput, Width: width, Height: height,
+		SourceFPS: fps, AudioBlockRate: audioFPS,
+	})
+	if err != nil {
 		return recordingError("preflight failed", err)
 	}
 
-	root, err := filepath.Abs(settings.Recording.GetOutputDir())
-	if err != nil {
-		return recordingError("resolve output directory", err)
+	return StartPreparedRecording(config)
+}
+
+// StartPreparedRecording starts encoders from a validated immutable snapshot.
+func StartPreparedRecording(config *RecordingSessionConfig) error {
+	if config == nil {
+		return recordingError("start recording", errors.New("recording configuration is nil"))
 	}
-	if err = os.MkdirAll(root, 0o755); err != nil {
+	outputRoot = ""
+	sessionDir = ""
+	finalOutputPath = ""
+	activeConfig = config
+
+	if err := os.MkdirAll(config.outputRoot, 0o755); err != nil {
 		return recordingError("create output directory", err)
 	}
 
-	finalPath := filepath.Join(root, requestedOutput+"."+settings.Recording.Container)
-	if _, err = os.Lstat(finalPath); err == nil {
-		return recordingError("refusing to overwrite existing output", fmt.Errorf("%q already exists", finalPath))
+	if _, err := os.Lstat(config.finalOutputPath); err == nil {
+		return recordingError("refusing to overwrite existing output", fmt.Errorf("%q already exists", config.finalOutputPath))
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return recordingError("inspect final output", err)
 	}
 
-	tempDir, err := os.MkdirTemp(root, ".danser-recording-")
+	tempDir, err := os.MkdirTemp(config.outputRoot, ".danser-recording-")
 	if err != nil {
 		return recordingError("create recording session directory", err)
 	}
 
-	outputRoot = root
+	outputRoot = config.outputRoot
 	sessionDir = tempDir
-	finalOutputPath = finalPath
+	finalOutputPath = config.finalOutputPath
 
 	log.Printf("Recorder: Starting encoding session in %q", sessionDir)
 
-	if err = startVideo(fps, width, height); err != nil {
+	if err = startVideo(config); err != nil {
 		return recordingError("start video encoder", err)
 	}
-	if err = startAudio(audioFPS); err != nil {
+	if err = startAudio(config); err != nil {
 		videoErr := stopVideo()
 		return recordingError("start audio encoder", errors.Join(err, videoErr))
 	}
@@ -284,7 +292,7 @@ func StopFFmpeg() (string, error) {
 }
 
 func verifyIntermediate(kind string) error {
-	path := filepath.Join(sessionDir, kind+"."+settings.Recording.Container)
+	path := filepath.Join(sessionDir, kind+"."+recordingContainer())
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", path, err)
@@ -297,16 +305,17 @@ func verifyIntermediate(kind string) error {
 }
 
 func combine() (string, error) {
-	stagedOutput := filepath.Join(sessionDir, "final."+settings.Recording.Container)
+	container := recordingContainer()
+	stagedOutput := filepath.Join(sessionDir, "final."+container)
 	options := []string{
 		"-y",
-		"-i", filepath.Join(sessionDir, "video."+settings.Recording.Container),
-		"-i", filepath.Join(sessionDir, "audio."+settings.Recording.Container),
+		"-i", filepath.Join(sessionDir, "video."+container),
+		"-i", filepath.Join(sessionDir, "audio."+container),
 		"-c:v", "copy",
 		"-c:a", "copy", "-strict", "-2",
 	}
 
-	if settings.Recording.Container == "mp4" {
+	if container == "mp4" {
 		options = append(options, "-movflags", "+faststart")
 	}
 	options = append(options, stagedOutput)
@@ -363,13 +372,14 @@ func recoveryCommand() string {
 		return "unavailable"
 	}
 
+	container := recordingContainer()
 	args := []string{
 		"ffmpeg", "-n",
-		"-i", filepath.Join(sessionDir, "video."+settings.Recording.Container),
-		"-i", filepath.Join(sessionDir, "audio."+settings.Recording.Container),
+		"-i", filepath.Join(sessionDir, "video."+container),
+		"-i", filepath.Join(sessionDir, "audio."+container),
 		"-c:v", "copy", "-c:a", "copy", "-strict", "-2",
 	}
-	if settings.Recording.Container == "mp4" {
+	if container == "mp4" {
 		args = append(args, "-movflags", "+faststart")
 	}
 	args = append(args, finalOutputPath)
@@ -380,6 +390,13 @@ func recoveryCommand() string {
 	}
 
 	return strings.Join(quoted, " ")
+}
+
+func recordingContainer() string {
+	if activeConfig != nil {
+		return activeConfig.container
+	}
+	return settings.Recording.Container
 }
 
 func withDiagnostics(operation string, err error, tail *diagnosticTail) error {

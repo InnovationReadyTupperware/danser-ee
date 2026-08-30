@@ -137,6 +137,9 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Accurate recording sync         |                                       ✅                                        |                source-clocked                 |
 | Recording output publication    |             ✅ Validated base names, isolated sessions, no-replace publish             |       ❌ Output-derived temp paths and overwrite publish       |
 | Recording failure recovery      |        ✅ Checked encoder exits, bounded diagnostics, retained intermediates         | ❌❌❌ Unchecked encoder exits; destructive cleanup on mux-start failure |
+| Recording configuration preflight | ✅ Immutable session snapshot, exact encoder probe, GL limits, and 2 GiB allocation budget | ❌ Encoder-list check with late option and allocation failures |
+| Recording color contract        |                 ✅ BT.709 limited-range conversion and encoded metadata                  |       ❌❌❌ BT.601 pixel conversion tagged as BT.709        |
+| Motion-blur shutter timeline    |          ✅ Centered sample-clock shutter, edge-clamped history, and exact frame counts          |       ❌ Causal trailing shutter and black startup history       |
 | Timestamped hitsound scheduling |              nominal event timestamps on the master-mixer timeline              | ❌ Frame-triggered playback; not mixer-locked |
 | Audio lifecycle safety          | serialized BASS access, cancellable voices, and explicit map/storyboard cleanup |                       -                       |
 | Offline audio output            |    mixer-clocked rendering with actual output format and zero-filled blocks     |           source-clocked rendering            |
@@ -243,7 +246,7 @@ Settings and knockout usage are detailed in the upstream [danser-go wiki](https:
 * A compatible C/C++ toolchain for CGO
   * Windows: [WinLibs](https://winlibs.com/) MSVCRT+POSIX or another compatible MinGW-family toolchain. TDM-GCC is not supported.
   * Linux: gcc/g++.
-* OpenGL support from your graphics driver. Linux build environments may also need `libgl1-mesa-dev`.
+* OpenGL support from a modern graphics driver. Recording requires buffer storage, direct-state access, image copy, and texture readback capabilities; preflight reports missing capabilities before encoder startup. Linux build environments may also need `libgl1-mesa-dev`.
 * Linux builds may additionally need `xorg-dev`, `libgtk-3`, and `libgtk-3-dev`.
 
 ### Recommended development workflow

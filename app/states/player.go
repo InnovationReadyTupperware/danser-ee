@@ -776,11 +776,22 @@ func (player *Player) trySetupFail() {
 }
 
 func (player *Player) Update(delta float64) bool {
+	return player.update(delta, false)
+}
+
+// UpdateRecording advances gameplay from an explicit output-domain delta.
+// The recorder derives delta from integer audio-sample positions, so this path
+// must not replace it with a delayed observation of the native mixer clock.
+func (player *Player) UpdateRecording(delta float64) bool {
+	return player.update(delta, true)
+}
+
+func (player *Player) update(delta float64, recordingClock bool) bool {
 	speed := 1.0
 
 	_, virtualMusic := player.musicPlayer.(*bass.TrackVirtual)
 
-	if player.start && !virtualMusic {
+	if player.start && !virtualMusic && !recordingClock {
 		// Once music is running during a render, drive time from the
 		// samples actually handed to ffmpeg instead of accumulating
 		// wall-clock deltas. Wall time drifts against the tempo engine's

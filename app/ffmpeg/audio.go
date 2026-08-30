@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 
-	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/framework/bass"
 	"github.com/innovationreadytupperware/danser-ee/framework/files"
 )
@@ -28,21 +27,15 @@ var (
 	audioWriteGroup  sync.WaitGroup
 	audioFailure     stickyError
 	audioDiagnostics *diagnosticTail
+	audioFrameBytes  int
+	audioBufferBytes int
 )
 
-func startAudio(audioFPS float64) error {
+func startAudio(config *RecordingSessionConfig) error {
 	audioFailure = stickyError{}
 	audioDiagnostics = new(diagnosticTail)
 
 	inputName := "-"
-	outputInfo := bass.GetOutputInfo()
-	if outputInfo.SampleRate <= 0 {
-		outputInfo.SampleRate = 48000
-	}
-	if outputInfo.Channels <= 0 {
-		outputInfo.Channels = 2
-	}
-
 	if runtime.GOOS != "windows" {
 		pipe, err := files.NewNamedPipe(sessionDir, "")
 		if err != nil {
@@ -57,29 +50,23 @@ func startAudio(audioFPS float64) error {
 		"-y",
 		"-f", "f32le",
 		"-acodec", "pcm_f32le",
-		"-ar", strconv.Itoa(outputInfo.SampleRate),
-		"-ac", strconv.Itoa(outputInfo.Channels),
+		"-ar", strconv.Itoa(config.audioSampleRate),
+		"-ac", strconv.Itoa(config.audioChannels),
 		"-i", inputName,
 		"-nostats",
 		"-vn",
 	}
 
-	audioFilters := strings.TrimSpace(settings.Recording.AudioFilters)
-	if audioFilters != "" {
-		options = append(options, "-af", audioFilters)
+	if config.audioFilters != "" {
+		options = append(options, "-af", config.audioFilters)
 	}
-	options = append(options, "-c:a", settings.Recording.AudioCodec, "-strict", "-2")
-
-	encOptions, err := settings.Recording.GetAudioOptions().GenerateFFmpegArgs()
-	if err != nil {
-		closeAudioPipe()
-		return fmt.Errorf("audio encoder %q options: %w", settings.Recording.AudioCodec, err)
-	}
-	options = append(options, encOptions...)
-	options = append(options, filepath.Join(sessionDir, "audio."+settings.Recording.Container))
+	options = append(options, "-c:a", config.audioCodec, "-strict", "-2")
+	options = append(options, config.audioOptions...)
+	options = append(options, filepath.Join(sessionDir, "audio."+config.container))
 
 	log.Println("Recorder: Running audio FFmpeg with options:", options)
 
+	var err error
 	cmdAudio, err = prepareFFmpeg("ffmpeg", options...)
 	if err != nil {
 		closeAudioPipe()
@@ -98,12 +85,20 @@ func startAudio(audioFPS float64) error {
 		return fmt.Errorf("start audio encoder %s: %w", commandDescription(cmdAudio), err)
 	}
 
-	audioBufSize := bass.GetMixerRequiredBufferSize(1 / audioFPS)
+	blockRate := max(config.audioBlockRate, 1000)
+	audioBufSize := bass.GetMixerRequiredBufferSize(1 / blockRate)
 	if audioBufSize <= 0 {
 		closeErr := closeAudioPipe()
 		waitErr := cmdAudio.Wait()
 		return errors.Join(fmt.Errorf("audio mixer returned invalid buffer size %d", audioBufSize), closeErr, waitErr)
 	}
+	audioFrameBytes = config.audioChannels * config.audioBytesPerSample
+	if audioFrameBytes <= 0 || audioBufSize < audioFrameBytes {
+		closeErr := closeAudioPipe()
+		waitErr := cmdAudio.Wait()
+		return errors.Join(fmt.Errorf("audio frame size %d is invalid for buffer %d", audioFrameBytes, audioBufSize), closeErr, waitErr)
+	}
+	audioBufferBytes = audioBufSize
 
 	audioPool = make(chan []byte, MaxAudioBuffers)
 	for range MaxAudioBuffers {
@@ -122,7 +117,7 @@ func startAudio(audioFPS float64) error {
 				}
 			}
 
-			audioPool <- data
+			audioPool <- data[:cap(data)]
 		}
 	})
 
@@ -172,14 +167,48 @@ func closeAudioPipe() error {
 
 // PushAudio submits the next mixer block to the audio encoder.
 func PushAudio() error {
+	return pushAudioBytes(0)
+}
+
+// PushAudioFrames submits an exact number of interleaved mixer sample frames.
+func PushAudioFrames(sampleFrames int) error {
+	if sampleFrames <= 0 {
+		return nil
+	}
+	if audioFrameBytes <= 0 || audioBufferBytes < audioFrameBytes {
+		return errors.New("audio encoder buffer is not initialized")
+	}
+	if sampleFrames > math.MaxInt/audioFrameBytes {
+		return fmt.Errorf("audio sample-frame count %d overflows buffer size", sampleFrames)
+	}
+	maxFrames := audioBufferBytes / audioFrameBytes
+	for sampleFrames > 0 {
+		frames := min(sampleFrames, maxFrames)
+		if err := pushAudioBytes(frames * audioFrameBytes); err != nil {
+			return err
+		}
+		sampleFrames -= frames
+	}
+	return nil
+}
+
+func pushAudioBytes(byteCount int) error {
 	if err := audioFailure.get(); err != nil {
 		return err
 	}
 
 	data := <-audioPool
+	data = data[:cap(data)]
 	if err := audioFailure.get(); err != nil {
 		audioPool <- data
 		return err
+	}
+	if byteCount > len(data) {
+		audioPool <- data
+		return fmt.Errorf("audio block requires %d bytes, buffer holds %d", byteCount, len(data))
+	}
+	if byteCount > 0 {
+		data = data[:byteCount]
 	}
 
 	bass.ProcessMixer(data)

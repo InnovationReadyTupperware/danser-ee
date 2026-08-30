@@ -1,11 +1,13 @@
 package settings
 
 import (
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/env"
 	"github.com/innovationreadytupperware/danser-ee/framework/platform"
@@ -13,6 +15,15 @@ import (
 )
 
 var Recording = initRecording()
+
+// NormalizeRecording repairs nullable runtime recording subsections. This is
+// also called at the recording boundary because settings patches can be
+// applied after the profile was loaded.
+func NormalizeRecording() {
+	config := &Config{Recording: Recording}
+	config.normalizeRecording()
+	Recording = config.Recording
+}
 
 func initRecording() *recording {
 	return &recording{
@@ -178,8 +189,6 @@ type recording struct {
 	Container      string `combo:"mp4,mkv"`
 	ShowFFmpegLogs bool
 	MotionBlur     *motionblur
-
-	outDir *string
 }
 
 func (g *recording) GetEncoderOptions() EncoderOptions {
@@ -227,17 +236,11 @@ func (g *recording) GetAudioOptions() EncoderOptions {
 }
 
 func (g *recording) GetOutputDir() string {
-	if g.outDir == nil {
-		dir := filepath.Join(env.DataDir(), g.OutputDir)
-
-		if filepath.IsAbs(g.OutputDir) {
-			dir = g.OutputDir
-		}
-
-		g.outDir = &dir
+	dir := g.OutputDir
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(env.DataDir(), dir)
 	}
-
-	return *g.outDir
+	return dir
 }
 
 type motionblur struct {
@@ -265,18 +268,72 @@ type custom struct {
 }
 
 func (s *custom) GenerateFFmpegArgs() (ret []string, err error) {
-	ret = parseCustomOptions(ret, s.CustomOptions)
-
-	return
+	return parseCustomOptions(nil, s.CustomOptions)
 }
 
-func parseCustomOptions(list []string, custom string) []string {
-	if encOptions := strings.TrimSpace(custom); encOptions != "" {
-		split := strings.Split(encOptions, " ")
-		list = append(list, split...)
+func parseCustomOptions(list []string, custom string) ([]string, error) {
+	var args []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	hasToken := false
+
+	flush := func() {
+		if !hasToken {
+			return
+		}
+		args = append(args, current.String())
+		current.Reset()
+		hasToken = false
 	}
 
-	return list
+	for _, r := range custom {
+		if escaped {
+			if unicode.IsSpace(r) || r == '\\' || r == '\'' || r == '"' {
+				current.WriteRune(r)
+			} else {
+				current.WriteRune('\\')
+				current.WriteRune(r)
+			}
+			escaped = false
+			hasToken = true
+			continue
+		}
+		if r == '\\' && quote != '\'' {
+			escaped = true
+			hasToken = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			hasToken = true
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			hasToken = true
+			continue
+		}
+		if unicode.IsSpace(r) {
+			flush()
+			continue
+		}
+		current.WriteRune(r)
+		hasToken = true
+	}
+	if escaped {
+		return nil, fmt.Errorf("custom FFmpeg options end with an escape")
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("custom FFmpeg options contain an unmatched %q quote", quote)
+	}
+	flush()
+
+	return append(list, args...), nil
 }
 
 var encoderCacheCreated bool

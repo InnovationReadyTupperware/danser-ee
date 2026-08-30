@@ -14,9 +14,7 @@ type aacSettings struct {
 func (s *aacSettings) GenerateFFmpegArgs() (ret []string, err error) {
 	ret = append(ret, "-b:a", s.Bitrate)
 
-	ret = parseCustomOptions(ret, s.AdditionalOptions)
-
-	return ret, nil
+	return parseCustomOptions(ret, s.AdditionalOptions)
 }
 
 type mp3Settings struct {
@@ -37,9 +35,7 @@ func (s *mp3Settings) GenerateFFmpegArgs() (ret []string, err error) {
 
 	ret = append(ret, "-b:a", s.TargetBitrate)
 
-	ret = parseCustomOptions(ret, s.AdditionalOptions)
-
-	return ret, nil
+	return parseCustomOptions(ret, s.AdditionalOptions)
 }
 
 type opusSettings struct {
@@ -60,9 +56,7 @@ func (s *opusSettings) GenerateFFmpegArgs() (ret []string, err error) {
 
 	ret = append(ret, "-b:a", s.TargetBitrate)
 
-	ret = parseCustomOptions(ret, s.AdditionalOptions)
-
-	return ret, nil
+	return parseCustomOptions(ret, s.AdditionalOptions)
 }
 
 type flacSettings struct {
@@ -79,7 +73,5 @@ func (s *flacSettings) GenerateFFmpegArgs() (ret []string, err error) {
 	ret = append(ret, "-sample_fmt", "s32")
 	ret = append(ret, "-bits_per_raw_sample", "24")
 
-	ret = parseCustomOptions(ret, s.AdditionalOptions)
-
-	return ret, nil
+	return parseCustomOptions(ret, s.AdditionalOptions)
 }

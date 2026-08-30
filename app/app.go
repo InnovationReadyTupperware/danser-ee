@@ -669,14 +669,20 @@ func run() {
 func mainLoopRecord() (recordingErr error) {
 	count := int64(0)
 
-	fps := float64(settings.Recording.FPS)
 	audioFPS := 1000.0
 
-	if settings.Recording.MotionBlur.Enabled {
-		fps *= float64(settings.Recording.MotionBlur.OversampleMultiplier)
-	}
-
 	w, h := int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight())
+	config, err := ffmpeg.PrepareRecording(ffmpeg.RecordingSessionRequest{
+		Output: output, Width: w, Height: h, AudioBlockRate: audioFPS,
+	})
+	if err != nil {
+		return fmt.Errorf("Recorder: preflight: %w", err)
+	}
+	p, _ := player.(*states.Player)
+	timeline, err := ffmpeg.NewRecordingTimeline(p.RunningTime, config)
+	if err != nil {
+		return fmt.Errorf("Recorder: timeline: %w", err)
+	}
 
 	var fbo *buffer.Framebuffer
 
@@ -684,7 +690,7 @@ func mainLoopRecord() (recordingErr error) {
 		fbo = buffer.NewFrameMultisampleScreen(w, h, false, 0)
 	})
 
-	if err := ffmpeg.StartFFmpeg(int(fps), w, h, audioFPS, output); err != nil {
+	if err = ffmpeg.StartPreparedRecording(config); err != nil {
 		return err
 	}
 	stopped := false
@@ -697,18 +703,12 @@ func mainLoopRecord() (recordingErr error) {
 		recordingErr = errors.Join(recordingErr, stopErr)
 	}()
 
-	updateFPS := max(fps, 1000)
-	updateDelta := 1000 / updateFPS
-	fpsDelta := 1000 / fps
-	audioDelta := 1000.0 / audioFPS
-
-	deltaSumF := fpsDelta
-	deltaSumA := 0.0
-
-	p, _ := player.(*states.Player)
-
 	lastCount := int64(0)
 	lastRealTime := qpc.GetMilliTimeF()
+	lastSimulationSample := int64(0)
+	lastAudioSample := int64(0)
+	outputFPS := float64(timeline.OutputRate())
+	totalFrames := timeline.OutputFrames()
 
 	var lastProgress, progress int
 
@@ -716,18 +716,24 @@ func mainLoopRecord() (recordingErr error) {
 		lastProgress = -1
 	}
 
-	for !p.Update(updateDelta) {
-		deltaSumA += updateDelta
-		for deltaSumA >= audioDelta {
-			if err := ffmpeg.PushAudio(); err != nil {
+	for event, ok := timeline.Next(); ok; event, ok = timeline.Next() {
+		if event.SimulationSample > lastSimulationSample {
+			deltaSamples := event.SimulationSample - lastSimulationSample
+			p.UpdateRecording(float64(deltaSamples) * 1000 / float64(timeline.SampleRate()))
+			lastSimulationSample = event.SimulationSample
+		}
+		if event.AudioSample > lastAudioSample {
+			deltaSamples := event.AudioSample - lastAudioSample
+			if deltaSamples > math.MaxInt {
+				return fmt.Errorf("Recorder: audio interval %d exceeds supported block size", deltaSamples)
+			}
+			if err = ffmpeg.PushAudioFrames(int(deltaSamples)); err != nil {
 				return fmt.Errorf("Recorder: submit audio: %w", err)
 			}
-
-			deltaSumA -= audioDelta
+			lastAudioSample = event.AudioSample
 		}
 
-		deltaSumF += updateDelta
-		if deltaSumF >= fpsDelta {
+		if event.RenderSource {
 			var frameErr error
 			goroutines.CallMain(func() {
 				fbo.Bind()
@@ -739,40 +745,37 @@ func mainLoopRecord() (recordingErr error) {
 				pushFrame()
 				viewport.Pop()
 
-				frameErr = ffmpeg.MakeFrame()
-				if frameErr != nil {
-					return
-				}
-
-				count++
-
-				timeOffset := p.GetTimeOffset()
-				progress = int(math.Round(timeOffset / p.RunningTime * 100))
-
-				if (preciseProgress || progress%5 == 0) && lastProgress != progress {
-					speed := float64(count-lastCount) * (1000 / fps) / (qpc.GetMilliTimeF() - lastRealTime)
-
-					eta := int((p.RunningTime - timeOffset) / 1000 / speed)
-
-					etaText := util.FormatSeconds(eta)
-
-					if settings.Recording.ShowFFmpegLogs {
-						fmt.Println()
-					}
-
-					log.Println(fmt.Sprintf("Progress: %d%%, Speed: %.2fx, ETA: %s", progress, speed, etaText))
-
-					lastProgress = progress
-
-					lastCount = count
-					lastRealTime = qpc.GetMilliTimeF()
-				}
+				frameErr = ffmpeg.MakeFrameDue(event.EmitOutput)
 			})
 			if frameErr != nil {
 				return fmt.Errorf("Recorder: submit video frame: %w", frameErr)
 			}
+		}
 
-			deltaSumF -= fpsDelta
+		if event.EmitOutput {
+			count++
+			progress = 100
+			if totalFrames > 0 {
+				progress = int(count * 100 / totalFrames)
+			}
+			if (preciseProgress || progress%5 == 0) && lastProgress != progress {
+				realElapsed := qpc.GetMilliTimeF() - lastRealTime
+				speed := 0.0
+				if realElapsed > 0 {
+					speed = float64(count-lastCount) * (1000 / outputFPS) / realElapsed
+				}
+				eta := 0
+				if speed > 0 {
+					eta = int(float64(totalFrames-count) / outputFPS / speed)
+				}
+				if config.FFmpegLogsEnabled() {
+					fmt.Println()
+				}
+				log.Printf("Progress: %d%%, Speed: %.2fx, ETA: %s", progress, speed, util.FormatSeconds(eta))
+				lastProgress = progress
+				lastCount = count
+				lastRealTime = qpc.GetMilliTimeF()
+			}
 		}
 	}
 
