@@ -63,9 +63,7 @@ func showUpdateResult(status appUtils.UpdateStatus, url string, err error, pingU
 	case appUtils.Failed:
 		showMessage(mError, "Can't get version from GitHub: %s", err)
 	case appUtils.Snapshot:
-		if showMessage(mQuestion, "You're using a snapshot version of danser.\nFor newer version of snapshots please visit the official danser discord server at: %s\n\nDo you want to go there?", url) {
-			platform.OpenURL(url)
-		}
+		showMessage(mInfo, "You're using a prerelease version of danser.")
 	case appUtils.UpdateAvailable:
 		if showMessage(mQuestion, "You're using an older version of danser.\nYou can download a newer version here: %s\n\nDo you want to go there?", url) {
 			platform.OpenURL(url)

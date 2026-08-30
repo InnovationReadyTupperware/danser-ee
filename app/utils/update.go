@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/innovationreadytupperware/danser-ee/build"
+	"golang.org/x/mod/semver"
 )
 
 // GetLatestVersionFromGitHub makes a request to GitHub and returns url and tag of the latest version found
@@ -61,10 +62,13 @@ func GetLatestVersionFromGitHubContext(ctx context.Context) (url string, tag str
 	return data.URL, data.Tag, nil
 }
 
-// TransformVersion transfers version to a more comparable format.
+// TransformVersion transfers legacy danser version strings to a comparable format.
 //   - 0.6.7 becomes 600079999
 //   - 0.6.7-s(napshot)12 becomes 600070012
 //   - 1.0.0 becomes 1000000009999
+//
+// Deprecated: release update checks use SemVer 2.0.0 comparison instead. This
+// function remains for compatibility with callers of the existing API.
 func TransformVersion(version string) uint64 {
 	currentSplit := strings.Split(version, "-")
 	splitDots := strings.Split(strings.TrimSuffix(currentSplit[0], "b"), ".")
@@ -84,6 +88,39 @@ func TransformVersion(version string) uint64 {
 	}
 
 	return versionInt
+}
+
+func normalizeSemVer(version string) (string, error) {
+	original := version
+	version, _ = strings.CutPrefix(version, "v")
+	core := version
+	if separator := strings.IndexAny(core, "-+"); separator >= 0 {
+		core = core[:separator]
+	}
+	if len(strings.Split(core, ".")) != 3 {
+		return "", fmt.Errorf("invalid semantic version %q", original)
+	}
+
+	normalized := "v" + version
+	if !semver.IsValid(normalized) {
+		return "", fmt.Errorf("invalid semantic version %q", original)
+	}
+
+	return normalized, nil
+}
+
+func compareSemVerVersions(current, latest string) (int, error) {
+	normalizedCurrent, err := normalizeSemVer(current)
+	if err != nil {
+		return 0, err
+	}
+
+	normalizedLatest, err := normalizeSemVer(latest)
+	if err != nil {
+		return 0, err
+	}
+
+	return semver.Compare(normalizedCurrent, normalizedLatest), nil
 }
 
 type UpdateStatus int
@@ -107,8 +144,11 @@ func CheckForUpdateContext(ctx context.Context) (UpdateStatus, string, error) {
 	if ctx == nil {
 		return Failed, "", fmt.Errorf("nil context")
 	}
-	if build.Stream != "Release" || strings.Contains(build.VERSION, "dev") { // false positive, those are changed during compile
+	if build.Stream != "Release" {
 		return Ignored, "", nil
+	}
+	if _, err := normalizeSemVer(build.VERSION); err != nil {
+		return Failed, "", fmt.Errorf("invalid local release version: %w", err)
 	}
 
 	log.Println("Checking GitHub for a new version of danser-ee...")
@@ -118,16 +158,14 @@ func CheckForUpdateContext(ctx context.Context) (UpdateStatus, string, error) {
 		return Failed, "", err
 	}
 
-	githubVersion := TransformVersion(tag)
-	exeVersion := TransformVersion(build.VERSION)
-
-	if exeVersion >= githubVersion {
-		if strings.Contains(build.VERSION, "snapshot") {
-			return Snapshot, "https://wieku.me/lair", nil
-		} else {
-			return UpToDate, "", nil
-		}
-	} else {
-		return UpdateAvailable, url, nil
+	comparison, err := compareSemVerVersions(build.VERSION, tag)
+	if err != nil {
+		return Failed, "", err
 	}
+
+	if comparison >= 0 {
+		return UpToDate, "", nil
+	}
+
+	return UpdateAvailable, url, nil
 }

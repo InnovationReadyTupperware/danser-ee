@@ -25,7 +25,16 @@ func init() {
 		}
 	}
 
-	if VERSION == "dev" {
-		VERSION += "-" + CommitHash[:min(7, len(CommitHash))]
+	// Keep Go's VCS metadata available for diagnostics while deriving the
+	// user-visible version solely from explicit build variables.
+	VERSION = formatVersion(VERSION, Stream, CommitHash)
+}
+
+// formatVersion appends a short revision only to the default development version.
+func formatVersion(version, stream, commit string) string {
+	if version != "dev" || stream != "Dev" {
+		return version
 	}
+
+	return version + "-" + commit[:min(7, len(commit))]
 }

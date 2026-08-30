@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 export GOOS=linux
 export GOARCH=amd64
 export CGO_ENABLED=1
@@ -7,13 +9,18 @@ export CXX=g++
 export BUILD_DIR=./dist/build-linux
 export TARGET_DIR=./dist/artifacts
 
-exec=$1
-build=$1
-if [[ $# > 1 ]]
+if [[ $# -ne 1 ]]
 then
-  exec+='-s'$2
-  build+='-snapshot'$2
+  echo "usage: $0 VERSION" >&2
+  exit 2
 fi
+
+version=$1
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+bash "$script_dir/scripts/validate-semver.sh" "$version"
+
+exec=$version
+build=$version
 
 mkdir -p $BUILD_DIR
 

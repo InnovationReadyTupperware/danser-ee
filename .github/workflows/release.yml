@@ -1,10 +1,13 @@
 name: Build danser
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Danser version'
+        description: 'SemVer 2.0.0 release version without a leading v'
         type: string
         required: true
       draft:
@@ -26,44 +29,59 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Checkout master branch
-        uses: actions/checkout@v3
+      - name: Checkout main branch
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          bash scripts/validate-semver.sh "$RELEASE_VERSION"
 
       - name: Install winlibs
         uses: bwoodsend/setup-winlibs-action@v1
 
       - name: Install golang
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.26.1'
+          go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/config-extractor/go.sum
 
       - name: Build danser
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGN_RELEASE: ${{ inputs.sign }}
         run: |
-          version="${{ inputs.version }}"
+          set -euo pipefail
+          version="$RELEASE_VERSION"
 
           export DANSER_BUILD_MODE=0
 
-          if [[ ${{ inputs.sign }} == 'true' || ${{ inputs.sign }} == true ]]
+          if [[ "$SIGN_RELEASE" == 'true' ]]
           then
-          export DANSER_BUILD_MODE=1
-          
-          ./dist-win.sh $version
+            export DANSER_BUILD_MODE=1
 
-          if [ ! -f "dist/build-win/danser-core.dll" ]; then
-            echo "Danser failed to build"
-            exit 1
-          fi
-          
+            ./dist-win.sh "$version"
+
+            if [[ ! -f "dist/build-win/danser-core.dll" ]]; then
+              echo "Danser failed to build"
+              exit 1
+            fi
           else
-          
-          ./dist-win.sh $version
-          
-          if [ ! -f "dist/artifacts/danser-${version// /-s}-win.zip" ]; then
-            echo "Danser failed to build"
-            exit 1
-          fi
-          
+
+            ./dist-win.sh "$version"
+
+            if [[ ! -f "dist/artifacts/danser-${version}-win.zip" ]]; then
+              echo "Danser failed to build"
+              exit 1
+            fi
           fi
 
         id: build
@@ -86,22 +104,25 @@ jobs:
           timestamp-digest: SHA256
 
       - name: Pack danser
-        if: ${{ inputs.sign == true || inputs.sign == 'true' }}
+        if: ${{ inputs.sign == true }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          version="${{ inputs.version }}"
+          set -euo pipefail
+          version="$RELEASE_VERSION"
 
           export DANSER_BUILD_MODE=2
 
-          ./dist-win.sh $version
+          ./dist-win.sh "$version"
 
-          if [ ! -f "dist/artifacts/danser-${version// /-s}-win.zip" ]; then
+          if [[ ! -f "dist/artifacts/danser-${version}-win.zip" ]]; then
             echo "Danser failed to build"
             exit 1
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
-        if: ${{ !failure() && steps.build.conclusion != 'failure' }}
+        if: ${{ success() }}
         with:
           name: danser-win
           path: dist/artifacts/*
@@ -110,8 +131,18 @@ jobs:
     name: Building linux version
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@v3
+      - name: Checkout main branch
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          bash scripts/validate-semver.sh "$RELEASE_VERSION"
 
       - name: Install needed packages
         run: |
@@ -119,19 +150,25 @@ jobs:
           sudo apt-get install xorg-dev libgl1-mesa-dev libgtk-3-dev
 
       - name: Install golang
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.26.1'
+          go-version-file: go.mod
           cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/config-extractor/go.sum
 
       - name: Build danser
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          version="${{ inputs.version }}"
-          
+          set -euo pipefail
+          version="$RELEASE_VERSION"
+
           chmod +x dist-linux.sh
-          ./dist-linux.sh $version
-          
-          if [ ! -f "dist/artifacts/danser-${version// /-s}-linux.zip" ]; then
+          ./dist-linux.sh "$version"
+
+          if [[ ! -f "dist/artifacts/danser-${version}-linux.zip" ]]; then
             echo "Danser failed to build"
             exit 1
           fi
@@ -139,19 +176,24 @@ jobs:
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
-        if: ${{ !failure() && steps.build.conclusion != 'failure' }}
+        if: ${{ success() }}
         with:
           name: danser-linux
           path: dist/artifacts/*
 
   publish_release:
-    name: Publish draft release
-    if: ${{ !cancelled() && needs.build_windows.result == 'success' && needs.build_linux.result == 'success' && (inputs.draft == true || inputs.draft == 'true') }}
+    name: Publish release
+    if: ${{ !cancelled() && needs.build_windows.result == 'success' && needs.build_linux.result == 'success' }}
     needs: [build_windows, build_linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout main branch
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -160,15 +202,31 @@ jobs:
           merge-multiple: true
       - name: Create release
         id: create_release
-        run: |
-          set -xe
-          shopt -s nullglob
-
-          version="${{ inputs.version }}"
-
-          NAME="${version// / snapshot }"
-          TAGNAME="${version// /-s}"
-
-          gh release create "$TAGNAME" --draft -t "$NAME" --target "master" $(for a in artifacts/*.{zip,tar.xz}; do echo $a; done)
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          DRAFT_RELEASE: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          version="$RELEASE_VERSION"
+          bash scripts/validate-semver.sh "$version"
+
+          assets=(artifacts/*.zip artifacts/*.tar.xz)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No release archives were downloaded" >&2
+            exit 1
+          fi
+
+          release_args=("$version" --title "$version" --target main)
+          if [[ "$DRAFT_RELEASE" == 'true' ]]; then
+            release_args+=(--draft)
+          fi
+
+          version_without_build="${version%%+*}"
+          if [[ "$version_without_build" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          gh release create "${release_args[@]}" "${assets[@]}"
