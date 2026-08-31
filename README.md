@@ -171,6 +171,8 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Refreshed dependencies      |                ✅                |               -               |
 | Platform support            | Windows-first, Linux best effort |        Upstream policy        |
 
+<small><em>Scope note: This comparison reflects the behavior observed in the documented fork base and the changes currently implemented in danser-ee. The approaches shown here are not necessarily the only or best possible solutions, and some may continue to evolve as the project matures. The table is intended to document meaningful differences in good faith, not to claim final authority over how they should be solved.</em></small>
+
 ## About danser-ee
 
 `danser-ee` is a maintained fork of [danser-go](https://github.com/Wieku/danser-go). Upstream development has been moving at a very slow pace, while I needed improvements and bug fixes sooner than upstream could provide them. I maintain those changes here and share the fork publicly because they may be useful to other danser users too.
