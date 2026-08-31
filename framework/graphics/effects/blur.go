@@ -1,6 +1,7 @@
 package effects
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -22,8 +23,19 @@ type BlurEffect struct {
 	vao        *buffer.VertexArrayObject
 }
 
-func NewBlurEffect(width, height int) *BlurEffect {
+func NewBlurEffect(width, height int) (*BlurEffect, error) {
 	effect := new(BlurEffect)
+	var err error
+	effect.fbo1, err = buffer.NewFrame(width, height, true, false)
+	if err != nil {
+		return nil, fmt.Errorf("create first blur target: %w", err)
+	}
+	effect.fbo2, err = buffer.NewFrame(width, height, true, false)
+	if err != nil {
+		effect.fbo1.Dispose()
+		return nil, fmt.Errorf("create second blur target: %w", err)
+	}
+
 	effect.size = mgl32.Vec2{float32(width), float32(height)}
 	effect.SetBlur(0, 0)
 
@@ -57,10 +69,7 @@ func NewBlurEffect(width, height int) *BlurEffect {
 
 	effect.vao.Attach(effect.blurShader)
 
-	effect.fbo1 = buffer.NewFrame(width, height, true, false)
-	effect.fbo2 = buffer.NewFrame(width, height, true, false)
-
-	return effect
+	return effect, nil
 }
 
 func (effect *BlurEffect) SetBlur(blurX, blurY float64) {

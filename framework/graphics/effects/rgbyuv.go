@@ -1,6 +1,7 @@
 package effects
 
 import (
+	"fmt"
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
@@ -45,8 +46,27 @@ type RGBYUV struct {
 	subsample bool
 }
 
-func NewRGBYUV(width, height int, subsample bool) *RGBYUV {
+func NewRGBYUV(width, height int, subsample bool) (*RGBYUV, error) {
 	effect := new(RGBYUV)
+	var err error
+	effect.fbo, err = buffer.NewFrame(width, height, false, false)
+	if err != nil {
+		return nil, fmt.Errorf("create RGB recording target: %w", err)
+	}
+	effect.yuvFBO, err = buffer.NewFrameYUV(width, height)
+	if err != nil {
+		effect.fbo.Dispose()
+		return nil, fmt.Errorf("create YUV recording target: %w", err)
+	}
+	if subsample {
+		effect.subsampleFBO, err = buffer.NewFrameYUVSmall((width+1)/2, (height+1)/2)
+		if err != nil {
+			effect.fbo.Dispose()
+			effect.yuvFBO.Dispose()
+			return nil, fmt.Errorf("create subsampled YUV recording target: %w", err)
+		}
+	}
+
 	effect.width = width
 	effect.height = height
 	effect.subsample = subsample
@@ -89,13 +109,7 @@ func NewRGBYUV(width, height int, subsample bool) *RGBYUV {
 
 	effect.vao.Attach(effect.yuvShader)
 
-	effect.fbo = buffer.NewFrame(width, height, false, false)
-
-	effect.yuvFBO = buffer.NewFrameYUV(width, height)
-
-	effect.subsampleFBO = buffer.NewFrameYUVSmall((width+1)/2, (height+1)/2)
-
-	return effect
+	return effect, nil
 }
 
 func (effect *RGBYUV) Begin() {
@@ -157,6 +171,10 @@ func (effect *RGBYUV) Draw() (yuv, uv []texture.Texture) {
 	effect.vao.Unbind()
 
 	blend.Pop()
+
+	if effect.subsampleFBO == nil {
+		return effect.yuvFBO.Textures(), nil
+	}
 
 	return effect.yuvFBO.Textures(), effect.subsampleFBO.Textures()
 }

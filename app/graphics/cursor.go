@@ -46,11 +46,18 @@ func initCursor() {
 		panic("Wrong cursor trail type")
 	}
 
-	cursorFbo = buffer.NewFrame(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), true, false)
+	var err error
+	cursorFbo, err = buffer.NewFrame(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), true, false)
+	if err != nil {
+		panic("Graphics: create cursor accumulation target: " + err.Error())
+	}
 	region := cursorFbo.Texture().GetRegion()
 	cursorFBOSprite = sprite.NewSpriteSingle(&region, 0, vector.NewVec2d(settings.Graphics.GetWidthF()/2, settings.Graphics.GetHeightF()/2), vector.Centre)
 
-	cursorSpaceFbo = buffer.NewFrame(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), true, false)
+	cursorSpaceFbo, err = buffer.NewFrame(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), true, false)
+	if err != nil {
+		panic("Graphics: create cursor-space accumulation target: " + err.Error())
+	}
 	regionSpace := cursorSpaceFbo.Texture().GetRegion()
 	cursorSpaceFBOSprite = sprite.NewSpriteSingle(&regionSpace, 0, vector.NewVec2d(settings.Graphics.GetWidthF()/2, settings.Graphics.GetHeightF()/2), vector.Centre)
 

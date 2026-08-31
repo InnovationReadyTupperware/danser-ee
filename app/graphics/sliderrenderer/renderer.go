@@ -83,7 +83,10 @@ func InitRenderer() {
 
 	colorVAO.Attach(colorShader)
 
-	framebuffer = buffer.NewFrame(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), false, true)
+	framebuffer, err = buffer.NewFrame(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), false, true)
+	if err != nil {
+		panic("SliderRenderer: create merge framebuffer: " + err.Error())
+	}
 	region := framebuffer.Texture().GetRegion()
 	fboSprite = sprite.NewSpriteSingle(&region, 0, vector.NewVec2d(settings.Graphics.GetWidthF()/2, settings.Graphics.GetHeightF()/2), vector.Centre)
 	batch = batch2.NewQuadBatchSize(1)

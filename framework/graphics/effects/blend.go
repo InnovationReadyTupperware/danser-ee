@@ -1,6 +1,7 @@
 package effects
 
 import (
+	"fmt"
 	"github.com/go-gl/gl/v4.5-core/gl"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
@@ -23,7 +24,7 @@ type Blend struct {
 	prefilled    bool
 }
 
-func NewBlend(width, height, frames int, weights []float32) *Blend {
+func NewBlend(width, height, frames int, weights []float32) (*Blend, error) {
 	if frames != len(weights) {
 		panic("Wrong number of weights")
 	}
@@ -77,10 +78,14 @@ func NewBlend(width, height, frames int, weights []float32) *Blend {
 	effect.multiTexture = texture.NewTextureMultiLayerFormat(width, height, texture.RGB, 0, frames)
 
 	for i := range frames {
-		effect.fbos = append(effect.fbos, buffer.NewFrameLayer(effect.multiTexture, i))
+		fbo, err := buffer.NewFrameLayer(effect.multiTexture, i)
+		if err != nil {
+			return nil, fmt.Errorf("create motion-blur layer %d: %w", i, err)
+		}
+		effect.fbos = append(effect.fbos, fbo)
 	}
 
-	return effect
+	return effect, nil
 }
 
 func (effect *Blend) Begin() {

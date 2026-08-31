@@ -71,7 +71,11 @@ func NewBloomEffect(width, height, samples int) (*BloomEffect, error) {
 	effect.blur = 0.3
 	effect.power = 1.2
 
-	effect.blurEffect = NewBlurEffect(width/2, height/2)
+	effect.blurEffect, err = NewBlurEffect(width/2, height/2)
+	if err != nil {
+		effect.fbo.Dispose()
+		return nil, fmt.Errorf("create bloom blur targets: %w", err)
+	}
 	effect.blurEffect.SetBlur(effect.blur, effect.blur)
 
 	return effect, nil

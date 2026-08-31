@@ -49,8 +49,12 @@ type Background struct {
 func NewBackground(loadDefault bool) *Background {
 	bg := new(Background)
 	bg.blurVal = -1
-	bg.blur = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
-	bg.blurActive = settings.Playfield.Background.Blur.Enabled
+	var err error
+	bg.blur, err = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
+	if err != nil {
+		log.Printf("Background: Warning: blur disabled because render targets could not be created: %v", err)
+	}
+	bg.blurActive = settings.Playfield.Background.Blur.Enabled && bg.blur != nil
 
 	if loadDefault {
 		image, err := assets.GetPixmap("assets/textures/background-1.png")
@@ -196,9 +200,10 @@ func (bg *Background) Draw(time float64, batch *batch.QuadBatch, blurVal, bgAlph
 
 	bg.forceRedraw = false
 
-	if bg.blurActive != settings.Playfield.Background.Blur.Enabled {
+	requestedBlur := settings.Playfield.Background.Blur.Enabled && bg.blur != nil
+	if bg.blurActive != requestedBlur {
 		needsRedraw = true
-		bg.blurActive = settings.Playfield.Background.Blur.Enabled
+		bg.blurActive = requestedBlur
 	}
 
 	if math.Abs(bg.blurVal-blurVal) > 0.0001 {

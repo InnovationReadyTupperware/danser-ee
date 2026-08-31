@@ -164,7 +164,15 @@ func (m *timePopup) drawStrainGraph() {
 		redraw := false
 
 		if m.fbo == nil || m.fbo.GetWidth() != sWidth || m.fbo.GetHeight() != sHeight {
-			m.fbo = buffer.NewFrame(sWidth, sHeight, false, false)
+			candidate, err := buffer.NewFrame(sWidth, sHeight, false, false)
+			if err != nil {
+				m.graphStatus = "Failed to create graph target: " + err.Error()
+				return
+			}
+			if m.fbo != nil {
+				m.fbo.Dispose()
+			}
+			m.fbo = candidate
 			redraw = true
 		}
 

@@ -164,7 +164,10 @@ func startVideo(config *RecordingSessionConfig) error {
 	var resourceErr error
 	goroutines.CallMain(func() {
 		if parsedFormat != pixconv.ARGB {
-			rgbToYuvConverter = effects.NewRGBYUV(w, h, parsedFormat != pixconv.I444 && parsedFormat != pixconv.I422)
+			rgbToYuvConverter, resourceErr = effects.NewRGBYUV(w, h, parsedFormat != pixconv.I444 && parsedFormat != pixconv.I422)
+			if resourceErr != nil {
+				return
+			}
 		}
 		for range config.pboCount {
 			pbo, err := createPBO(parsedFormat)
@@ -176,7 +179,7 @@ func startVideo(config *RecordingSessionConfig) error {
 		}
 		if config.motionBlur {
 			bFrames := config.blendFrames
-			blend = effects.NewBlend(w, h, bFrames, calculateWeights(bFrames, config.blendFunctionID, config.gaussWeightsMult))
+			blend, resourceErr = effects.NewBlend(w, h, bFrames, calculateWeights(bFrames, config.blendFunctionID, config.gaussWeightsMult))
 		}
 	})
 	if resourceErr != nil {

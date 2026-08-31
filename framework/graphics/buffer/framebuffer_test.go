@@ -1,6 +1,10 @@
 package buffer
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/go-gl/gl/v4.5-core/gl"
+)
 
 func TestValidateRequestedMultisampleSamples(t *testing.T) {
 	tests := []struct {
@@ -21,6 +25,26 @@ func TestValidateRequestedMultisampleSamples(t *testing.T) {
 			err := validateRequestedMultisampleSamples(tt.samples, tt.maxSamples)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("validateRequestedMultisampleSamples(%d, %d) error = %v, wantErr %t", tt.samples, tt.maxSamples, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFramebufferStatusName(t *testing.T) {
+	tests := []struct {
+		name   string
+		status uint32
+		want   string
+	}{
+		{name: "unsupported", status: gl.FRAMEBUFFER_UNSUPPORTED, want: "GL_FRAMEBUFFER_UNSUPPORTED"},
+		{name: "incomplete attachment", status: gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT, want: "GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT"},
+		{name: "unknown", status: 0xDEAD, want: "unknown framebuffer status"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := framebufferStatusName(tt.status); got != tt.want {
+				t.Fatalf("framebufferStatusName() = %q, want %q", got, tt.want)
 			}
 		})
 	}

@@ -110,7 +110,6 @@ type Player struct {
 	Epi             *texture.TextureRegion
 	epiGlider       *animation.Glider
 	overlay         overlays.Overlay
-	blur            *effects.BlurEffect
 
 	coin *common.DanserCoin
 
@@ -568,8 +567,6 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool, activeMSAA int) (*Player, error
 		player.Dispose()
 		return nil, fmt.Errorf("initialize bloom effect: %w", err)
 	}
-	player.blur = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
-
 	player.background.Update(player.progressMsF, settings.Graphics.GetWidthF()/2, settings.Graphics.GetHeightF()/2)
 
 	player.updateStats = frame.NewFrameStats()

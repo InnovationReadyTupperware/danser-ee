@@ -503,7 +503,11 @@ func (body *Body) ensureFBO(baseProjView mgl32.Mat4) {
 		return
 	}
 
-	body.framebuffer = buffer.NewFrameDepth(width, height, false)
+	var err error
+	body.framebuffer, err = buffer.NewFrameDepth(width, height, false)
+	if err != nil {
+		panic("SliderRenderer: create slider-body framebuffer: " + err.Error())
+	}
 
 	tex := body.framebuffer.Texture().GetRegion()
 

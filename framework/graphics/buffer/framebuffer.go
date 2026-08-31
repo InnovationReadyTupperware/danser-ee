@@ -2,6 +2,7 @@ package buffer
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
@@ -32,7 +33,11 @@ type Framebuffer struct {
 }
 
 // NewFrame creates a new fully transparent Framebuffer with given dimensions in pixels.
-func NewFrame(width, height int, smooth, depth bool) *Framebuffer {
+func NewFrame(width, height int, smooth, depth bool) (*Framebuffer, error) {
+	if err := validateFramebufferDimensions(width, height, depth); err != nil {
+		return nil, fmt.Errorf("create color framebuffer: %w", err)
+	}
+
 	f := new(Framebuffer)
 	f.width = width
 	f.height = height
@@ -50,12 +55,21 @@ func NewFrame(width, height int, smooth, depth bool) *Framebuffer {
 		gl.NamedFramebufferRenderbuffer(f.handle, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, f.depth)
 	}
 
+	if err := validateFramebufferAllocation(f, "color framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
+
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
 }
 
-func NewFrameF(width, height int) *Framebuffer {
+func NewFrameF(width, height int) (*Framebuffer, error) {
+	if err := validateFramebufferDimensions(width, height, false); err != nil {
+		return nil, fmt.Errorf("create floating-point framebuffer: %w", err)
+	}
+
 	f := new(Framebuffer)
 	f.width = width
 	f.height = height
@@ -66,13 +80,27 @@ func NewFrameF(width, height int) *Framebuffer {
 	gl.CreateFramebuffers(1, &f.handle)
 
 	gl.NamedFramebufferTextureLayer(f.handle, gl.COLOR_ATTACHMENT0, f.tex.GetID(), 0, 0)
+	if err := validateFramebufferAllocation(f, "floating-point framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
 }
 
-func NewFrameLayer(texture texture.Texture, layer int) *Framebuffer {
+func NewFrameLayer(texture texture.Texture, layer int) (*Framebuffer, error) {
+	if texture == nil || texture.GetID() == 0 {
+		return nil, fmt.Errorf("create layered framebuffer: texture is nil or disposed")
+	}
+	if layer < 0 || layer > math.MaxInt32 || int32(layer) >= texture.GetLayers() {
+		return nil, fmt.Errorf("create layered framebuffer: layer %d outside [0, %d)", layer, texture.GetLayers())
+	}
+	if err := validateFramebufferDimensions(int(texture.GetWidth()), int(texture.GetHeight()), false); err != nil {
+		return nil, fmt.Errorf("create layered framebuffer: %w", err)
+	}
+
 	f := new(Framebuffer)
 	f.width = int(texture.GetWidth())
 	f.height = int(texture.GetHeight())
@@ -80,13 +108,21 @@ func NewFrameLayer(texture texture.Texture, layer int) *Framebuffer {
 	gl.CreateFramebuffers(1, &f.handle)
 
 	gl.NamedFramebufferTextureLayer(f.handle, gl.COLOR_ATTACHMENT0, texture.GetID(), 0, int32(layer))
+	if err := validateFramebufferAllocation(f, "layered framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
 }
 
-func NewFrameDepth(width, height int, smooth bool) *Framebuffer {
+func NewFrameDepth(width, height int, smooth bool) (*Framebuffer, error) {
+	if err := validateFramebufferDimensions(width, height, false); err != nil {
+		return nil, fmt.Errorf("create depth framebuffer: %w", err)
+	}
+
 	f := new(Framebuffer)
 	f.width = width
 	f.height = height
@@ -96,10 +132,16 @@ func NewFrameDepth(width, height int, smooth bool) *Framebuffer {
 	gl.CreateFramebuffers(1, &f.handle)
 
 	gl.NamedFramebufferTextureLayer(f.handle, gl.DEPTH_ATTACHMENT, f.tex.GetID(), 0, 0)
+	gl.NamedFramebufferDrawBuffer(f.handle, gl.NONE)
+	gl.NamedFramebufferReadBuffer(f.handle, gl.NONE)
+	if err := validateFramebufferAllocation(f, "depth framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
 }
 
 // NewFrameMultisample creates a multisample color framebuffer and its
@@ -112,7 +154,10 @@ func NewFrameMultisample(width, height int, samples int) (*Framebuffer, error) {
 	}
 
 	if samples == 0 {
-		return NewFrame(width, height, false, false), nil
+		return NewFrame(width, height, false, false)
+	}
+	if err := validateFramebufferDimensions(width, height, true); err != nil {
+		return nil, fmt.Errorf("create multisample framebuffer: %w", err)
 	}
 
 	if err := validateMultisampleSamples(samples); err != nil {
@@ -161,7 +206,10 @@ func NewFrameMultisampleScreen(width, height int, depth bool, samples int) (*Fra
 	}
 
 	if samples == 0 {
-		return NewFrame(width, height, false, depth), nil
+		return NewFrame(width, height, false, depth)
+	}
+	if err := validateFramebufferDimensions(width, height, true); err != nil {
+		return nil, fmt.Errorf("create multisample screen framebuffer: %w", err)
 	}
 
 	if err := validateMultisampleSamples(samples); err != nil {
@@ -246,7 +294,7 @@ func checkFramebufferComplete(handle uint32, operation string) error {
 	}
 
 	if status != gl.FRAMEBUFFER_COMPLETE {
-		return fmt.Errorf("%s is incomplete: status 0x%X", operation, status)
+		return fmt.Errorf("%s is incomplete: %s (0x%X)", operation, framebufferStatusName(status), status)
 	}
 
 	return nil
@@ -260,7 +308,11 @@ func checkOpenGLError(operation string) error {
 	return nil
 }
 
-func NewFrameYUV(width, height int) *Framebuffer {
+func NewFrameYUV(width, height int) (*Framebuffer, error) {
+	if err := validateFramebufferDimensions(width, height, false); err != nil {
+		return nil, fmt.Errorf("create YUV framebuffer: %w", err)
+	}
+
 	f := new(Framebuffer)
 	f.width = width
 	f.height = height
@@ -278,13 +330,21 @@ func NewFrameYUV(width, height int) *Framebuffer {
 	attchs := []uint32{gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2}
 
 	gl.NamedFramebufferDrawBuffers(f.handle, 3, &attchs[0])
+	if err := validateFramebufferAllocation(f, "YUV framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
 }
 
-func NewFrameYUVSmall(width, height int) *Framebuffer {
+func NewFrameYUVSmall(width, height int) (*Framebuffer, error) {
+	if err := validateFramebufferDimensions(width, height, false); err != nil {
+		return nil, fmt.Errorf("create subsampled YUV framebuffer: %w", err)
+	}
+
 	f := new(Framebuffer)
 	f.width = width
 	f.height = height
@@ -300,10 +360,77 @@ func NewFrameYUVSmall(width, height int) *Framebuffer {
 	attchs := []uint32{gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1}
 
 	gl.NamedFramebufferDrawBuffers(f.handle, 2, &attchs[0])
+	if err := validateFramebufferAllocation(f, "subsampled YUV framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
+}
+
+func validateFramebufferDimensions(width, height int, renderbuffer bool) error {
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("dimensions must be positive, got %dx%d", width, height)
+	}
+	if width > math.MaxInt32 || height > math.MaxInt32 {
+		return fmt.Errorf("dimensions exceed OpenGL's signed 32-bit range: %dx%d", width, height)
+	}
+
+	var maxTextureSize int32
+	gl.GetIntegerv(gl.MAX_TEXTURE_SIZE, &maxTextureSize)
+	if err := checkOpenGLError("query GL_MAX_TEXTURE_SIZE"); err != nil {
+		return err
+	}
+	if width > int(maxTextureSize) || height > int(maxTextureSize) {
+		return fmt.Errorf("dimensions %dx%d exceed GL_MAX_TEXTURE_SIZE=%d", width, height, maxTextureSize)
+	}
+
+	if !renderbuffer {
+		return nil
+	}
+
+	var maxRenderbufferSize int32
+	gl.GetIntegerv(gl.MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize)
+	if err := checkOpenGLError("query GL_MAX_RENDERBUFFER_SIZE"); err != nil {
+		return err
+	}
+	if width > int(maxRenderbufferSize) || height > int(maxRenderbufferSize) {
+		return fmt.Errorf("dimensions %dx%d exceed GL_MAX_RENDERBUFFER_SIZE=%d", width, height, maxRenderbufferSize)
+	}
+
+	return nil
+}
+
+func validateFramebufferAllocation(f *Framebuffer, operation string) error {
+	if err := checkOpenGLError(operation + " allocation"); err != nil {
+		return err
+	}
+	return checkFramebufferComplete(f.handle, operation)
+}
+
+func framebufferStatusName(status uint32) string {
+	switch status {
+	case gl.FRAMEBUFFER_UNDEFINED:
+		return "GL_FRAMEBUFFER_UNDEFINED"
+	case gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+		return "GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT"
+	case gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+		return "GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT"
+	case gl.FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
+		return "GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER"
+	case gl.FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
+		return "GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER"
+	case gl.FRAMEBUFFER_UNSUPPORTED:
+		return "GL_FRAMEBUFFER_UNSUPPORTED"
+	case gl.FRAMEBUFFER_INCOMPLETE_MULTISAMPLE:
+		return "GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE"
+	case gl.FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS:
+		return "GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS"
+	default:
+		return "unknown framebuffer status"
+	}
 }
 
 func (f *Framebuffer) Dispose() {
