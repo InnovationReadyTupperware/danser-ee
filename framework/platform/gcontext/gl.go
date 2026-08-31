@@ -28,8 +28,21 @@ func GLInit(debugLogs bool, additionalExtensions ...string) error {
 		return err
 	}
 
-	var maxSamples int32
+	var major, minor int32
+	gl.GetIntegerv(gl.MAJOR_VERSION, &major)
+	gl.GetIntegerv(gl.MINOR_VERSION, &minor)
+	if !supportsOpenGL45(major, minor) {
+		return fmt.Errorf("OpenGL 4.5 core is required, but the initialized context reports %d.%d", major, minor)
+	}
+
+	var maxSamples, maxTextureSize, maxArrayLayers, maxRenderbufferSize int32
 	gl.GetIntegerv(gl.MAX_SAMPLES, &maxSamples)
+	gl.GetIntegerv(gl.MAX_TEXTURE_SIZE, &maxTextureSize)
+	gl.GetIntegerv(gl.MAX_ARRAY_TEXTURE_LAYERS, &maxArrayLayers)
+	gl.GetIntegerv(gl.MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize)
+	if code := gl.GetError(); code != gl.NO_ERROR {
+		return fmt.Errorf("query OpenGL capabilities: OpenGL error 0x%X", code)
+	}
 
 	glVendor := C.GoString((*C.char)(unsafe.Pointer(gl.GetString(gl.VENDOR))))
 	glRenderer := C.GoString((*C.char)(unsafe.Pointer(gl.GetString(gl.RENDERER))))
@@ -55,23 +68,15 @@ func GLInit(debugLogs bool, additionalExtensions ...string) error {
 		hacks.IsOldAMD = true
 	}
 
-	var extensions string
-
-	var numExtensions int32
-	gl.GetIntegerv(gl.NUM_EXTENSIONS, &numExtensions)
-
-	for i := int32(0); i < numExtensions; i++ {
-		extensions += C.GoString((*C.char)(unsafe.Pointer(gl.GetStringi(gl.EXTENSIONS, uint32(i)))))
-		extensions += " "
-	}
-
-	log.Println("GL Vendor:    ", glVendor)
-	log.Println("GL Renderer:  ", glRenderer)
-	log.Println("GL Version:   ", glVersion)
-	log.Println("GLSL Version: ", glslVersion)
-	log.Println("GL Max Samples:", maxSamples)
-	log.Println("GL Extensions:", extensions)
-	log.Println("OpenGL initialized!")
+	log.Printf("OpenGL: vendor=%q renderer=%q version=%q GLSL=%q", glVendor, glRenderer, glVersion, glslVersion)
+	log.Printf(
+		"OpenGL: limits texture=%d array-layers=%d renderbuffer=%d samples=%d",
+		maxTextureSize,
+		maxArrayLayers,
+		maxRenderbufferSize,
+		maxSamples,
+	)
+	log.Println("OpenGL: initialized")
 
 	if debugLogs {
 		gl.Enable(gl.DEBUG_OUTPUT)
@@ -93,21 +98,9 @@ func GLInit(debugLogs bool, additionalExtensions ...string) error {
 }
 
 func extensionCheck(additionalExtensions []string) (ret error) {
-	extensions := []string{
-		"GL_ARB_clear_texture",
-		"GL_ARB_direct_state_access",
-		"GL_ARB_texture_storage",
-		"GL_ARB_vertex_attrib_binding",
-		"GL_ARB_buffer_storage",
-	}
-
-	if additionalExtensions != nil {
-		extensions = append(extensions, additionalExtensions...)
-	}
-
 	var notSupported []string
 
-	for _, ext := range extensions {
+	for _, ext := range additionalExtensions {
 		if !sdl.GL_ExtensionSupported(ext) {
 			notSupported = append(notSupported, ext)
 		}
@@ -118,4 +111,8 @@ func extensionCheck(additionalExtensions []string) (ret error) {
 	}
 
 	return nil
+}
+
+func supportsOpenGL45(major, minor int32) bool {
+	return major > 4 || major == 4 && minor >= 5
 }
