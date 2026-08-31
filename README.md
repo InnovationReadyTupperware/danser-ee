@@ -154,10 +154,14 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 
 | Feature                         |                                                             danser-ee                                                             |                                     danser-go (fork base)                                     |
 |---------------------------------|:---------------------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------:|
+| OpenGL context baseline         |                                         Required 4.5 core context with queried GPU limits                                         |                            3.3 core context with extension checks                             |
 | Default gameplay antialiasing   |                                                        4x on new profiles                                                         |                                        Off by default                                         |
 | MSAA capability validation      | Driver validation rejects unsupported counts or incomplete render targets before gameplay starts; supported 16x remains available |              ❌ Unchecked multisample allocation can stall unsupported contexts               |
 | Gameplay MSAA consistency       |                         One validated sample count shared by gameplay rendering, bloom, and strain graph                          | Main framebuffer follows the profile while bloom and strain graph use different sample counts |
 | Gameplay MSAA setting lifecycle |                          Changes are locked during playback and take effect on the next gameplay launch                           |              Live profile changes can alter the main render path during playback              |
+| Framebuffer construction        |                 Dimension, allocation, sample-count, and completeness checks return contextual errors before use                  |                       ❌ Allocation and completeness are left unchecked                       |
+| Typed buffer contracts          |                         Integer attributes and index uploads honor their declared types and byte offsets                          |                ❌ Integer types and index offsets are not consistently honored                |
+| Texture atlas capacity          |                                Overflow-safe packing bounded by GPU texture and array-layer limits                                |        ❌ Texture-size clamp only; layer growth and byte-size arithmetic are unchecked        |
 
 ### Runtime and platform
 
