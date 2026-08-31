@@ -2,6 +2,7 @@ package gcontext
 
 import (
 	"fmt"
+	"log"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -27,6 +28,7 @@ type OptionalProps struct {
 
 var (
 	sdlWindow      *sdl.Window
+	sdlContext     sdl.GLContext
 	sdlShouldClose bool
 	offscreenCtx   bool
 	hovered        bool
@@ -89,14 +91,30 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) error
 		return fmt.Errorf("sdl: couldn't reinitialize video subsystem: %w", err)
 	}
 
-	_ = sdl.GL_SetAttribute(sdl.GL_FRAMEBUFFER_SRGB_CAPABLE, 1)
-	_ = sdl.GL_SetAttribute(sdl.GL_CONTEXT_MAJOR_VERSION, 3)
-	_ = sdl.GL_SetAttribute(sdl.GL_CONTEXT_MINOR_VERSION, 3)
-	_ = sdl.GL_SetAttribute(sdl.GL_CONTEXT_PROFILE_MASK, sdl.GL_CONTEXT_PROFILE_CORE)
+	if err := setGLAttribute("sRGB-capable framebuffer", sdl.GL_FRAMEBUFFER_SRGB_CAPABLE, 1); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("context major version", sdl.GL_CONTEXT_MAJOR_VERSION, 4); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("context minor version", sdl.GL_CONTEXT_MINOR_VERSION, 5); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("core profile", sdl.GL_CONTEXT_PROFILE_MASK, sdl.GL_CONTEXT_PROFILE_CORE); err != nil {
+		return err
+	}
 
 	if props.BuiltinMSAA {
-		_ = sdl.GL_SetAttribute(sdl.GL_MULTISAMPLEBUFFERS, 1)
-		_ = sdl.GL_SetAttribute(sdl.GL_MULTISAMPLESAMPLES, 4)
+		if err := setGLAttribute("multisample buffers", sdl.GL_MULTISAMPLEBUFFERS, 1); err != nil {
+			return err
+		}
+
+		if err := setGLAttribute("multisample samples", sdl.GL_MULTISAMPLESAMPLES, 4); err != nil {
+			return err
+		}
 	}
 
 	flags := sdl.WINDOW_OPENGL
@@ -119,8 +137,13 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) error
 	// windows mapped by default, while WINDOW_HIDDEN is reserved for recording.
 	// Keeping the normal path visible from creation avoids relying on a later
 	// Show call to map a window whose fullscreen transition is still pending.
-	if _, err = sdl.GL_CreateContext(sdlWindow); err != nil {
+	sdlContext, err = sdl.GL_CreateContext(sdlWindow)
+	if err != nil {
 		return fmt.Errorf("sdl: couldn't create OpenGL context: %w", err)
+	}
+
+	if err = validateGLContext(props.BuiltinMSAA); err != nil {
+		return err
 	}
 
 	if props.Fullscreen {
@@ -170,6 +193,88 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) error
 	}
 
 	return nil
+}
+
+func setGLAttribute(name string, attribute sdl.GLAttr, value int32) error {
+	if err := sdl.GL_SetAttribute(attribute, value); err != nil {
+		return fmt.Errorf("sdl: couldn't request OpenGL %s=%d: %w", name, value, err)
+	}
+
+	return nil
+}
+
+func validateGLContext(builtinMSAA bool) error {
+	major, err := getGLAttribute("context major version", sdl.GL_CONTEXT_MAJOR_VERSION)
+	if err != nil {
+		return err
+	}
+
+	minor, err := getGLAttribute("context minor version", sdl.GL_CONTEXT_MINOR_VERSION)
+	if err != nil {
+		return err
+	}
+
+	profile, err := getGLAttribute("context profile", sdl.GL_CONTEXT_PROFILE_MASK)
+	if err != nil {
+		return err
+	}
+
+	srgbCapable, err := getGLAttribute("sRGB-capable framebuffer", sdl.GL_FRAMEBUFFER_SRGB_CAPABLE)
+	if err != nil {
+		return err
+	}
+
+	if major < 4 || major == 4 && minor < 5 || profile&sdl.GL_CONTEXT_PROFILE_CORE == 0 {
+		return fmt.Errorf(
+			"sdl: OpenGL 4.5 core is required, but SDL created version %d.%d with profile mask %#x; update the graphics driver or use a supported GPU",
+			major,
+			minor,
+			profile,
+		)
+	}
+
+	log.Printf(
+		"OpenGL: SDL created %d.%d core context (profile mask %#x, sRGB-capable framebuffer=%t)",
+		major,
+		minor,
+		profile,
+		srgbCapable != 0,
+	)
+
+	if !builtinMSAA {
+		return nil
+	}
+
+	buffers, err := getGLAttribute("multisample buffers", sdl.GL_MULTISAMPLEBUFFERS)
+	if err != nil {
+		return err
+	}
+
+	samples, err := getGLAttribute("multisample samples", sdl.GL_MULTISAMPLESAMPLES)
+	if err != nil {
+		return err
+	}
+
+	if buffers < 1 || samples < 4 {
+		return fmt.Errorf(
+			"sdl: requested a 4x multisampled default framebuffer, but SDL created buffers=%d samples=%d",
+			buffers,
+			samples,
+		)
+	}
+
+	log.Printf("OpenGL: SDL default framebuffer uses %dx MSAA", samples)
+
+	return nil
+}
+
+func getGLAttribute(name string, attribute sdl.GLAttr) (int32, error) {
+	value, err := sdl.GL_GetAttribute(attribute)
+	if err != nil {
+		return 0, fmt.Errorf("sdl: couldn't query actual OpenGL %s: %w", name, err)
+	}
+
+	return value, nil
 }
 
 func GetFramebufferSize() (int, int) {
