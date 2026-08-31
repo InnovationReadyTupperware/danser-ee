@@ -32,7 +32,7 @@ func NewPersistentBufferObject(maxFloats int) *PersistentBufferObject {
 
 	gl.CreateBuffers(1, &vbo.handle)
 
-	gl.NamedBufferStorage(vbo.handle, maxFloats*4, gl.Ptr(nil), gl.MAP_PERSISTENT_BIT|gl.MAP_WRITE_BIT|gl.MAP_COHERENT_BIT)
+	gl.NamedBufferStorage(vbo.handle, maxFloats*4, gl.Ptr(nil), persistentStorageFlags())
 
 	pt := gl.MapNamedBufferRange(vbo.handle, 0, maxFloats*4, gl.MAP_PERSISTENT_BIT|gl.MAP_WRITE_BIT|gl.MAP_COHERENT_BIT)
 
@@ -52,15 +52,11 @@ func (vbo *PersistentBufferObject) SetData(offset int, data []float32) {
 		return
 	}
 
-	if offset+len(data) > vbo.capacity {
+	if offset < 0 || len(data) > vbo.capacity-offset {
 		panic(fmt.Sprintf("Data exceeds VBO's capacity. Data length: %d, offset: %d, capacity: %d", len(data), offset, vbo.capacity))
 	}
 
-	if vbo.data != nil {
-		copy(vbo.data[offset:], data)
-	}
-
-	gl.NamedBufferSubData(vbo.handle, offset*4, len(data)*4, gl.Ptr(data[offset:]))
+	gl.NamedBufferSubData(vbo.handle, offset*4, len(data)*4, gl.Ptr(data))
 }
 
 func (vbo *PersistentBufferObject) Resize(newCapacity int) {
@@ -70,13 +66,18 @@ func (vbo *PersistentBufferObject) Resize(newCapacity int) {
 
 	gl.CreateBuffers(1, &vbo.handle)
 
-	gl.NamedBufferStorage(vbo.handle, newCapacity*4, gl.Ptr(nil), gl.MAP_PERSISTENT_BIT|gl.MAP_WRITE_BIT|gl.MAP_COHERENT_BIT)
+	gl.NamedBufferStorage(vbo.handle, newCapacity*4, gl.Ptr(nil), persistentStorageFlags())
 
 	pt := gl.MapNamedBufferRange(vbo.handle, 0, newCapacity*4, gl.MAP_PERSISTENT_BIT|gl.MAP_WRITE_BIT|gl.MAP_COHERENT_BIT)
 
 	vbo.data = unsafe.Slice((*float32)(pt), newCapacity)
 
 	vbo.offset = 0
+}
+
+func persistentStorageFlags() uint32 {
+	return gl.MAP_PERSISTENT_BIT | gl.MAP_WRITE_BIT | gl.MAP_COHERENT_BIT |
+		gl.DYNAMIC_STORAGE_BIT
 }
 
 func (vbo *PersistentBufferObject) Map(size int) MemoryChunk {

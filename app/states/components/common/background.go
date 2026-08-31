@@ -173,7 +173,16 @@ func (bg *Background) Update(time float64, x, y float64) {
 
 func project(pos vector.Vector2d, camera mgl32.Mat4) vector.Vector2d {
 	res := camera.Mul4x1(mgl32.Vec4{pos.X32(), pos.Y32(), 0.0, 1.0})
-	return vector.NewVec2d((float64(res[0])/2+0.5)*settings.Graphics.GetWidthF(), float64((res[1])/2+0.5)*settings.Graphics.GetWidthF())
+	return ndcToPixels(
+		float64(res[0]),
+		float64(res[1]),
+		settings.Graphics.GetWidthF(),
+		settings.Graphics.GetHeightF(),
+	)
+}
+
+func ndcToPixels(x, y, width, height float64) vector.Vector2d {
+	return vector.NewVec2d((x/2+0.5)*width, (y/2+0.5)*height)
 }
 
 func (bg *Background) Draw(time float64, batch *batch.QuadBatch, blurVal, bgAlpha float64, camera mgl32.Mat4) {

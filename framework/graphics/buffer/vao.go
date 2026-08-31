@@ -130,20 +130,34 @@ func (vao *VertexArrayObject) Attach(s *shader.RShader) {
 	for _, holder := range vao.buffers {
 		var offset int
 		for _, attr := range holder.format {
+			if attr.Type.IsMatrix() {
+				panic(fmt.Sprintf("Matrix vertex attribute %q requires multi-location binding", attr.Name))
+			}
+
 			location := s.GetAttributeInfo(attr.Name).Location
 
 			gl.EnableVertexArrayAttrib(vao.handle, uint32(location))
 
 			gl.VertexArrayAttribBinding(vao.handle, uint32(location), uint32(index))
 
-			gl.VertexArrayAttribFormat(
-				vao.handle,
-				uint32(location),
-				int32(attr.Type.Components()),
-				uint32(attr.Type.InternalType()),
-				attr.Type.Normalize(),
-				uint32(offset),
-			)
+			if attr.Type.IsInteger() {
+				gl.VertexArrayAttribIFormat(
+					vao.handle,
+					uint32(location),
+					int32(attr.Type.Components()),
+					uint32(attr.Type.InternalType()),
+					uint32(offset),
+				)
+			} else {
+				gl.VertexArrayAttribFormat(
+					vao.handle,
+					uint32(location),
+					int32(attr.Type.Components()),
+					uint32(attr.Type.InternalType()),
+					attr.Type.Normalize(),
+					uint32(offset),
+				)
+			}
 
 			offset += attr.Type.Size()
 		}

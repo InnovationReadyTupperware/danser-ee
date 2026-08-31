@@ -5,7 +5,8 @@ import "github.com/go-gl/gl/v4.5-core/gl"
 // Format defines names and types of OpenGL attributes (vertex format, uniform format, etc.).
 //
 // Example:
-//   Format{{"position", Vec2}, {"color", Vec4}, {"texCoord": Vec2}}
+//
+//	Format{{"position", Vec2}, {"color", Vec4}, {"texCoord": Vec2}}
 type Format []VertexAttribute
 
 // Size returns the total size of all attributes of the Format.
@@ -137,7 +138,7 @@ func (at Type) InternalType() int {
 	case Int:
 		return gl.INT
 	case UInt:
-		return gl.UNSIGNED_BYTE
+		return gl.UNSIGNED_INT
 	case Float, Vec2, Vec3, Vec4:
 		return gl.FLOAT
 	case Mat2, Mat23, Mat24:
@@ -153,6 +154,14 @@ func (at Type) InternalType() int {
 	default:
 		panic("size of vertex attribute type: invalid type")
 	}
+}
+
+func (at Type) IsInteger() bool {
+	return at == Int || at == UInt
+}
+
+func (at Type) IsMatrix() bool {
+	return at >= Mat2 && at <= Mat43
 }
 
 func (at Type) Normalize() bool {

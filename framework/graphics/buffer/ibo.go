@@ -62,11 +62,15 @@ func (ibo *IndexBufferObject) SetData(offset int, data []uint16) {
 		return
 	}
 
-	if offset+len(data) > ibo.capacity {
+	if ibo.xtype != gl.UNSIGNED_SHORT {
+		panic("Can't upload uint16 data to a uint32 IBO")
+	}
+
+	if offset < 0 || len(data) > ibo.capacity-offset {
 		panic(fmt.Sprintf("Data exceeds IBO's capacity. Data length: %d, offset: %d, capacity: %d", len(data), offset, ibo.capacity))
 	}
 
-	gl.NamedBufferSubData(ibo.handle, offset, len(data)*2, gl.Ptr(data))
+	gl.NamedBufferSubData(ibo.handle, offset*ibo.xsize, len(data)*ibo.xsize, gl.Ptr(data))
 }
 
 func (ibo *IndexBufferObject) SetDataI(offset int, data []uint32) {
@@ -74,11 +78,15 @@ func (ibo *IndexBufferObject) SetDataI(offset int, data []uint32) {
 		return
 	}
 
-	if offset+len(data) > ibo.capacity {
+	if ibo.xtype != gl.UNSIGNED_INT {
+		panic("Can't upload uint32 data to a uint16 IBO")
+	}
+
+	if offset < 0 || len(data) > ibo.capacity-offset {
 		panic(fmt.Sprintf("Data exceeds IBO's capacity. Data length: %d, offset: %d, capacity: %d", len(data), offset, ibo.capacity))
 	}
 
-	gl.NamedBufferSubData(ibo.handle, offset, len(data)*4, gl.Ptr(data))
+	gl.NamedBufferSubData(ibo.handle, offset*ibo.xsize, len(data)*ibo.xsize, gl.Ptr(data))
 }
 
 func (ibo *IndexBufferObject) Draw() {
@@ -123,7 +131,7 @@ func (ibo *IndexBufferObject) check(offset, length int) {
 		}
 	}
 
-	if offset+length > ibo.capacity {
+	if offset < 0 || length < 0 || length > ibo.capacity-offset {
 		panic(fmt.Sprintf("Draw exceeds IBO's capacity. Draw length: %d, offset: %d, capacity: %d", length, offset, ibo.capacity))
 	}
 }
