@@ -62,12 +62,11 @@ func (directoryWatcher *directoryWatcher) run() {
 
 	for {
 		select {
-		case event, ok := <-directoryWatcher.watcher.Events:
+		case _, ok := <-directoryWatcher.watcher.Events:
 			if !ok {
 				return
 			}
 
-			log.Println("DirWatcher: New event:", event)
 			if directoryWatcher.onEvent != nil {
 				directoryWatcher.onEvent()
 			}

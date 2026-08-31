@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/innovationreadytupperware/danser-ee/app/database"
+	"github.com/innovationreadytupperware/danser-ee/framework/bass"
 	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 	"github.com/innovationreadytupperware/danser-ee/framework/qpc"
 )
@@ -75,8 +76,15 @@ func (l *launcher) shutdown() {
 		if l.catalogCoordinator != nil {
 			l.catalogCoordinator.close()
 		}
+		if l.songSelectCatalogWorker != nil {
+			l.songSelectCatalogWorker.shutdown()
+		}
 		if l.selectWindow != nil {
 			l.selectWindow.shutdown()
+		}
+		if l.audioReady {
+			bass.Shutdown()
+			l.audioReady = false
 		}
 		l.backgroundWG.Wait()
 
@@ -160,7 +168,7 @@ func (l *launcher) applyEvent(event launcherEvent) {
 			l.catalogSnapshotGeneration.Store(event.generation)
 		}
 		l.catalogSnapshotReady.Store(true)
-		l.ensureSongSelect().updateCatalog(event.catalog)
+		l.updateSongSelectCatalog(event.catalog)
 		l.runCatalogCallbacks(event.callbacks)
 	case launcherCatalogDeltaEvent:
 		if event.generation < l.catalogGeneration.Load() {
@@ -173,7 +181,7 @@ func (l *launcher) applyEvent(event launcherEvent) {
 			}
 
 			l.catalog = l.catalog.ApplyDelta(event.delta)
-			l.ensureSongSelect().updateCatalog(l.catalog)
+			l.updateSongSelectCatalog(l.catalog)
 		}
 
 		l.runCatalogCallbacks(event.callbacks)

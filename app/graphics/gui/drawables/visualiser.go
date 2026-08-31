@@ -38,9 +38,19 @@ func (vis *Visualiser) SetStartDistance(distance float64) {
 
 func (vis *Visualiser) SetTrack(track bass.ITrack) {
 	vis.music = track
+	if track == nil {
+		clear(vis.fft)
+		vis.counter = 0
+		vis.jumpCounter = 0
+	}
 }
 
 func (vis *Visualiser) Update(time float64) {
+	if vis.music == nil {
+		vis.lastTime = time
+		return
+	}
+
 	if math.IsNaN(vis.lastTime) {
 		vis.lastTime = time
 	}
@@ -85,6 +95,10 @@ func (vis *Visualiser) Update(time float64) {
 }
 
 func (vis *Visualiser) Draw(_ float64, batch *batch.QuadBatch) {
+	if vis.music == nil {
+		return
+	}
+
 	origin := vector.NewVec2d(-1, 0)
 
 	cutoff := 1 / vis.barLength

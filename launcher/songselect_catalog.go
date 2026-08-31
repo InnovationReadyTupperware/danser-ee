@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"context"
 	"sync"
 
 	"github.com/innovationreadytupperware/danser-ee/app/database"
@@ -24,24 +25,56 @@ type songSelectCatalogView struct {
 }
 
 func buildSongSelectCatalogView(request songSelectCatalogRequest) songSelectCatalogView {
+	view, _ := buildSongSelectCatalogViewContext(context.Background(), request)
+	return view
+}
+
+func buildSongSelectCatalogViewContext(ctx context.Context, request songSelectCatalogRequest) (songSelectCatalogView, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	beatmaps := make(searchEntries, 0)
 	if request.catalog != nil {
 		beatmaps = make(searchEntries, 0, request.catalog.Len())
+		processed := 0
 		request.catalog.ForEach(func(entry *database.BeatmapEntry) bool {
+			if processed&1023 == 0 {
+				select {
+				case <-ctx.Done():
+					return false
+				default:
+				}
+			}
+			processed++
+
 			if searchEntry := newSearchEntry(entry); searchEntry != nil {
 				beatmaps = append(beatmaps, searchEntry)
 			}
 			return true
 		})
+
+		select {
+		case <-ctx.Done():
+			return songSelectCatalogView{}, false
+		default:
+		}
 	}
 
 	groups := sortMaps(beatmaps, request.sortBy, request.ascending)
-	return songSelectCatalogView{
+	view := songSelectCatalogView{
 		revision:         request.revision,
 		catalog:          request.catalog,
 		beatmaps:         beatmaps,
 		groupByDirectory: groups,
 		groupCount:       len(groups),
+	}
+
+	select {
+	case <-ctx.Done():
+		return songSelectCatalogView{}, false
+	default:
+		return view, true
 	}
 }
 
@@ -49,11 +82,13 @@ func buildSongSelectCatalogView(request songSelectCatalogRequest) songSelectCata
 // the newest pending request and result. A large import can therefore publish
 // many durable batches without creating one goroutine or queued view per batch.
 type songSelectCatalogWorker struct {
-	requests chan songSelectCatalogRequest
-	results  chan songSelectCatalogView
-	stop     chan struct{}
-	done     chan struct{}
-	close    func()
+	requests     chan songSelectCatalogRequest
+	results      chan songSelectCatalogView
+	stop         chan struct{}
+	done         chan struct{}
+	mu           sync.Mutex
+	activeCancel context.CancelFunc
+	close        func()
 }
 
 func newSongSelectCatalogWorker() *songSelectCatalogWorker {
@@ -64,6 +99,7 @@ func newSongSelectCatalogWorker() *songSelectCatalogWorker {
 		done:     make(chan struct{}),
 	}
 	worker.close = sync.OnceFunc(func() {
+		worker.cancelActive()
 		close(worker.stop)
 		<-worker.done
 	})
@@ -80,8 +116,20 @@ func (w *songSelectCatalogWorker) run() {
 		case <-w.stop:
 			return
 		case request := <-w.requests:
-			view := buildSongSelectCatalogView(request)
-			w.publishLatest(view)
+			ctx, cancel := context.WithCancel(context.Background())
+			w.mu.Lock()
+			w.activeCancel = cancel
+			w.mu.Unlock()
+
+			view, ok := buildSongSelectCatalogViewContext(ctx, request)
+			cancel()
+			w.mu.Lock()
+			w.activeCancel = nil
+			w.mu.Unlock()
+
+			if ok {
+				w.publishLatest(view)
+			}
 		}
 	}
 }
@@ -90,6 +138,8 @@ func (w *songSelectCatalogWorker) request(request songSelectCatalogRequest) bool
 	if w == nil {
 		return false
 	}
+
+	w.cancelActive()
 
 	for {
 		select {
@@ -105,6 +155,19 @@ func (w *songSelectCatalogWorker) request(request songSelectCatalogRequest) bool
 		default:
 		}
 	}
+}
+
+func (w *songSelectCatalogWorker) cancelActive() {
+	if w == nil {
+		return
+	}
+
+	w.mu.Lock()
+	if w.activeCancel != nil {
+		w.activeCancel()
+		w.activeCancel = nil
+	}
+	w.mu.Unlock()
 }
 
 func (w *songSelectCatalogWorker) publishLatest(view songSelectCatalogView) {

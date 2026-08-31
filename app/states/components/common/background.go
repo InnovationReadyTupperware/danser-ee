@@ -4,6 +4,7 @@ import (
 	"log"
 	"math"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/EdlinOrg/prominentcolor"
 	"github.com/go-gl/mathgl/mgl32"
@@ -39,6 +40,7 @@ type Background struct {
 	blurVal        float64
 	blurredTexture texture.Texture
 	forceRedraw    bool
+	loadGeneration atomic.Uint64
 
 	blurActive bool
 
@@ -47,12 +49,26 @@ type Background struct {
 }
 
 func NewBackground(loadDefault bool) *Background {
+	return newBackground(loadDefault, true)
+}
+
+// NewBackgroundWithoutBlur creates a background without allocating blur
+// render targets. The launcher keeps blur disabled, so avoiding those targets
+// saves GPU memory and setup work while preserving the gameplay constructor's
+// dynamic blur behavior.
+func NewBackgroundWithoutBlur(loadDefault bool) *Background {
+	return newBackground(loadDefault, false)
+}
+
+func newBackground(loadDefault, allocateBlur bool) *Background {
 	bg := new(Background)
 	bg.blurVal = -1
-	var err error
-	bg.blur, err = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
-	if err != nil {
-		log.Printf("Background: Warning: blur disabled because render targets could not be created: %v", err)
+	if allocateBlur {
+		var err error
+		bg.blur, err = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
+		if err != nil {
+			log.Printf("Background: Warning: blur disabled because render targets could not be created: %v", err)
+		}
 	}
 	bg.blurActive = settings.Playfield.Background.Blur.Enabled && bg.blur != nil
 
@@ -83,18 +99,38 @@ func NewBackground(loadDefault bool) *Background {
 }
 
 func (bg *Background) SetBeatmap(beatMap *beatmap.BeatMap, loadDefault, loadStoryboards bool) {
+	if bg == nil || beatMap == nil {
+		return
+	}
+
+	generation := bg.loadGeneration.Add(1)
 	bgLoadFunc := func() {
 		image, err := texture.NewPixmapFileString(filepath.Join(settings.General.GetSongsDir(), beatMap.Dir, beatMap.Bg))
 		if err != nil && loadDefault {
 			image, err = assets.GetPixmap("assets/textures/background-1.png")
 			if err != nil {
-				panic(err)
+				log.Printf("Background: Failed to load default background: %v", err)
+				return
 			}
 		}
 
-		bg.triangles.SetColors(bg.getColors(image))
+		colors := bg.getColors(image)
+		if bg.loadGeneration.Load() != generation {
+			if image != nil {
+				image.Dispose()
+			}
+			return
+		}
 
 		goroutines.CallNonBlockMain(func() {
+			if bg.loadGeneration.Load() != generation {
+				if image != nil {
+					image.Dispose()
+				}
+				return
+			}
+
+			bg.triangles.SetColors(colors)
 			if bg.background != nil { // Dispose old background texture
 				bg.background.Dispose()
 				bg.background = nil

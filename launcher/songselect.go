@@ -173,23 +173,26 @@ type songSelectPopup struct {
 	groupCount       int
 	searchStr        string
 
-	prevMap       *beatmap.BeatMap
-	prevEntry     *database.BeatmapEntry
-	previewMapKey string
-	PreviewedSong *bass.TrackBass
-	volume        *animation.Glider
-	stopTime      float64
-	thumbTex      *texture.TextureSingle
-	texRef        *imgui.TextureRef
-	lastThumbPath string
-	focusTheMap   bool
+	prevMap                *beatmap.BeatMap
+	prevEntry              *database.BeatmapEntry
+	previewMapKey          string
+	PreviewedSong          *bass.TrackBass
+	volume                 *animation.Glider
+	stopTime               float64
+	thumbTex               *texture.TextureSingle
+	texRef                 *imgui.TextureRef
+	thumbnailWorker        *songSelectThumbnailWorker
+	thumbnailRevision      uint64
+	thumbnailRequestedPath string
+	focusTheMap            bool
 
 	comboOpened bool
 	scrolling   bool
 
 	materialize          func(*database.BeatmapEntry) (*beatmap.BeatMap, error)
+	requestCatalog       func()
+	ensureAudio          func() bool
 	catalog              *database.CatalogSnapshot
-	catalogWorker        *songSelectCatalogWorker
 	catalogRevision      uint64
 	catalogViewReady     bool
 	catalogViewBuilding  bool
@@ -209,43 +212,24 @@ func newSongSelectPopup(bld *builder, catalog *database.CatalogSnapshot, materia
 		bld:             bld,
 		volume:          animation.NewGlider(0),
 		materialize:     materialize,
-		catalogWorker:   newSongSelectCatalogWorker(),
 		catalogProgress: progress,
+		thumbnailWorker: newSongSelectThumbnailWorker(),
 	}
 
 	mP.internalDraw = mP.drawSongSelect
 	mP.setCloseListener(mP.releaseThumbnail)
 
-	mP.updateCatalog(catalog)
+	mP.catalog = catalog
 
 	return mP
 }
 
-func (m *songSelectPopup) updateCatalog(catalog *database.CatalogSnapshot) {
-	m.catalog = catalog
-	m.requestCatalogView()
-}
-
 func (m *songSelectPopup) requestCatalogView() {
-	m.catalogRevision++
-
-	if m.catalog == nil || m.catalog.Len() == 0 {
-		m.beatmaps = m.beatmaps[:0]
-		m.groupByDirectory = nil
-		m.groupCount = 0
-		m.catalogViewReady = true
-		m.catalogViewBuilding = false
-		m.pendingScrollAnchor = nil
-		m.search()
+	if m == nil || m.requestCatalog == nil {
 		return
 	}
 
-	m.catalogViewBuilding = m.catalogWorker.request(songSelectCatalogRequest{
-		revision:  m.catalogRevision,
-		catalog:   m.catalog,
-		sortBy:    launcherConfig.SortMapsBy,
-		ascending: launcherConfig.SortAscending,
-	})
+	m.requestCatalog()
 }
 
 func (m *songSelectPopup) applyCatalogView(view songSelectCatalogView) {
@@ -273,10 +257,18 @@ func (m *songSelectPopup) applyCatalogView(view songSelectCatalogView) {
 	}
 }
 
-func (m *songSelectPopup) update() {
-	if view, ok := m.catalogWorker.pollLatest(); ok {
-		m.applyCatalogView(view)
+func (m *songSelectPopup) beginCatalogUpdate(catalog *database.CatalogSnapshot, revision uint64, building bool) {
+	if m == nil {
+		return
 	}
+
+	m.catalog = catalog
+	m.catalogRevision = revision
+	m.catalogViewBuilding = building
+}
+
+func (m *songSelectPopup) update() {
+	m.pollThumbnail()
 
 	cT := qpc.GetMilliTimeF()
 
@@ -590,7 +582,7 @@ func (m *songSelectPopup) drawSongSelect() {
 
 						if !isPreviewed && launcherConfig.PreviewSelected {
 							m.stopPreview()
-							m.startPreview(entry.entry)
+							m.startPreviewMap(entry.entry, bMap)
 						}
 
 						m.opened = false
@@ -730,19 +722,16 @@ func (m *songSelectPopup) drawMapTooltip(entry *database.BeatmapEntry) {
 
 	thumbPath := filepath.Join(settings.General.GetSongsDir(), entry.Dir, entry.Background)
 
-	if m.lastThumbPath != thumbPath {
+	if m.thumbnailRequestedPath != thumbPath {
 		m.releaseThumbnail()
-
-		pX, err := texture.NewPixmapFileString(thumbPath)
-		if err == nil {
-			m.thumbTex = texture.LoadTextureSingle(pX.RGBA(), 4)
-
-			m.texRef = imgui.NewTextureRefTextureID(imgui.TextureID(m.thumbTex.GetID()))
-
-			pX.Dispose()
+		m.thumbnailRequestedPath = thumbPath
+		m.thumbnailRevision++
+		if m.thumbnailWorker != nil {
+			m.thumbnailWorker.request(songSelectThumbnailRequest{
+				revision: m.thumbnailRevision,
+				path:     thumbPath,
+			})
 		}
-
-		m.lastThumbPath = thumbPath
 	}
 
 	if m.thumbTex != nil {
@@ -826,7 +815,34 @@ func (m *songSelectPopup) releaseThumbnail() {
 		m.thumbTex = nil
 	}
 
-	m.lastThumbPath = ""
+	m.thumbnailRequestedPath = ""
+}
+
+func (m *songSelectPopup) pollThumbnail() {
+	if m == nil || m.thumbnailWorker == nil {
+		return
+	}
+
+	result, ok := m.thumbnailWorker.pollLatest()
+	if !ok {
+		return
+	}
+	if result.revision != m.thumbnailRevision || result.path != m.thumbnailRequestedPath {
+		if result.pixmap != nil {
+			result.pixmap.Dispose()
+		}
+		return
+	}
+
+	m.releaseThumbnail()
+	m.thumbnailRequestedPath = result.path
+	if result.pixmap == nil {
+		return
+	}
+
+	m.thumbTex = texture.LoadTextureSingle(result.pixmap.RGBA(), 4)
+	m.texRef = imgui.NewTextureRefTextureID(imgui.TextureID(m.thumbTex.GetID()))
+	result.pixmap.Dispose()
 }
 
 func (m *songSelectPopup) selectRandom() {
@@ -852,7 +868,7 @@ func (m *songSelectPopup) selectRandom() {
 
 	if launcherConfig.PreviewSelected {
 		m.stopPreview()
-		m.startPreview(entry)
+		m.startPreviewMap(entry, bMap)
 	}
 }
 
@@ -883,7 +899,7 @@ func (m *songSelectPopup) selectNewest() {
 
 	if launcherConfig.PreviewSelected {
 		m.stopPreview()
-		m.startPreview(selectEntry)
+		m.startPreviewMap(selectEntry, selectMap)
 	}
 }
 
@@ -902,6 +918,17 @@ func (m *songSelectPopup) stopPreview() {
 func (m *songSelectPopup) startPreview(entry *database.BeatmapEntry) {
 	bMap, ok := m.materializeEntry(entry)
 	if !ok {
+		return
+	}
+
+	m.startPreviewMap(entry, bMap)
+}
+
+func (m *songSelectPopup) startPreviewMap(entry *database.BeatmapEntry, bMap *beatmap.BeatMap) {
+	if entry == nil || bMap == nil {
+		return
+	}
+	if m.ensureAudio != nil && !m.ensureAudio() {
 		return
 	}
 
@@ -940,7 +967,7 @@ func (m *songSelectPopup) search() {
 		m.groupByDirectory = assignSearchGroupIndices(m.beatmaps)
 		m.groupCount = len(m.groupByDirectory)
 	}
-	m.searchResults, m.searchScratch, m.groupScratch = searchMapSetsWithScratch(m.beatmaps, m.searchStr, m.searchScratch, m.groupCount, m.groupScratch)
+	m.searchScratch, m.groupScratch = searchMapSetsWithScratchInto(&m.searchResults, m.beatmaps, m.searchStr, m.searchScratch, m.groupCount, m.groupScratch)
 }
 
 func searchMapSets(beatmaps searchEntries, query string) searchResults {
@@ -974,6 +1001,16 @@ func assignSearchGroupIndices(beatmaps searchEntries) map[string]int {
 // assignSearchGroupIndices. The popup maintains that invariant across sort
 // changes so this function can keep its query path allocation-light.
 func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []searchMatch, groupCount int, groupScratch []int) (searchResults, []searchMatch, []int) {
+	var results searchResults
+	scratch, groupScratch = searchMapSetsWithScratchInto(&results, beatmaps, query, scratch, groupCount, groupScratch)
+	return results, scratch, groupScratch
+}
+
+func searchMapSetsWithScratchInto(results *searchResults, beatmaps searchEntries, query string, scratch []searchMatch, groupCount int, groupScratch []int) ([]searchMatch, []int) {
+	if results == nil {
+		return scratch, groupScratch
+	}
+
 	query = strings.ToLower(query)
 	if groupCount == 0 && len(beatmaps) > 0 {
 		groupCount = len(assignSearchGroupIndices(beatmaps))
@@ -993,8 +1030,12 @@ func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []se
 	}
 	groupHint := min(groupCount, max(1, len(beatmaps)/4))
 
-	results := searchResults{
-		sets: make([]songSet, 0, groupHint),
+	clear(results.entries)
+	results.entries = results.entries[:0]
+	if cap(results.sets) < groupHint {
+		results.sets = make([]songSet, 0, groupHint)
+	} else {
+		results.sets = results.sets[:0]
 	}
 	matches := scratch[:0]
 	if cap(groupScratch) < groupCount {
@@ -1034,21 +1075,25 @@ func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []se
 	}
 
 	if len(matches) > 0 {
-		results.entries = make([]*searchEntry, len(matches))
-		groupOffsets := make([]int, len(results.sets))
+		if cap(results.entries) < len(matches) {
+			results.entries = make([]*searchEntry, len(matches))
+		} else {
+			results.entries = results.entries[:len(matches)]
+			clear(results.entries)
+		}
 		cursor := 0
 		for index := range results.sets {
 			set := &results.sets[index]
 			set.entryStart = cursor
 			set.entryEnd = set.entryStart + set.matchCount
-			groupOffsets[index] = set.entryStart
+			groupScratch[set.groupIndex] = set.entryStart
 			cursor = set.entryEnd
 		}
 
 		for _, match := range matches {
-			position := groupOffsets[match.setIndex]
+			position := groupScratch[results.sets[match.setIndex].groupIndex]
 			results.entries[position] = match.entry
-			groupOffsets[match.setIndex]++
+			groupScratch[results.sets[match.setIndex].groupIndex]++
 		}
 	}
 
@@ -1056,7 +1101,7 @@ func searchMapSetsWithScratch(beatmaps searchEntries, query string, scratch []se
 	// them before retaining the capacity so a later catalog publication can be
 	// reclaimed even if the selector itself remains alive.
 	clear(matches)
-	return results, matches[:0], groupScratch
+	return matches[:0], groupScratch
 }
 
 func (m *songSelectPopup) open() {
@@ -1112,8 +1157,14 @@ func (m *songSelectPopup) captureScrollAnchor() *songSelectScrollAnchor {
 }
 
 func (m *songSelectPopup) shutdown() {
-	if m != nil {
-		m.catalogWorker.shutdown()
+	if m == nil {
+		return
+	}
+
+	m.stopPreview()
+	m.releaseThumbnail()
+	if m.thumbnailWorker != nil {
+		m.thumbnailWorker.shutdown()
 	}
 }
 

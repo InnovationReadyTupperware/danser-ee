@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"context"
 	"runtime"
 	"strconv"
 	"testing"
@@ -8,6 +9,38 @@ import (
 
 	"github.com/innovationreadytupperware/danser-ee/app/database"
 )
+
+func TestBuildSongSelectCatalogViewContextHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	view, ok := buildSongSelectCatalogViewContext(ctx, songSelectCatalogRequest{
+		catalog: database.NewCatalogSnapshot([]*database.BeatmapEntry{{Dir: "set", File: "map.osu"}}),
+	})
+	if ok {
+		t.Fatal("canceled catalog build reported success")
+	}
+	if view.beatmaps != nil || view.groupByDirectory != nil {
+		t.Fatalf("canceled catalog build retained view data: %#v", view)
+	}
+}
+
+func TestCatalogSnapshotWarmsIndexWithoutCreatingPopup(t *testing.T) {
+	worker := newSongSelectCatalogWorker()
+	defer worker.shutdown()
+
+	l := launcher{
+		songSelectCatalogWorker: worker,
+	}
+	l.applyEvent(launcherEvent{
+		kind:    launcherCatalogSnapshotEvent,
+		catalog: database.NewCatalogSnapshot([]*database.BeatmapEntry{{Dir: "set", File: "map.osu", Name: "Map"}}),
+	})
+
+	if l.selectWindow != nil {
+		t.Fatal("catalog snapshot created song-select popup before user opened it")
+	}
+}
 
 func TestBuildSongSelectCatalogViewSortsWithoutMutatingSnapshot(t *testing.T) {
 	first := &database.BeatmapEntry{Dir: "set-b", File: "b.osu", Name: "Bravo"}

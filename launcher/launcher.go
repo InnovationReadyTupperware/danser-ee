@@ -159,6 +159,11 @@ type launcher struct {
 	catalogSnapshotGeneration atomic.Uint64
 	beatmapEventPending       atomic.Bool
 	catalogCoordinator        *catalogCoordinator
+	songSelectCatalogWorker   *songSelectCatalogWorker
+	songSelectView            songSelectCatalogView
+	songSelectViewReady       bool
+	songSelectViewBuilding    bool
+	songSelectCatalogRevision uint64
 
 	newCloneOpened bool
 
@@ -185,8 +190,15 @@ type launcher struct {
 	popupStack        []iPopup
 
 	selectWindow *songSelectPopup
+	audioReady   bool
 
-	prevMap *beatmap.BeatMap
+	encoderOptions        []string
+	encoderOptionsReady   bool
+	encoderOptionsLoading bool
+
+	prevMap      *beatmap.BeatMap
+	previewMap   *beatmap.BeatMap
+	previewTrack *bass.TrackBass
 
 	configSearch string
 
@@ -237,6 +249,7 @@ func StartLauncher() {
 		christmas:     cTime.Month() == 12 && cTime.Day() >= 6,
 		cHold:         make(map[string]*bool),
 	}
+	launcher.songSelectCatalogWorker = newSongSelectCatalogWorker()
 
 	platform.StartLogging("launcher")
 
@@ -367,20 +380,18 @@ func (l *launcher) startContext(ctx context.Context) {
 
 	SetupImgui()
 
-	graphics.LoadTextures()
+	graphics.LoadLauncherTextures()
 
 	if l.winter {
 		graphics.LoadWinterTextures()
 	}
-
-	bass.Init(false)
 
 	l.triangleSpeed = animation.NewGlider(1)
 	l.triangleSpeed.SetEasing(easing.OutQuad)
 
 	l.batch = batch.NewQuadBatch()
 
-	l.bg = common.NewBackground(false)
+	l.bg = common.NewBackgroundWithoutBlur(false)
 
 	settings.Playfield.Background.Triangles.Enabled = true
 
@@ -446,8 +457,6 @@ func (l *launcher) startBackgroundTasks(ctx context.Context) {
 				log.Printf("Launcher: Background startup task panicked: %v", recovered)
 			}
 		}()
-
-		settings.DefaultsFactory.EncoderOptions()
 
 		if checkUpdates {
 			status, url, err := appUtils.CheckForUpdateContext(ctx)
@@ -659,6 +668,8 @@ func (l *launcher) loadLatestReplay() {
 }
 
 func (l *launcher) Draw() {
+	l.pollSongSelectCatalogView()
+
 	w, h := gcontext.GetFramebufferSize() //l.win.GetFramebufferSize()
 	viewport.Push(w, h)
 
@@ -749,11 +760,17 @@ func (l *launcher) Draw() {
 		if l.selectWindow != nil {
 			if l.selectWindow.PreviewedSong != nil {
 				l.selectWindow.PreviewedSong.Update()
-				l.coin.SetMap(l.selectWindow.prevMap, l.selectWindow.PreviewedSong)
-				l.bg.SetTrack(l.selectWindow.PreviewedSong)
-			} else {
+				if l.previewTrack != l.selectWindow.PreviewedSong || l.previewMap != l.selectWindow.prevMap {
+					l.coin.SetMap(l.selectWindow.prevMap, l.selectWindow.PreviewedSong)
+					l.bg.SetTrack(l.selectWindow.PreviewedSong)
+					l.previewMap = l.selectWindow.prevMap
+					l.previewTrack = l.selectWindow.PreviewedSong
+				}
+			} else if l.previewTrack != nil || l.previewMap != nil {
 				l.coin.SetMap(nil, nil)
 				l.bg.SetTrack(nil)
+				l.previewMap = nil
+				l.previewTrack = nil
 			}
 		}
 
@@ -866,7 +883,7 @@ func (l *launcher) drawMain() {
 
 	l.drawLowerPanel()
 
-	if l.selectWindow != nil {
+	if l.selectWindow != nil && (l.selectWindow.opened || l.selectWindow.PreviewedSong != nil) {
 		l.selectWindow.update()
 	}
 
@@ -874,7 +891,10 @@ func (l *launcher) drawMain() {
 		p := l.popupStack[i]
 		p.draw()
 		if p.shouldClose() {
-			l.popupStack = append(l.popupStack[:i], l.popupStack[i+1:]...)
+			last := len(l.popupStack) - 1
+			copy(l.popupStack[i:], l.popupStack[i+1:])
+			l.popupStack[last] = nil
+			l.popupStack = l.popupStack[:last]
 			i--
 		}
 	}
@@ -1316,8 +1336,9 @@ func (l *launcher) showSelect() {
 		}
 	}
 	if clicked && enabled {
-		l.selectWindow.open()
-		l.openPopup(l.selectWindow)
+		selectWindow := l.ensureSongSelect()
+		selectWindow.open()
+		l.openPopup(selectWindow)
 	}
 
 	imgui.PopFont()
@@ -1346,9 +1367,141 @@ func (l *launcher) showSelect() {
 func (l *launcher) ensureSongSelect() *songSelectPopup {
 	if l.selectWindow == nil {
 		l.selectWindow = newSongSelectPopup(l.bld, l.catalog, l.materializeCatalogEntry, l.currentCatalogProgress)
+		l.selectWindow.requestCatalog = func() {
+			l.requestSongSelectCatalogView(l.catalog)
+		}
+		l.selectWindow.ensureAudio = l.ensureAudio
+		if l.songSelectViewReady {
+			l.selectWindow.catalog = l.songSelectView.catalog
+			l.selectWindow.catalogRevision = l.songSelectView.revision
+			l.selectWindow.catalogViewBuilding = l.songSelectViewBuilding
+			l.selectWindow.applyCatalogView(l.songSelectView)
+			if l.songSelectViewBuilding {
+				l.selectWindow.beginCatalogUpdate(l.catalog, l.songSelectCatalogRevision, true)
+			}
+		} else {
+			l.selectWindow.beginCatalogUpdate(l.catalog, l.songSelectCatalogRevision, l.songSelectViewBuilding)
+		}
 	}
 
 	return l.selectWindow
+}
+
+func (l *launcher) ensureAudio() (ready bool) {
+	if l == nil {
+		return false
+	}
+	if l.audioReady {
+		return true
+	}
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("Launcher: Failed to initialize preview audio: %v", recovered)
+			showMessage(mError, "Preview audio could not be initialized: %v", recovered)
+			ready = false
+		}
+	}()
+
+	bass.Init(false)
+	l.audioReady = true
+	return true
+}
+
+func (l *launcher) startEncoderOptionsProbe() {
+	if l == nil || l.encoderOptionsReady || l.encoderOptionsLoading {
+		return
+	}
+
+	l.encoderOptionsLoading = true
+	l.backgroundWG.Go(func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("Launcher: Encoder detection failed: %v", recovered)
+				l.postEvent(launcherEvent{
+					kind: launcherStartupTaskEvent,
+					task: func() { l.encoderOptionsLoading = false },
+				})
+			}
+		}()
+
+		options := settings.DefaultsFactory.EncoderOptions()
+		l.postEvent(launcherEvent{
+			kind: launcherStartupTaskEvent,
+			task: func() {
+				l.encoderOptions = options
+				l.encoderOptionsReady = true
+				l.encoderOptionsLoading = false
+			},
+		})
+	})
+}
+
+func (l *launcher) updateSongSelectCatalog(catalog *database.CatalogSnapshot) {
+	if l == nil {
+		return
+	}
+
+	l.catalog = catalog
+	l.requestSongSelectCatalogView(catalog)
+}
+
+func (l *launcher) requestSongSelectCatalogView(catalog *database.CatalogSnapshot) {
+	if l == nil {
+		return
+	}
+
+	l.songSelectCatalogRevision++
+	revision := l.songSelectCatalogRevision
+
+	if l.selectWindow != nil {
+		l.selectWindow.beginCatalogUpdate(catalog, revision, true)
+	}
+
+	if catalog == nil || catalog.Len() == 0 {
+		l.songSelectView = songSelectCatalogView{
+			revision: revision,
+			catalog:  catalog,
+		}
+		l.songSelectViewReady = true
+		l.songSelectViewBuilding = false
+		if l.selectWindow != nil {
+			l.selectWindow.applyCatalogView(l.songSelectView)
+		}
+		return
+	}
+
+	if l.songSelectCatalogWorker == nil {
+		l.songSelectCatalogWorker = newSongSelectCatalogWorker()
+	}
+
+	l.songSelectViewBuilding = l.songSelectCatalogWorker.request(songSelectCatalogRequest{
+		revision:  revision,
+		catalog:   catalog,
+		sortBy:    launcherConfig.SortMapsBy,
+		ascending: launcherConfig.SortAscending,
+	})
+	if !l.songSelectViewBuilding && l.selectWindow != nil {
+		l.selectWindow.catalogViewBuilding = false
+	}
+}
+
+func (l *launcher) pollSongSelectCatalogView() {
+	if l == nil || l.songSelectCatalogWorker == nil {
+		return
+	}
+
+	view, ok := l.songSelectCatalogWorker.pollLatest()
+	if !ok || view.revision != l.songSelectCatalogRevision || view.catalog != l.catalog {
+		return
+	}
+
+	l.songSelectView = view
+	l.songSelectViewReady = true
+	l.songSelectViewBuilding = false
+	if l.selectWindow != nil {
+		l.selectWindow.applyCatalogView(view)
+	}
 }
 
 func (l *launcher) mapSelectionAvailability() (bool, string) {
@@ -1361,7 +1514,13 @@ func (l *launcher) mapSelectionAvailability() (bool, string) {
 		}
 		return false, "No beatmaps found in the configured Songs folder."
 	}
-	if l.selectWindow == nil || !l.selectWindow.hasSelectableMaps() {
+	viewReady := l.songSelectViewReady
+	viewCount := len(l.songSelectView.beatmaps)
+	if l.songSelectCatalogWorker == nil && l.selectWindow != nil {
+		viewReady = l.selectWindow.catalogViewReady
+		viewCount = len(l.selectWindow.beatmaps)
+	}
+	if !viewReady || viewCount == 0 {
 		return false, "Preparing map list..."
 	}
 
@@ -1784,6 +1943,14 @@ func (l *launcher) openCurrentSettingsEditor() {
 	if l.currentEditor == nil || l.currentEditor.current != l.currentConfig {
 		l.currentEditor = newSettingsEditor(l.currentConfig)
 	}
+	l.startEncoderOptionsProbe()
+	l.currentEditor.setEncoderOptionsProvider(func() []string {
+		if !l.encoderOptionsReady {
+			return nil
+		}
+
+		return l.encoderOptions
+	})
 
 	l.currentEditor.setDanserRunning(l.danserRunning)
 	l.currentEditor.setCloseListener(saveFunc)

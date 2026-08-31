@@ -54,7 +54,8 @@ type settingsEditor struct {
 	keyChangeOpened bool
 	danserRunning   bool
 
-	saveListener func()
+	saveListener   func()
+	encoderOptions func() []string
 
 	scrollCache map[string]bool
 }
@@ -97,6 +98,10 @@ func (editor *settingsEditor) setDanserRunning(running bool) {
 
 func (editor *settingsEditor) setSaveListener(saveListener func()) {
 	editor.saveListener = saveListener
+}
+
+func (editor *settingsEditor) setEncoderOptionsProvider(provider func() []string) {
+	editor.encoderOptions = provider
 }
 
 func (editor *settingsEditor) drawEditor() {
@@ -1115,7 +1120,15 @@ func (editor *settingsEditor) buildString(jsonPath string, f reflect.Value, d re
 			var options iter.Seq[string]
 
 			if okCS {
-				options = slices.Values(reflect.ValueOf(settings.DefaultsFactory).MethodByName(cFunc).Call(nil)[0].Interface().([]string))
+				if cFunc == "EncoderOptions" && editor.encoderOptions != nil {
+					encoderOptions := editor.encoderOptions()
+					if len(encoderOptions) == 0 {
+						encoderOptions = []string{base}
+					}
+					options = slices.Values(encoderOptions)
+				} else {
+					options = slices.Values(reflect.ValueOf(settings.DefaultsFactory).MethodByName(cFunc).Call(nil)[0].Interface().([]string))
+				}
 			} else {
 				options = strings.SplitSeq(cSpec, ",")
 			}

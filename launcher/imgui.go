@@ -456,6 +456,9 @@ func Begin() {
 	time := qpc.GetMilliTimeF() / 1000
 
 	delta := float32(time - lastTime)
+	if lastTime == 0 || delta <= 0 || delta > 0.25 {
+		delta = 1.0 / 60.0
+	}
 
 	lastTime = time
 

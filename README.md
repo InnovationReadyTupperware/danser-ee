@@ -72,6 +72,8 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Core danser experience          |                             ✅                             |                            ✅                             |
 | Native dialogs (SDL3)           |                             ✅                             |                sqweek/dialog (Wieku fork)                 |
 | CLI no-argument behavior        |               ✅ Helpful usage, no rickroll                |                   ❌ Surprise rickroll                    |
+| Launcher resource lifecycle     |                    ✅ On-demand resource loading          |                    Eager resource loading                |
+| Launcher preview lifecycle      |                       ✅ Dormant when unused              |                    Active while unused                    |
 | Launcher event pipeline         | ✅ Bounded typed events with main-thread state application | ❌ Mixed cross-thread callbacks and shared launcher state |
 | Child-process supervision       |      ✅ Cancellable lifecycle and bounded diagnostics      |    ❌ Shared `exec.Cmd` lifecycle and direct teardown     |
 | Filesystem watcher lifecycle    |       ✅ Owned watcher with coalesced notifications        |                ❌ Global watcher lifecycle                |
@@ -88,10 +90,11 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Incremental beatmap reconciliation |             ✅ Fingerprint-driven delta reconciliation              |             ❌ Full catalog rebuild             |
 | Catalog reconciliation progress    |          ✅ Staged main-thread telemetry in the output row          |                        -                        |
 | Catalog refresh orchestration      |          ✅ Coalesced, cancellable generation coordinator           |  ❌ Shared lock around sequential refresh work  |
+| Library search readiness            | ✅ Search remains warm while the launcher is idle and during catalog refreshes | Selector-bound search preparation |
 | Song search pipeline               |      ✅ Precomputed query index and reusable result projection      |   ❌❌❌ Per-query full result reconstruction   |
 | Song-select scrolling              | ✅ Variable-height virtualized layout with logarithmic range lookup |      ❌❌❌ Repeated full-list layout work      |
 | Song-set grouping                  |        ✅ Stable indexed grouping independent of sort order         |       ❌ Per-result directory regrouping        |
-| Search thumbnail loading           |     ✅ Stationary-hover lazy loading with scroll-safe eviction      |        ❌ Synchronous tooltip asset work        |
+| Library artwork loading            |          ✅ Deferred background loading outside active scrolling          |        ❌ Synchronous tooltip asset work        |
 | Optional osu!.db acceleration      |               ✅ Read-only Stable metadata bootstrap                |                        -                        |
 | Lazy beatmap and skin assets       |                  ✅ Demand-driven asset resolution                  |             ❌ Eager asset indexing             |
 

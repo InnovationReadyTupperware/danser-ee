@@ -49,6 +49,30 @@ func LoadTextures() {
 	Pixel.SetData(0, 0, 1, 1, []byte{0xFF, 0xFF, 0xFF, 0xFF})
 }
 
+// LoadLauncherTextures loads only the textures used by the launcher. Gameplay
+// assets remain in LoadTextures so the launcher does not allocate or upload
+// cursor and hit-result resources that can never be drawn in that process.
+func LoadLauncherTextures() {
+	Atlas = texture.NewTextureAtlas(1024, 4)
+	Atlas.Bind(16)
+
+	Triangle, _ = utils.LoadTextureToAtlas(Atlas, "assets/textures/triangle.png")
+	TriangleShadowed, _ = utils.LoadTextureToAtlas(Atlas, "assets/textures/triangle-shadow.png")
+	TriangleSmall = nil
+	Cross = nil
+	Hit50 = nil
+	Hit100 = nil
+	CursorTex = nil
+	CursorTop = nil
+	CursorTrail = nil
+
+	Pixel = texture.NewTextureSingle(1, 1, 0)
+	Pixel.SetData(0, 0, 1, 1, []byte{0xFF, 0xFF, 0xFF, 0xFF})
+
+	Snowflakes = nil
+	Snow = nil
+}
+
 func LoadWinterTextures() {
 	for i := 1; i <= 5; i++ {
 		tex1, _ := utils.LoadTextureToAtlas(Atlas, "assets/textures/snowflake"+strconv.Itoa(i)+".png")

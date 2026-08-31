@@ -340,9 +340,9 @@ var encoderCacheCreated bool
 var encoderCache []string
 var encoderCacheMu sync.Mutex
 
-// EncoderOptions is called by both the launcher preloader and the settings
-// editor's reflection path. Keep lazy FFmpeg probing serialized and return a
-// copy so a caller cannot mutate the shared cache after unlocking it.
+// EncoderOptions is called lazily by the settings editor. Keep FFmpeg probing
+// serialized and return a copy so a caller cannot mutate the shared cache
+// after unlocking it.
 func (d *defaultsFactory) EncoderOptions() []string {
 	encoderCacheMu.Lock()
 	defer encoderCacheMu.Unlock()
