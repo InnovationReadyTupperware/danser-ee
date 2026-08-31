@@ -1,6 +1,6 @@
 package attribute
 
-import "github.com/go-gl/gl/v3.3-core/gl"
+import "github.com/go-gl/gl/v4.5-core/gl"
 
 // Format defines names and types of OpenGL attributes (vertex format, uniform format, etc.).
 //

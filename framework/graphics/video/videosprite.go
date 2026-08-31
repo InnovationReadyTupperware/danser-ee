@@ -3,7 +3,7 @@ package video
 import (
 	"sync"
 
-	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/go-gl/gl/v4.5-core/gl"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"

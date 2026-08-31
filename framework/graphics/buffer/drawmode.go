@@ -1,6 +1,6 @@
 package buffer
 
-import "github.com/go-gl/gl/v3.3-core/gl"
+import "github.com/go-gl/gl/v4.5-core/gl"
 
 type DrawMode uint32
 

@@ -1,7 +1,7 @@
 package shader
 
 import (
-	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/go-gl/gl/v4.5-core/gl"
 	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
 )
 

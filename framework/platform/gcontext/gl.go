@@ -9,7 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/Zyko0/go-sdl3/sdl"
-	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/go-gl/gl/v4.5-core/gl"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/hacks"
 )

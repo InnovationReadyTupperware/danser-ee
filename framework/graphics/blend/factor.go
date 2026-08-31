@@ -1,6 +1,6 @@
 package blend
 
-import "github.com/go-gl/gl/v3.3-core/gl"
+import "github.com/go-gl/gl/v4.5-core/gl"
 
 type Factor uint32
 

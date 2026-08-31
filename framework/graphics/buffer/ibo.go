@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/go-gl/gl/v4.5-core/gl"
 	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/hacks"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/history"

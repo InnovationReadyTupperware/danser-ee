@@ -1,6 +1,6 @@
 package viewport
 
-import "github.com/go-gl/gl/v3.3-core/gl"
+import "github.com/go-gl/gl/v4.5-core/gl"
 
 var viewportStack [][4]int32
 var scissorStack [][4]int32
