@@ -1,6 +1,7 @@
 package play
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -43,6 +44,8 @@ type StrainGraph struct {
 
 	fbo *buffer.Framebuffer
 
+	samples int
+
 	leftSprite   *sprite.Sprite
 	centerSprite *sprite.Sprite
 	rightSprite  *sprite.Sprite
@@ -56,7 +59,7 @@ type StrainGraph struct {
 	innerDarkness float64
 }
 
-func NewStrainGraph(beatMap *beatmap.BeatMap, peaks api.StrainPeaks, countFromZero, countTrueEnd bool) *StrainGraph {
+func NewStrainGraph(beatMap *beatmap.BeatMap, peaks api.StrainPeaks, countFromZero, countTrueEnd bool, samples int) *StrainGraph {
 	graph := &StrainGraph{
 		shapeRenderer: shape.NewRenderer(),
 		strains:       peaks,
@@ -70,6 +73,7 @@ func NewStrainGraph(beatMap *beatmap.BeatMap, peaks api.StrainPeaks, countFromZe
 		screenWidth:   768 * settings.Graphics.GetAspectRatio(),
 		countFromZero: countFromZero,
 		countTrueEnd:  countTrueEnd,
+		samples:       samples,
 	}
 
 	graph.strainLength = graph.strainEndTime - graph.strainStartTime
@@ -177,14 +181,18 @@ func (graph *StrainGraph) drawFBO(batch *batch.QuadBatch) {
 	oWidth := float32(graph.outlineWidth * upscale)
 	yOffset := float32(2 * upscale)
 
-	if graph.fbo != nil {
-		graph.fbo.Dispose()
-	}
-
 	fboWidth := float32(math.Round(graph.size.X * upscale))
 	fboHeight := float32(math.Round(graph.size.Y * upscale))
 
-	graph.fbo = buffer.NewFrameMultisample(int(fboWidth), int(fboHeight), 8)
+	fbo, err := buffer.NewFrameMultisample(int(fboWidth), int(fboHeight), graph.samples)
+	if err != nil {
+		panic(fmt.Errorf("strain graph: %w", err))
+	}
+
+	if graph.fbo != nil {
+		graph.fbo.Dispose()
+	}
+	graph.fbo = fbo
 
 	graph.fbo.Bind()
 	graph.fbo.ClearColor(0, 0, 0, 0)

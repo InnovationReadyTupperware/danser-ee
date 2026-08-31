@@ -28,6 +28,9 @@ func GLInit(debugLogs bool, additionalExtensions ...string) error {
 		return err
 	}
 
+	var maxSamples int32
+	gl.GetIntegerv(gl.MAX_SAMPLES, &maxSamples)
+
 	glVendor := C.GoString((*C.char)(unsafe.Pointer(gl.GetString(gl.VENDOR))))
 	glRenderer := C.GoString((*C.char)(unsafe.Pointer(gl.GetString(gl.RENDERER))))
 	glVersion := C.GoString((*C.char)(unsafe.Pointer(gl.GetString(gl.VERSION))))
@@ -66,6 +69,7 @@ func GLInit(debugLogs bool, additionalExtensions ...string) error {
 	log.Println("GL Renderer:  ", glRenderer)
 	log.Println("GL Version:   ", glVersion)
 	log.Println("GLSL Version: ", glslVersion)
+	log.Println("GL Max Samples:", maxSamples)
 	log.Println("GL Extensions:", extensions)
 	log.Println("OpenGL initialized!")
 

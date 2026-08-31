@@ -169,7 +169,7 @@ func (m *timePopup) drawStrainGraph() {
 		}
 
 		if m.sGraph == nil {
-			m.sGraph = play.NewStrainGraph(m.timeCMap, m.peaks, true, false)
+			m.sGraph = play.NewStrainGraph(m.timeCMap, m.peaks, true, false, int(settings.Graphics.MSAA))
 			redraw = true
 		}
 

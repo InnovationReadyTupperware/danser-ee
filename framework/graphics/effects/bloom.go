@@ -1,8 +1,9 @@
 package effects
 
 import (
+	"fmt"
+
 	"github.com/go-gl/gl/v3.3-core/gl"
-	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/attribute"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/blend"
@@ -21,7 +22,7 @@ type BloomEffect struct {
 	vao                    *buffer.VertexArrayObject
 }
 
-func NewBloomEffect(width, height int) *BloomEffect {
+func NewBloomEffect(width, height, samples int) (*BloomEffect, error) {
 	effect := new(BloomEffect)
 
 	vert, err := assets.GetString("assets/shaders/fbopass.vsh")
@@ -61,7 +62,10 @@ func NewBloomEffect(width, height int) *BloomEffect {
 
 	effect.vao.Attach(effect.filterShader)
 
-	effect.fbo = buffer.NewFrameMultisample(width, height, int(settings.Graphics.MSAA)) //TODO: use framework global MSAA setting
+	effect.fbo, err = buffer.NewFrameMultisample(width, height, samples)
+	if err != nil {
+		return nil, fmt.Errorf("create bloom framebuffer: %w", err)
+	}
 
 	effect.threshold = 0.7
 	effect.blur = 0.3
@@ -70,7 +74,7 @@ func NewBloomEffect(width, height int) *BloomEffect {
 	effect.blurEffect = NewBlurEffect(width/2, height/2)
 	effect.blurEffect.SetBlur(effect.blur, effect.blur)
 
-	return effect
+	return effect, nil
 }
 
 func (effect *BloomEffect) SetThreshold(threshold float64) {

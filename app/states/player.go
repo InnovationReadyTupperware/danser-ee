@@ -55,6 +55,7 @@ type Player struct {
 	font        *font.Font
 	bMap        *beatmap.BeatMap
 	bloomEffect *effects.BloomEffect
+	activeMSAA  int
 
 	lastTime         int64
 	lastDrawDuration time.Duration
@@ -183,8 +184,9 @@ type Player struct {
 // NewPlayer creates a gameplay player for beatMap. The legacy second argument
 // remains in the signature for caller compatibility; generated cursor
 // identity now controls failure routing independently of launch mode.
-func NewPlayer(beatMap *beatmap.BeatMap, _ bool) *Player {
+func NewPlayer(beatMap *beatmap.BeatMap, _ bool, activeMSAA int) (*Player, error) {
 	player := new(Player)
+	player.activeMSAA = activeMSAA
 	audio.ResetClock()
 	player.heapGrowthRate = frame.NewExponentialMovingAverage(300 * time.Millisecond)
 	player.mBuffer = make([]byte, 0, 256)
@@ -315,7 +317,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool) *Player {
 
 		player.controller.SetBeatMap(player.bMap)
 		player.controller.InitCursors()
-		player.overlay = overlays.NewScoreOverlay(player.controller.(*dance.PlayerController).GetRuleset(), player.controller.GetCursors()[0])
+		player.overlay = overlays.NewScoreOverlay(player.controller.(*dance.PlayerController).GetRuleset(), player.controller.GetCursors()[0], activeMSAA)
 	} else if settings.KNOCKOUT && settings.SOLOKNOCKOUT {
 		controller := dance.NewSoloKnockoutController()
 		player.controller = controller
@@ -331,7 +333,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool) *Player {
 		player.controller.InitCursors()
 
 		if settings.PLAYERS == 1 {
-			player.overlay = overlays.NewScoreOverlay(player.controller.(*dance.ReplayController).GetRuleset(), player.controller.GetCursors()[0])
+			player.overlay = overlays.NewScoreOverlay(player.controller.(*dance.ReplayController).GetRuleset(), player.controller.GetCursors()[0], activeMSAA)
 		} else {
 			player.overlay = overlays.NewKnockoutOverlay(controller.(*dance.ReplayController))
 		}
@@ -561,7 +563,11 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool) *Player {
 
 	player.drawStats = frame.NewFrameStats()
 
-	player.bloomEffect = effects.NewBloomEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
+	player.bloomEffect, err = effects.NewBloomEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), activeMSAA)
+	if err != nil {
+		player.Dispose()
+		return nil, fmt.Errorf("initialize bloom effect: %w", err)
+	}
 	player.blur = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
 
 	player.background.Update(player.progressMsF, settings.Graphics.GetWidthF()/2, settings.Graphics.GetHeightF()/2)
@@ -588,7 +594,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool) *Player {
 	}
 
 	if settings.RECORD {
-		return player
+		return player, nil
 	}
 
 	player.updateStop = make(chan struct{})
@@ -694,7 +700,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool) *Player {
 		}
 	})
 
-	return player
+	return player, nil
 }
 
 func (player *Player) trySetupFail() {
@@ -1414,8 +1420,8 @@ func (player *Player) drawDebug() {
 			drawWithBackground("Bloom: %t", settings.Playfield.Bloom.Enabled)
 
 			msaa := "OFF"
-			if settings.Graphics.MSAA > 0 {
-				msaa = strconv.Itoa(int(settings.Graphics.MSAA)) + "x"
+			if player.activeMSAA > 0 {
+				msaa = strconv.Itoa(player.activeMSAA) + "x"
 			}
 
 			drawWithBackground("MSAA: %s", msaa)

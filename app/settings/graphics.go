@@ -11,7 +11,7 @@ func initGraphics() *graphics {
 		Fullscreen:   true,
 		VSync:        false,
 		FPSCap:       0,
-		MSAA:         0,
+		MSAA:         4,
 		ShowFPS:      true,
 		Experimental: &experimental{
 			UsePersistentBuffers: false,
@@ -29,7 +29,7 @@ type graphics struct {
 	Fullscreen   bool   `liveedit:"false"`
 	VSync        bool   `label:"Vertical Sync"`
 	FPSCap       int64  `label:"Custom FPS limit" min:"1" max:"5000" combo:"0|OFF,-1|(Not) VSync,-2|2x VSync,-4|4x VSync,-8|8x VSync,custom" showif:"VSync=false"`
-	MSAA         int32  `combo:"0|OFF,2|2x,4|4x,8|8x,16|16x"`
+	MSAA         int32  `combo:"0|OFF,2|2x,4|4x,8|8x,16|16x" liveedit:"false" tooltip:"Multisample anti-aliasing. Changes take effect after restarting danser."`
 	ShowFPS      bool
 	Experimental *experimental
 }

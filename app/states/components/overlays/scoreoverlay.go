@@ -187,7 +187,7 @@ func loadSubFont(uPath, alias string) {
 	}
 }
 
-func NewScoreOverlay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor) *ScoreOverlay {
+func NewScoreOverlay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor, samples int) *ScoreOverlay {
 	loadFonts()
 
 	overlay := new(ScoreOverlay)
@@ -214,7 +214,7 @@ func NewScoreOverlay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor) *ScoreOve
 
 	overlay.ppDisplay = play.NewPPDisplay(playerDiff.Mods)
 
-	overlay.strainGraph = play.NewStrainGraph(ruleset.GetBeatMap(), performance.GetDifficultyCalculator().CalculateStrainPeaks(ruleset.GetBeatMap(), ruleset.GetBeatMap().Diff), false, true)
+	overlay.strainGraph = play.NewStrainGraph(ruleset.GetBeatMap(), performance.GetDifficultyCalculator().CalculateStrainPeaks(ruleset.GetBeatMap(), ruleset.GetBeatMap().Diff), false, true, samples)
 
 	overlay.resultsFade = animation.NewGlider(0)
 

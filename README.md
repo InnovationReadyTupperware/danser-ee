@@ -150,6 +150,15 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | BASS core version                 |                                          2.4.18.3                                          |                                older 2.4                                 |
 | Floating-point realtime audio     |                                             ✅                                             |                               16-bit mixer                               |
 
+### Rendering and GPU compatibility
+
+| Feature                         |                                                             danser-ee                                                             |                                     danser-go (fork base)                                     |
+|---------------------------------|:---------------------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------:|
+| Default gameplay antialiasing   |                                                        4x on new profiles                                                         |                                        Off by default                                         |
+| MSAA capability validation      | Driver validation rejects unsupported counts or incomplete render targets before gameplay starts; supported 16x remains available |              ❌ Unchecked multisample allocation can stall unsupported contexts               |
+| Gameplay MSAA consistency       |                         One validated sample count shared by gameplay rendering, bloom, and strain graph                          | Main framebuffer follows the profile while bloom and strain graph use different sample counts |
+| Gameplay MSAA setting lifecycle |                          Changes are locked during playback and take effect on the next gameplay launch                           |              Live profile changes can alter the main render path during playback              |
+
 ### Runtime and platform
 
 | Feature                     |            danser-ee             |     danser-go (fork base)     |

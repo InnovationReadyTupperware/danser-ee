@@ -1,6 +1,7 @@
 package buffer
 
 import (
+	"fmt"
 	"runtime"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
@@ -101,35 +102,82 @@ func NewFrameDepth(width, height int, smooth bool) *Framebuffer {
 	return f
 }
 
-func NewFrameMultisample(width, height int, samples int) *Framebuffer {
+// NewFrameMultisample creates a multisample color framebuffer and its
+// single-sample resolve target. A zero sample count creates an ordinary
+// texture-backed framebuffer; unsupported positive counts are returned as
+// errors before the framebuffer is used.
+func NewFrameMultisample(width, height int, samples int) (*Framebuffer, error) {
+	if samples < 0 {
+		return nil, fmt.Errorf("MSAA sample count cannot be negative: %d", samples)
+	}
+
+	if samples == 0 {
+		return NewFrame(width, height, false, false), nil
+	}
+
+	if err := validateMultisampleSamples(samples); err != nil {
+		return nil, err
+	}
+
 	f := new(Framebuffer)
 	f.width = width
 	f.height = height
 	f.multisampled = true
 
 	gl.CreateFramebuffers(1, &f.handle)
+	if err := checkOpenGLError("create multisample framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	gl.CreateRenderbuffers(1, &f.texRenderbuffer)
 	gl.NamedRenderbufferStorageMultisample(f.texRenderbuffer, int32(samples), texture.RGBA.InternalFormat(), int32(width), int32(height))
 	gl.NamedFramebufferRenderbuffer(f.handle, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, f.texRenderbuffer)
+	if err := validateMultisampleFramebuffer(f.handle, f.texRenderbuffer, samples, "multisample framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	f.tex = texture.NewTextureSingle(width, height, 0)
 
 	gl.CreateFramebuffers(1, &f.helperHandle)
 	gl.NamedFramebufferTextureLayer(f.helperHandle, gl.COLOR_ATTACHMENT0, f.tex.GetID(), 0, 0)
+	if err := checkFramebufferComplete(f.helperHandle, "multisample resolve framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
 }
 
-func NewFrameMultisampleScreen(width, height int, depth bool, samples int) *Framebuffer {
+// NewFrameMultisampleScreen creates a multisample framebuffer intended for
+// the screen or an external resolve target. A zero sample count creates an
+// ordinary framebuffer without a multisample resolve step.
+func NewFrameMultisampleScreen(width, height int, depth bool, samples int) (*Framebuffer, error) {
+	if samples < 0 {
+		return nil, fmt.Errorf("MSAA sample count cannot be negative: %d", samples)
+	}
+
+	if samples == 0 {
+		return NewFrame(width, height, false, depth), nil
+	}
+
+	if err := validateMultisampleSamples(samples); err != nil {
+		return nil, err
+	}
+
 	f := new(Framebuffer)
 	f.width = width
 	f.height = height
 	f.multisampled = true
 
 	gl.CreateFramebuffers(1, &f.handle)
+	if err := checkOpenGLError("create multisample screen framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
 
 	gl.CreateRenderbuffers(1, &f.texRenderbuffer)
 	gl.NamedRenderbufferStorageMultisample(f.texRenderbuffer, int32(samples), texture.RGBA.InternalFormat(), int32(width), int32(height))
@@ -141,9 +189,75 @@ func NewFrameMultisampleScreen(width, height int, depth bool, samples int) *Fram
 		gl.NamedFramebufferRenderbuffer(f.handle, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, f.depth)
 	}
 
+	if err := validateMultisampleFramebuffer(f.handle, f.texRenderbuffer, samples, "multisample screen framebuffer"); err != nil {
+		f.Dispose()
+		return nil, err
+	}
+
 	runtime.SetFinalizer(f, (*Framebuffer).Dispose)
 
-	return f
+	return f, nil
+}
+
+func validateMultisampleSamples(samples int) error {
+	var maxSamples int32
+	gl.GetIntegerv(gl.MAX_SAMPLES, &maxSamples)
+	if err := checkOpenGLError("query GL_MAX_SAMPLES"); err != nil {
+		return err
+	}
+
+	return validateRequestedMultisampleSamples(samples, int(maxSamples))
+}
+
+func validateRequestedMultisampleSamples(samples, maxSamples int) error {
+	if samples < 0 {
+		return fmt.Errorf("MSAA sample count cannot be negative: %d", samples)
+	}
+
+	if samples > maxSamples {
+		return fmt.Errorf("requested %dx MSAA, but this OpenGL context supports at most %dx", samples, maxSamples)
+	}
+
+	return nil
+}
+
+func validateMultisampleFramebuffer(handle, colorRenderbuffer uint32, samples int, operation string) error {
+	if err := checkOpenGLError(operation + " allocation"); err != nil {
+		return err
+	}
+
+	var actualSamples int32
+	gl.GetNamedRenderbufferParameteriv(colorRenderbuffer, gl.RENDERBUFFER_SAMPLES, &actualSamples)
+	if err := checkOpenGLError(operation + " sample query"); err != nil {
+		return err
+	}
+
+	if int(actualSamples) < samples {
+		return fmt.Errorf("%s allocated %dx samples, requested %dx", operation, actualSamples, samples)
+	}
+
+	return checkFramebufferComplete(handle, operation)
+}
+
+func checkFramebufferComplete(handle uint32, operation string) error {
+	status := gl.CheckNamedFramebufferStatus(handle, gl.FRAMEBUFFER)
+	if err := checkOpenGLError(operation + " status check"); err != nil {
+		return err
+	}
+
+	if status != gl.FRAMEBUFFER_COMPLETE {
+		return fmt.Errorf("%s is incomplete: status 0x%X", operation, status)
+	}
+
+	return nil
+}
+
+func checkOpenGLError(operation string) error {
+	if code := gl.GetError(); code != gl.NO_ERROR {
+		return fmt.Errorf("%s failed with OpenGL error 0x%X", operation, code)
+	}
+
+	return nil
 }
 
 func NewFrameYUV(width, height int) *Framebuffer {

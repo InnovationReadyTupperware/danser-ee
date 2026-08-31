@@ -68,7 +68,11 @@ var batch *batch2.QuadBatch
 
 var limiter *frame.Limiter
 var screenFBO *buffer.Framebuffer
-var lastSamples int
+
+// activeMSAA is captured after profile loading. Changing the profile while
+// gameplay is running is intentionally restart-only so every gameplay FBO
+// continues to use the same validated sample count.
+var activeMSAA int
 var lastVSync bool
 
 var output string
@@ -106,6 +110,8 @@ func run() {
 			closeHandler(err, stackTrace)
 		}
 	}()
+
+	var startupErr error
 
 	goroutines.CallMain(func() {
 		id := flag.Int64("id", -1, "Specify the beatmap id. Overrides other beatmap search flags")
@@ -470,8 +476,6 @@ func run() {
 			automatedPlayback = true
 		}
 
-		lastSamples = int(settings.Graphics.MSAA)
-
 		if strings.TrimSpace(*skin) != "" {
 			settings.Skin.CurrentSkin = *skin
 		}
@@ -498,6 +502,25 @@ func run() {
 			settings.START = screenshotTime - 5
 			settings.SKIP = false
 		}
+
+		activeMSAA = int(settings.Graphics.MSAA)
+		if activeMSAA < 0 {
+			startupErr = fmt.Errorf("Graphics: invalid MSAA sample count %d", activeMSAA)
+			return
+		}
+
+		lastRequestedMSAA := activeMSAA
+		settings.AddReloadListener(func() {
+			requestedMSAA := int(settings.Graphics.MSAA)
+			if requestedMSAA == lastRequestedMSAA {
+				return
+			}
+
+			lastRequestedMSAA = requestedMSAA
+			if requestedMSAA != activeMSAA {
+				log.Printf("Graphics: MSAA changed to %dx while danser is running; restart required. Continuing with %dx.", requestedMSAA, activeMSAA)
+			}
+		})
 
 		log.Println("Creating window...")
 
@@ -527,6 +550,16 @@ func run() {
 		err = gcontext.GLInit(*gldebug)
 		if err != nil {
 			panic("Failed to initialize OpenGL: " + err.Error())
+		}
+
+		if activeMSAA > 0 {
+			var candidate *buffer.Framebuffer
+			candidate, startupErr = buffer.NewFrameMultisampleScreen(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), false, activeMSAA)
+			if startupErr != nil {
+				startupErr = fmt.Errorf("Graphics: initialize %dx MSAA: %w", activeMSAA, startupErr)
+				return
+			}
+			screenFBO = candidate
 		}
 
 		if !settings.RECORD {
@@ -645,7 +678,11 @@ func run() {
 		beatmap.ParseTimingPointsAndPauses(beatMap)
 		beatmap.ParseObjects(beatMap, false, true)
 		beatMap.LoadCustomSamples()
-		player = states.NewPlayer(beatMap, automatedPlayback)
+		player, startupErr = states.NewPlayer(beatMap, automatedPlayback, activeMSAA)
+		if startupErr != nil {
+			startupErr = fmt.Errorf("Gameplay: initialize player: %w", startupErr)
+			return
+		}
 
 		if !settings.RECORD {
 			gcontext.Restore()
@@ -655,12 +692,18 @@ func run() {
 		limiter = frame.NewLimiter(int(settings.Graphics.FPSCap))
 	})
 
+	if startupErr != nil {
+		panic(startupErr)
+	}
+
 	if recordMode {
 		if err := mainLoopRecord(); err != nil {
 			panic(err)
 		}
 	} else if screenshotMode {
-		mainLoopSS()
+		if err := mainLoopSS(); err != nil {
+			panic(err)
+		}
 	} else {
 		mainLoopNormal()
 	}
@@ -685,10 +728,17 @@ func mainLoopRecord() (recordingErr error) {
 	}
 
 	var fbo *buffer.Framebuffer
+	var fboErr error
 
 	goroutines.CallMain(func() {
-		fbo = buffer.NewFrameMultisampleScreen(w, h, false, 0)
+		// This is the single-sample resolve destination for pushFrame's active
+		// MSAA framebuffer; it must not use the active sample count itself.
+		fbo, fboErr = buffer.NewFrameMultisampleScreen(w, h, false, 0)
 	})
+	if fboErr != nil {
+		return fmt.Errorf("Recorder: create capture framebuffer: %w", fboErr)
+	}
+	defer fbo.Dispose()
 
 	if err = ffmpeg.StartPreparedRecording(config); err != nil {
 		return err
@@ -742,8 +792,11 @@ func mainLoopRecord() (recordingErr error) {
 				ffmpeg.PreFrame()
 
 				viewport.Push(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
-				pushFrame()
-				viewport.Pop()
+				defer viewport.Pop()
+				if err := pushFrame(); err != nil {
+					frameErr = fmt.Errorf("render frame: %w", err)
+					return
+				}
 
 				frameErr = ffmpeg.MakeFrameDue(event.EmitOutput)
 			})
@@ -788,38 +841,55 @@ func mainLoopRecord() (recordingErr error) {
 	return stopErr
 }
 
-func mainLoopSS() {
+func mainLoopSS() error {
 	w, h := int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight())
 
 	var fbo *buffer.Framebuffer
+	var fboErr error
 
 	goroutines.CallMain(func() {
-		fbo = buffer.NewFrameMultisampleScreen(w, h, false, 0)
+		// This is the single-sample resolve destination for pushFrame's active
+		// MSAA framebuffer; it must not use the active sample count itself.
+		fbo, fboErr = buffer.NewFrameMultisampleScreen(w, h, false, 0)
 	})
+	if fboErr != nil {
+		return fmt.Errorf("Screenshot: create capture framebuffer: %w", fboErr)
+	}
+	defer fbo.Dispose()
 
 	p, _ := player.(*states.Player)
 
 	for !p.Update(1) {
 		if p.GetTime() >= screenshotTime*1000 {
 			log.Println("Scheduling screenshot")
+			var frameErr error
 			goroutines.CallMain(func() {
 				fbo.Bind()
+				defer fbo.Unbind()
 
 				viewport.Push(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
-				pushFrame()
-				viewport.Pop()
+				defer viewport.Pop()
+				if err := pushFrame(); err != nil {
+					frameErr = fmt.Errorf("render frame: %w", err)
+					return
+				}
 
 				utils.MakeScreenshot(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), output, false)
-
-				fbo.Unbind()
 			})
+			if frameErr != nil {
+				return fmt.Errorf("Screenshot: %w", frameErr)
+			}
 
-			break
+			return nil
 		}
 	}
+
+	return nil
 }
 
 func mainLoopNormal() {
+	var renderErr error
+
 	goroutines.CallMain(func() {
 		gcontext.RegisterListener(func(event gcontext.KeyEvent) {
 			if event.Action == gcontext.Press {
@@ -854,6 +924,11 @@ func mainLoopNormal() {
 	goroutines.RunMainLoop(func() bool {
 		return !gcontext.ShouldClose()
 	}, func() {
+		if renderErr != nil {
+			gcontext.SetShouldClose(true)
+			return
+		}
+
 		if lastVSync != settings.Graphics.VSync {
 			if settings.Graphics.VSync {
 				gcontext.SetSwapInterval(1)
@@ -870,7 +945,11 @@ func mainLoopNormal() {
 
 		profiler.EndGroup()
 
-		pushFrame()
+		if err := pushFrame(); err != nil {
+			renderErr = fmt.Errorf("Graphics: render failed: %w", err)
+			gcontext.SetShouldClose(true)
+			return
+		}
 
 		if scheduleScreenshot {
 			w, h := gcontext.GetFramebufferSize()
@@ -899,9 +978,13 @@ func mainLoopNormal() {
 	})
 
 	settings.CloseWatcher()
+
+	if renderErr != nil {
+		panic(renderErr)
+	}
 }
 
-func pushFrame() {
+func pushFrame() error {
 	profiler.StartGroup("App.pushFrame", profiler.PDraw)
 	profiler.ResetStats()
 
@@ -911,22 +994,15 @@ func pushFrame() {
 	blend.Enable()
 	blend.SetFunction(blend.One, blend.OneMinusSrcAlpha)
 
-	viewport.Push(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
-
-	if screenFBO == nil ||
-		lastSamples != int(settings.Graphics.MSAA) ||
-		screenFBO.GetWidth() != int(settings.Graphics.GetWidth()) ||
-		screenFBO.GetHeight() != int(settings.Graphics.GetHeight()) {
-		if screenFBO != nil {
-			screenFBO.Dispose()
-		}
-
-		screenFBO = buffer.NewFrameMultisampleScreen(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), false, int(settings.Graphics.MSAA))
-
-		lastSamples = int(settings.Graphics.MSAA)
+	if err := ensureScreenFramebuffer(); err != nil {
+		blend.ClearStack()
+		profiler.EndGroup()
+		return fmt.Errorf("prepare screen framebuffer: %w", err)
 	}
 
-	if lastSamples > 0 {
+	viewport.Push(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
+
+	if activeMSAA > 0 {
 		screenFBO.Bind()
 	}
 
@@ -937,7 +1013,7 @@ func pushFrame() {
 		player.Draw(0)
 	}
 
-	if lastSamples > 0 {
+	if activeMSAA > 0 {
 		screenFBO.Unbind()
 	}
 
@@ -945,6 +1021,38 @@ func pushFrame() {
 	viewport.Pop()
 
 	profiler.EndGroup()
+
+	return nil
+}
+
+func ensureScreenFramebuffer() error {
+	width := int(settings.Graphics.GetWidth())
+	height := int(settings.Graphics.GetHeight())
+
+	if activeMSAA == 0 {
+		if screenFBO != nil {
+			screenFBO.Dispose()
+			screenFBO = nil
+		}
+
+		return nil
+	}
+
+	if screenFBO != nil && screenFBO.GetWidth() == width && screenFBO.GetHeight() == height {
+		return nil
+	}
+
+	candidate, err := buffer.NewFrameMultisampleScreen(width, height, false, activeMSAA)
+	if err != nil {
+		return err
+	}
+
+	if screenFBO != nil {
+		screenFBO.Dispose()
+	}
+	screenFBO = candidate
+
+	return nil
 }
 
 func checkForUpdates() {
