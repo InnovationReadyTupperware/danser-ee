@@ -1105,7 +1105,6 @@ func (player *Player) DrawMain(float64) {
 	}
 
 	frameDuration := time.Duration(elapsedNanos)
-	timMs := float64(frameDuration) / float64(time.Millisecond)
 	player.lastDrawDuration = frameDuration
 	player.drawStats.Add(frameDuration)
 
@@ -1115,11 +1114,6 @@ func (player *Player) DrawMain(float64) {
 
 	if storyboard := player.background.GetStoryboard(); storyboard != nil {
 		storyboard.SetFPS(mutils.Clamp(int(fps*1.2), player.baseLimit, 10000))
-	}
-
-	if fps > 58 && frameDuration > 18*time.Millisecond && !settings.RECORD {
-		averageFrameTime := float64(player.drawStats.AverageFrameTime()) / float64(time.Millisecond)
-		log.Println(fmt.Sprintf("Slow frame detected! Frame time: %.3fms | Av. frame time: %.3fms", timMs, averageFrameTime))
 	}
 
 	player.progressMs = int64(player.progressMsF)
@@ -1150,7 +1144,7 @@ func (player *Player) DrawMain(float64) {
 
 	player.drawEpilepsyWarning()
 
-	player.counter += timMs
+	player.counter += float64(frameDuration) / float64(time.Millisecond)
 
 	if player.counter >= 1000.0/60 {
 		player.counter -= 1000.0 / 60

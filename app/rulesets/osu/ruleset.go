@@ -600,25 +600,6 @@ func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult Judge
 		set.hitListener(cursor, judgementResult, *subSet.score)
 	}
 
-	if len(set.cursors) == 1 && judgementResult.HitResult != IgnoreMiss && !settings.RECORD {
-		log.Println(fmt.Sprintf(
-			"Got: %3d, Combo: %4d, Max Combo: %4d, Score: %9d, Acc: %6.2f%%, 300: %4d, 100: %3d, 50: %2d, miss: %2d, from: %d, at: %d, pos: %.0fx%.0f, pp: %.2f",
-			judgementResult.HitResult.ScoreValueFor(subSet.player.diff.GetGameplayMode(), subSet.player.diff.Mods),
-			subSet.scoreProcessor.GetCombo(),
-			subSet.score.Combo,
-			subSet.scoreProcessor.GetScore(),
-			subSet.score.Accuracy*100,
-			subSet.score.Count300,
-			subSet.score.Count100,
-			subSet.score.Count50,
-			subSet.score.CountMiss,
-			judgementResult.Number,
-			judgementResult.Time,
-			judgementResult.Position.X,
-			judgementResult.Position.Y,
-			subSet.score.PP.Total,
-		))
-	}
 }
 
 // SetCatchUp marks subsequently emitted judgments as timeline reconstruction
