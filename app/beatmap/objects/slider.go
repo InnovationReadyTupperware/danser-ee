@@ -354,11 +354,13 @@ func (slider *Slider) GetLength() float32 {
 }
 
 func (slider *Slider) GetStartAngleMod(diff *difficulty.Difficulty) float32 {
-	return slider.GetStackedStartPositionMod(diff).AngleRV(slider.GetStackedPositionAtMod(slider.StartTime+min(10, slider.partLen), diff)) //temporary solution
+	sampleTime := slider.StartTime + min(10.0, slider.partDurationForDiff(diff))
+	return slider.GetStackedStartPositionMod(diff).AngleRV(slider.GetStackedPositionAtModForDiff(sampleTime, diff)) // temporary solution
 }
 
 func (slider *Slider) GetEndAngleMod(diff *difficulty.Difficulty) float32 {
-	return slider.GetStackedEndPositionMod(diff).AngleRV(slider.GetStackedPositionAtMod(slider.EndTime-min(10, slider.partLen), diff)) //temporary solution
+	sampleTime := slider.endTimeForDiff(diff) - min(10.0, slider.partDurationForDiff(diff))
+	return slider.GetStackedEndPositionModForDiff(diff).AngleRV(slider.GetStackedPositionAtModForDiff(sampleTime, diff)) // temporary solution
 }
 
 func (slider *Slider) GetPartLen() float32 {
@@ -413,35 +415,103 @@ func (slider *Slider) PositionAtLazer(time float64) vector.Vector2f {
 	return slider.multiCurve.PointAtLazer(progress)
 }
 
+// PositionAtForDiff selects the slider traversal that belongs to diff. The
+// generated cursor and the ruleset must sample the same path when a map has
+// different Stable and Lazer timing/path data.
+func (slider *Slider) PositionAtForDiff(time float64, diff *difficulty.Difficulty) vector.Vector2f {
+	if diff != nil && diff.IsLazer() {
+		return slider.PositionAtLazer(time)
+	}
+
+	return slider.PositionAt(time)
+}
+
 func (slider *Slider) GetStackedPositionAtModLazer(time float64, diff *difficulty.Difficulty) vector.Vector2f {
 	return ModifyPosition(slider.HitObject, slider.PositionAtLazer(time), diff)
 }
 
+// GetStackedPositionAtModForDiff returns the slider position for the
+// participant's gameplay provenance after applying its stack and mirror
+// modifiers.
+func (slider *Slider) GetStackedPositionAtModForDiff(time float64, diff *difficulty.Difficulty) vector.Vector2f {
+	return ModifyPosition(slider.HitObject, slider.PositionAtForDiff(time, diff), diff)
+}
+
+// GetStackedEndPositionModForDiff returns the endpoint from the traversal and
+// timeline that belong to diff. The interface's stored endpoint is Stable's,
+// which is not sufficient for repeated sliders under Lazer timing.
+func (slider *Slider) GetStackedEndPositionModForDiff(diff *difficulty.Difficulty) vector.Vector2f {
+	return ModifyPosition(slider.HitObject, slider.PositionAtForDiff(slider.endTimeForDiff(diff), diff), diff)
+}
+
+// GetStackedPositionAtModForDiff selects Lazer slider traversal without
+// requiring callers that operate on generic hit objects to know about Slider.
+func GetStackedPositionAtModForDiff(hitObject IHitObject, time float64, diff *difficulty.Difficulty) vector.Vector2f {
+	if slider, ok := hitObject.(*Slider); ok {
+		return slider.GetStackedPositionAtModForDiff(time, diff)
+	}
+
+	return hitObject.GetStackedPositionAtMod(time, diff)
+}
+
+// GetStackedEndPositionModForDiff selects a provenance-aware endpoint for a
+// generic hit object.
+func GetStackedEndPositionModForDiff(hitObject IHitObject, diff *difficulty.Difficulty) vector.Vector2f {
+	if slider, ok := hitObject.(*Slider); ok {
+		return slider.GetStackedEndPositionModForDiff(diff)
+	}
+
+	return hitObject.GetStackedEndPositionMod(diff)
+}
+
+// GetEndTimeForDiff returns the participant-specific end time for objects
+// whose gameplay duration differs between Stable and Lazer.
+func GetEndTimeForDiff(hitObject IHitObject, diff *difficulty.Difficulty) float64 {
+	if slider, ok := hitObject.(*Slider); ok {
+		return slider.endTimeForDiff(diff)
+	}
+
+	return hitObject.GetEndTime()
+}
+
 func (slider *Slider) GetAsDummyCircles() []IHitObject {
-	circles := []IHitObject{slider.createDummyCircle(slider.GetStartTime(), true, false)}
+	return slider.GetAsDummyCirclesForDiff(slider.diff)
+}
+
+// GetAsDummyCirclesForDiff expands a slider using the score-point timeline
+// associated with diff. Pathological and singular sliders intentionally keep
+// their bounded one-point fallback.
+func (slider *Slider) GetAsDummyCirclesForDiff(diff *difficulty.Difficulty) []IHitObject {
+	circles := []IHitObject{slider.createDummyCircle(slider.GetStartTime(), true, false, diff)}
 
 	if slider.IsPathological() || slider.IsSingular() {
 		return circles
 	}
 
-	for i, p := range slider.ScorePoints {
+	points := slider.ScorePoints
+	isLazer := diff != nil && diff.IsLazer()
+	if isLazer && len(slider.ScorePointsLazer) > 0 {
+		points = slider.ScorePointsLazer
+	}
+
+	for i, p := range points {
 		time := p.Time
-		if i == len(slider.ScorePoints)-1 && settings.KNOCKOUT && slider.diff != nil && !slider.diff.IsLazer() { // Lazer ends work differently so skip -36ms
+		if i == len(points)-1 && settings.KNOCKOUT && !isLazer { // Lazer ends work differently so skip -36ms
 			time = math.Floor(max(slider.StartTime+(slider.EndTime-slider.StartTime)/2, slider.EndTime-36))
 		}
 
-		circles = append(circles, slider.createDummyCircle(time, false, i == len(slider.ScorePoints)-1))
+		circles = append(circles, slider.createDummyCircle(time, false, i == len(points)-1, diff))
 	}
 
 	return circles
 }
 
-func (slider *Slider) createDummyCircle(time float64, inheritStart, inheritEnd bool) *Circle {
+func (slider *Slider) createDummyCircle(time float64, inheritStart, inheritEnd bool, diff *difficulty.Difficulty) *Circle {
 	// Slider dance points inherit the source slider's stack map. Build that
 	// representation directly instead of creating DummyCircleInherit's throwaway
 	// map and immediately replacing it; dense Aspire sliders can otherwise make
 	// thousands of avoidable map allocations during queue expansion.
-	pos := slider.GetPositionAt(time)
+	pos := slider.PositionAtForDiff(time, diff)
 	circle := &Circle{HitObject: &HitObject{
 		StartPosRaw:   pos,
 		EndPosRaw:     pos,
@@ -765,6 +835,22 @@ func (slider *Slider) visualEndTime() float64 {
 	return slider.EndTime
 }
 
+func (slider *Slider) endTimeForDiff(diff *difficulty.Difficulty) float64 {
+	if diff != nil && diff.IsLazer() {
+		return slider.visualEndTime()
+	}
+
+	return slider.EndTime
+}
+
+func (slider *Slider) partDurationForDiff(diff *difficulty.Difficulty) float64 {
+	if diff != nil && diff.IsLazer() {
+		return slider.visualSpanDuration()
+	}
+
+	return float64(slider.partLen)
+}
+
 // visualSpanDuration returns the duration of one Lazer span and falls back to
 // the Stable value for manually constructed sliders and malformed maps.
 func (slider *Slider) visualSpanDuration() float64 {
@@ -780,6 +866,62 @@ func (slider *Slider) visualSpanDuration() float64 {
 	}
 
 	return 0
+}
+
+func (slider *Slider) positionAtEndpoint(time float64) vector.Vector2f {
+	if slider.diff != nil && slider.diff.IsLazer() {
+		return slider.PositionAtLazer(time)
+	}
+
+	return slider.PositionAt(time)
+}
+
+// updateEndpointPositions follows the current body only until an endpoint is
+// judged. Final tails always use their path endpoint, and successful repeats
+// remain at the position captured by setSliderPosition's latch.
+func (slider *Slider) updateEndpointPositions(time float64) {
+	if slider.diff == nil || slider.multiCurve == nil {
+		return
+	}
+
+	bodyRange := slider.visualBodyRange(time)
+	headPos := slider.multiCurve.PointAt(float32(bodyRange.head))
+	tailPos := slider.multiCurve.PointAt(float32(bodyRange.tail))
+	headAngle := slider.multiCurve.GetStartAngleAt(float32(bodyRange.head)) + math.Pi
+	tailAngle := slider.multiCurve.GetEndAngleAt(float32(bodyRange.tail)) + math.Pi
+
+	mS, mOk := difficulty.GetModConfig[difficulty.MirrorSettings](slider.diff)
+
+	vFlip := slider.diff.CheckModActive(difficulty.HardRock) != (mOk && (mS.FlipMode+1)&2 == 2)
+	hFlip := mOk && (mS.FlipMode+1)&1 == 1
+
+	if vFlip {
+		headAngle = -headAngle
+		tailAngle = -tailAngle
+	}
+
+	if hFlip {
+		headAngle = mutils.Signum(headAngle)*math.Pi - headAngle
+		tailAngle = mutils.Signum(tailAngle)*math.Pi - tailAngle
+	}
+
+	for _, circle := range slider.headEndCircles {
+		if circle.SliderPointEnd {
+			circle.setSliderPosition(slider.positionAtEndpoint(circle.StartTime), 0)
+		} else {
+			circle.setSliderPosition(headPos, float64(headAngle))
+		}
+		circle.Update(time)
+	}
+
+	for _, circle := range slider.tailEndCircles {
+		if circle.SliderPointEnd {
+			circle.setSliderPosition(slider.positionAtEndpoint(circle.StartTime), 0)
+		} else {
+			circle.setSliderPosition(tailPos, float64(tailAngle))
+		}
+		circle.Update(time)
+	}
 }
 
 func (slider *Slider) visualBodyRange(time float64) sliderBodyRange {
@@ -878,11 +1020,11 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 		for i := 1; i <= slider.RepeatCount; i++ {
 			circleTime := slider.StartTime + spanDuration*float64(i)
 
-			appearTime := slider.StartTime - math.Floor(slider.diff.Preempt)
-			bounceStartTime := slider.StartTime - min(math.Floor(slider.diff.Preempt), 15000)
+			appearTime := slider.StartTime - slider.diff.Preempt
+			bounceStartTime := slider.StartTime - min(slider.diff.Preempt, 15000.0)
 
 			if i > 1 {
-				appearTime = circleTime - math.Floor(slider.partLen*2)
+				appearTime = circleTime - spanDuration*2
 				bounceStartTime = appearTime
 			}
 
@@ -930,7 +1072,7 @@ func (slider *Slider) Update(time float64) bool {
 
 	visualEndTime := slider.visualEndTime()
 
-	if (!settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT)) || settings.PLAYERS > 1 {
+	if automaticSliderEdgesEnabled() {
 		if slider.lastTime < slider.StartTime && time >= slider.StartTime {
 			slider.HitEdge(0, time, true)
 			slider.InitSlide(slider.StartTime)
@@ -982,38 +1124,7 @@ func (slider *Slider) Update(time float64) bool {
 	slider.fade.Update(time)
 	slider.bodyFade.Update(time)
 
-	bodyRange := slider.visualBodyRange(time)
-	headPos := slider.multiCurve.PointAt(float32(bodyRange.head))
-	tailPos := slider.multiCurve.PointAt(float32(bodyRange.tail))
-	headAngle := slider.multiCurve.GetStartAngleAt(float32(bodyRange.head)) + math.Pi
-	tailAngle := slider.multiCurve.GetEndAngleAt(float32(bodyRange.tail)) + math.Pi
-
-	mS, mOk := difficulty.GetModConfig[difficulty.MirrorSettings](slider.diff)
-
-	vFlip := slider.diff.CheckModActive(difficulty.HardRock) != (mOk && (mS.FlipMode+1)&2 == 2)
-	hFlip := mOk && (mS.FlipMode+1)&1 == 1
-
-	if vFlip {
-		headAngle = -headAngle
-		tailAngle = -tailAngle
-	}
-
-	if hFlip {
-		headAngle = mutils.Signum(headAngle)*math.Pi - headAngle
-		tailAngle = mutils.Signum(tailAngle)*math.Pi - tailAngle
-	}
-
-	for _, s := range slider.headEndCircles {
-		s.ArrowRotation = float64(headAngle)
-		s.StartPosRaw = headPos
-		s.Update(time)
-	}
-
-	for _, s := range slider.tailEndCircles {
-		s.ArrowRotation = float64(tailAngle)
-		s.StartPosRaw = tailPos
-		s.Update(time)
-	}
+	slider.updateEndpointPositions(time)
 
 	if !slider.IsPathological() {
 		for _, p := range slider.TickPoints {
@@ -1067,6 +1178,13 @@ func (slider *Slider) Update(time float64) bool {
 	slider.lastTime = time
 
 	return true
+}
+
+// automaticSliderEdgesEnabled reports whether the beatmap object owns shared
+// slider edge presentation. A one-player ruleset submits its own head and
+// tail events so the object must not submit those edges a second time.
+func automaticSliderEdgesEnabled() bool {
+	return settings.PLAYERS > 1 || (!settings.PLAY && !settings.KNOCKOUT)
 }
 
 func (slider *Slider) ArmStart(clicked bool, time float64) {
@@ -1193,7 +1311,10 @@ func (slider *Slider) AnimateSliderPoint(index int, time float64, isHit bool) {
 		return
 	}
 
-	slider.edges[index].Arm(isHit, time)
+	slider.updateEndpointPositions(time)
+	edges := slider.edges[index]
+	edges.ArmSliderPoint(isHit, time, slider.visualSpanDuration())
+	edges.Update(time)
 	if !isHit {
 		return
 	}

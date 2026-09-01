@@ -43,7 +43,7 @@ func (mover *basicMover) GetObjectsStartTime(object objects.IHitObject) float64 
 }
 
 func (mover *basicMover) GetObjectsEndTime(object objects.IHitObject) float64 {
-	return object.GetEndTime()
+	return objects.GetEndTimeForDiff(object, mover.diff)
 }
 
 func (mover *basicMover) GetObjectsStartPosition(object objects.IHitObject) vector.Vector2f {
@@ -51,11 +51,11 @@ func (mover *basicMover) GetObjectsStartPosition(object objects.IHitObject) vect
 }
 
 func (mover *basicMover) GetObjectsEndPosition(object objects.IHitObject) vector.Vector2f {
-	return object.GetStackedEndPositionMod(mover.diff)
+	return objects.GetStackedEndPositionModForDiff(object, mover.diff)
 }
 
 func (mover *basicMover) GetObjectsPosition(time float64, object objects.IHitObject) vector.Vector2f {
-	return object.GetStackedPositionAtMod(time, mover.diff)
+	return objects.GetStackedPositionAtModForDiff(object, time, mover.diff)
 }
 
 func (mover *basicMover) GetStartTime() float64 {

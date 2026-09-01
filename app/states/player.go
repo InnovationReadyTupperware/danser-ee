@@ -80,18 +80,22 @@ type Player struct {
 	// until a real mixer interval exists.
 	mixerClockActive bool
 
-	batch       *batch2.QuadBatch
-	controller  dance.Controller
-	background  *common.Background
-	BgScl       vector.Vector2d
-	Scl         float64
-	SclA        float64
-	fadeOut     float64
-	fadeIn      float64
-	start       bool
-	musicPlayer bass.ITrack
-	drawStats   *frame.FrameStats
-	updateStats *frame.FrameStats
+	batch      *batch2.QuadBatch
+	controller dance.Controller
+	// automatedPlayback identifies the internal AT-to-generated-playback
+	// conversion. It is distinct from explicit knockout, which can also use a
+	// generated Danser participant but must allow that participant to fail.
+	automatedPlayback bool
+	background        *common.Background
+	BgScl             vector.Vector2d
+	Scl               float64
+	SclA              float64
+	fadeOut           float64
+	fadeIn            float64
+	start             bool
+	musicPlayer       bass.ITrack
+	drawStats         *frame.FrameStats
+	updateStats       *frame.FrameStats
 
 	onlineOffset float64
 
@@ -180,11 +184,12 @@ type Player struct {
 	ftGraph *shape.SteppingGraph
 }
 
-// NewPlayer creates a gameplay player for beatMap. The legacy second argument
-// remains in the signature for caller compatibility; generated cursor
-// identity now controls failure routing independently of launch mode.
-func NewPlayer(beatMap *beatmap.BeatMap, _ bool, activeMSAA int) (*Player, error) {
+// NewPlayer creates a gameplay player for beatMap. automatedPlayback identifies
+// standalone generated replay playback, which is internally routed through the
+// knockout controller but still owns the seek-time object window.
+func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int) (*Player, error) {
 	player := new(Player)
+	player.automatedPlayback = automatedPlayback
 	player.activeMSAA = activeMSAA
 	audio.ResetClock()
 	player.heapGrowthRate = frame.NewExponentialMovingAverage(300 * time.Millisecond)
@@ -240,37 +245,11 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool, activeMSAA int) (*Player, error
 
 	settings.START = min(settings.START, (beatMap.HitObjects[len(beatMap.HitObjects)-1].GetStartTime()-1)/1000) // cap start to start time of the last HitObject - 1ms
 
-	if (settings.START > 0.01 || !math.IsInf(settings.END, 1)) && (settings.PLAY || !settings.KNOCKOUT || settings.SOLOKNOCKOUT) {
+	if (settings.START > 0.01 || !math.IsInf(settings.END, 1)) && shouldTrimBeatmapForPlayback(automatedPlayback) {
 		scrub := max(0, settings.START*1000)
 		end := settings.END * 1000
 
-		removed := false
-
-		for i := 0; i < len(beatMap.HitObjects); i++ {
-			o := beatMap.HitObjects[i]
-			if o.GetStartTime() > scrub && end > o.GetEndTime() {
-				continue
-			}
-
-			beatMap.HitObjects = append(beatMap.HitObjects[:i], beatMap.HitObjects[i+1:]...)
-			i--
-
-			removed = true
-		}
-
-		for i, hO := range beatMap.HitObjects {
-			hO.SetID(int64(i))
-		}
-
-		for i := 0; i < len(beatMap.Pauses); i++ {
-			o := beatMap.Pauses[i]
-			if o.GetStartTime() > scrub && end > o.GetEndTime() {
-				continue
-			}
-
-			beatMap.Pauses = append(beatMap.Pauses[:i], beatMap.Pauses[i+1:]...)
-			i--
-		}
+		removed := trimBeatmapToWindow(beatMap, scrub, end)
 
 		if removed && settings.START > 0.01 {
 			settings.START = 0
@@ -700,6 +679,42 @@ func NewPlayer(beatMap *beatmap.BeatMap, _ bool, activeMSAA int) (*Player, error
 	return player, nil
 }
 
+func shouldTrimBeatmapForPlayback(automatedPlayback bool) bool {
+	return settings.PLAY || !settings.KNOCKOUT || settings.SOLOKNOCKOUT || automatedPlayback
+}
+
+func trimBeatmapToWindow(beatMap *beatmap.BeatMap, scrub, end float64) bool {
+	removed := false
+
+	for i := 0; i < len(beatMap.HitObjects); i++ {
+		o := beatMap.HitObjects[i]
+		if o.GetStartTime() > scrub && end > o.GetEndTime() {
+			continue
+		}
+
+		beatMap.HitObjects = append(beatMap.HitObjects[:i], beatMap.HitObjects[i+1:]...)
+		i--
+
+		removed = true
+	}
+
+	for i, hitObject := range beatMap.HitObjects {
+		hitObject.SetID(int64(i))
+	}
+
+	for i := 0; i < len(beatMap.Pauses); i++ {
+		o := beatMap.Pauses[i]
+		if o.GetStartTime() > scrub && end > o.GetEndTime() {
+			continue
+		}
+
+		beatMap.Pauses = append(beatMap.Pauses[:i], beatMap.Pauses[i+1:]...)
+		i--
+	}
+
+	return removed
+}
+
 func (player *Player) trySetupFail() {
 	var ruleset *osu.OsuRuleSet
 	if controller, ok := player.controller.(dance.RulesetController); ok {
@@ -719,15 +734,10 @@ func (player *Player) trySetupFail() {
 
 		for _, cursor := range cursors {
 			// Replay-backed knockout participants are judged for display, but
-			// their local health must never remove them. Generated participants,
-			// including the internal AT playback participant, are delegated to
-			// the knockout overlay.
-			policy := osu.FailurePolicySuppress
-			if generatedController != nil && generatedController.IsGeneratedCursor(cursor) {
-				policy = osu.FailurePolicyDelegate
-			}
-
-			ruleset.SetFailurePolicy(cursor, policy)
+			// their local health must never remove them. A generated Danser
+			// participant records F and continues playing. The internal AT
+			// conversion remains visual playback and is suppressed.
+			ruleset.SetFailurePolicy(cursor, knockoutFailurePolicy(player.automatedPlayback, generatedController, cursor))
 		}
 
 	case *overlays.ScoreOverlay:
@@ -762,13 +772,29 @@ func (player *Player) trySetupFail() {
 		})
 
 		for _, cursor := range cursors {
-			ruleset.SetFailurePolicy(cursor, osu.FailurePolicyAllow)
+			ruleset.SetFailurePolicy(cursor, scoreFailurePolicy(player.automatedPlayback, cursor))
 		}
 
 		if len(cursors) > 0 && cursors[0].IsPlayer && !cursors[0].IsAutoplay {
 			player.cursorGlider.SetValue(1.0)
 		}
 	}
+}
+
+func knockoutFailurePolicy(automatedPlayback bool, generatedController dance.GeneratedCursorController, cursor *graphics.Cursor) osu.FailurePolicy {
+	if !automatedPlayback && generatedController != nil && generatedController.IsGeneratedCursor(cursor) {
+		return osu.FailurePolicyContinue
+	}
+
+	return osu.FailurePolicySuppress
+}
+
+func scoreFailurePolicy(automatedPlayback bool, cursor *graphics.Cursor) osu.FailurePolicy {
+	if automatedPlayback || cursor.IsReplay {
+		return osu.FailurePolicySuppress
+	}
+
+	return osu.FailurePolicyAllow
 }
 
 func (player *Player) Update(delta float64) bool {

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
@@ -35,6 +36,33 @@ func TestExpandSliderDanceQueueRetainsCompleteSliderSequenceAndTimeOrder(t *test
 	for _, hitObject := range expanded {
 		if _, isSlider := hitObject.(*objects.Slider); isSlider {
 			t.Fatal("expanded queue still contains the original slider")
+		}
+	}
+}
+
+func TestExpandSliderDanceQueueUsesLazerScorePointsForLazerDifficulty(t *testing.T) {
+	previousKnockout := settings.KNOCKOUT
+	settings.KNOCKOUT = false
+	t.Cleanup(func() { settings.KNOCKOUT = previousKnockout })
+
+	slider := newNormalTestSlider(t, 1000)
+	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
+
+	expanded := ExpandSliderDanceQueueForDiff([]objects.IHitObject{slider}, lazer)
+	if got, want := len(expanded), len(slider.ScorePointsLazer)+1; got != want {
+		t.Fatalf("Lazer expanded queue length = %d, want %d", got, want)
+	}
+
+	for i, point := range slider.ScorePointsLazer {
+		circle, ok := expanded[i+1].(*objects.Circle)
+		if !ok {
+			t.Fatalf("expanded Lazer point %d has type %T, want *objects.Circle", i, expanded[i+1])
+		}
+		if circle.GetStartTime() != point.Time {
+			t.Fatalf("expanded Lazer point %d time = %g, want %g", i, circle.GetStartTime(), point.Time)
+		}
+		if circle.GetStartPosition() != slider.PositionAtLazer(point.Time) {
+			t.Fatalf("expanded Lazer point %d position = %v, want %v", i, circle.GetStartPosition(), slider.PositionAtLazer(point.Time))
 		}
 	}
 }

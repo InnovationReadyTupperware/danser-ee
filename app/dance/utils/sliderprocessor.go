@@ -3,23 +3,30 @@ package utils
 import (
 	"sort"
 
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 )
 
-func objectPreProcess(hitobject objects.IHitObject, sliderDance bool) ([]objects.IHitObject, bool) {
+func objectPreProcess(hitobject objects.IHitObject, sliderDance bool, diff *difficulty.Difficulty) ([]objects.IHitObject, bool) {
 	if s1, ok1 := hitobject.(*objects.Slider); ok1 && (sliderDance || s1.IsPathological() || s1.IsSingular()) {
-		return s1.GetAsDummyCircles(), true
+		return s1.GetAsDummyCirclesForDiff(diff), true
 	}
 
 	return nil, false
 }
 
 func PreprocessQueue(index int, queue []objects.IHitObject, sliderDance bool) []objects.IHitObject {
+	return PreprocessQueueForDiff(index, queue, sliderDance, nil)
+}
+
+// PreprocessQueueForDiff replaces a slider with cursor-dance points using the
+// gameplay provenance of the participant consuming the queue.
+func PreprocessQueueForDiff(index int, queue []objects.IHitObject, sliderDance bool, diff *difficulty.Difficulty) []objects.IHitObject {
 	if index < 0 || index >= len(queue) {
 		return queue
 	}
 
-	if arr, ok := objectPreProcess(queue[index], sliderDance); ok {
+	if arr, ok := objectPreProcess(queue[index], sliderDance, diff); ok {
 		queue1 := make([]objects.IHitObject, 0, len(queue)-1+len(arr))
 		queue1 = append(queue1, queue[:index]...)
 		queue1 = append(queue1, arr...)
@@ -39,6 +46,12 @@ func PreprocessQueue(index int, queue []objects.IHitObject, sliderDance bool) []
 // score point. The old repeated splice-and-sort loop made the cost quadratic
 // when a dense slider section was expanded.
 func ExpandSliderDanceQueue(queue []objects.IHitObject) []objects.IHitObject {
+	return ExpandSliderDanceQueueForDiff(queue, nil)
+}
+
+// ExpandSliderDanceQueueForDiff expands sliders using the Stable or Lazer
+// score-point timeline selected by diff.
+func ExpandSliderDanceQueueForDiff(queue []objects.IHitObject, diff *difficulty.Difficulty) []objects.IHitObject {
 	if len(queue) == 0 {
 		return queue
 	}
@@ -52,7 +65,11 @@ func ExpandSliderDanceQueue(queue []objects.IHitObject) []objects.IHitObject {
 
 		points := 1
 		if !slider.IsPathological() && !slider.IsSingular() {
-			points += len(slider.ScorePoints)
+			scorePoints := slider.ScorePoints
+			if diff != nil && diff.IsLazer() && len(slider.ScorePointsLazer) > 0 {
+				scorePoints = slider.ScorePointsLazer
+			}
+			points += len(scorePoints)
 		}
 		if points > int(^uint(0)>>1)-capacity {
 			capacity = len(queue)
@@ -64,7 +81,7 @@ func ExpandSliderDanceQueue(queue []objects.IHitObject) []objects.IHitObject {
 	expanded := make([]objects.IHitObject, 0, capacity)
 	for _, hitObject := range queue {
 		if slider, ok := hitObject.(*objects.Slider); ok {
-			expanded = append(expanded, slider.GetAsDummyCircles()...)
+			expanded = append(expanded, slider.GetAsDummyCirclesForDiff(diff)...)
 		} else {
 			expanded = append(expanded, hitObject)
 		}

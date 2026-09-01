@@ -32,10 +32,10 @@ func NewLinearMoverSimple() MultiPointMover {
 func (mover *LinearMover) SetObjects(objs []objects.IHitObject) int {
 	start, end := objs[0], objs[1]
 
-	mover.startTime = start.GetEndTime()
+	mover.startTime = mover.GetObjectsEndTime(start)
 	mover.endTime = end.GetStartTime()
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	mover.line = curves.NewLinear(startPos, endPos)
@@ -70,8 +70,8 @@ func (mover *LinearMover) GetObjectsPosition(time float64, object objects.IHitOb
 	time1 := time - timeDiff
 	time2 := time1 + sixtyTime
 
-	pos1 := object.GetStackedPositionAtMod(time1, mover.diff)
-	pos2 := object.GetStackedPositionAtMod(time2, mover.diff)
+	pos1 := objects.GetStackedPositionAtModForDiff(object, time1, mover.diff)
+	pos2 := objects.GetStackedPositionAtModForDiff(object, time2, mover.diff)
 
 	return pos1.Lerp(pos2, float32((time-time1)/sixtyTime))
 }

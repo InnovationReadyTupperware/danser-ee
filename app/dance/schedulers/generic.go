@@ -48,7 +48,7 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 	config := settings.CursorDance.Movers[scheduler.index%len(settings.CursorDance.Movers)]
 
 	if settings.CursorDance.Resolve2BAfterTAG {
-		scheduler.queue = utils.Solve2B(scheduler.queue)
+		scheduler.queue = utils.Solve2BForDiff(scheduler.queue, diff)
 	}
 
 	// Slider dance / random slider dance resolving. The deterministic path can
@@ -56,10 +56,10 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 	// Random Slider Dance retains its existing random draw and selection
 	// behavior.
 	if config.SliderDance && !config.RandomSliderDance {
-		scheduler.queue = utils.ExpandSliderDanceQueue(scheduler.queue)
+		scheduler.queue = utils.ExpandSliderDanceQueueForDiff(scheduler.queue, diff)
 	} else {
 		for i := range len(scheduler.queue) {
-			scheduler.queue = utils.PreprocessQueue(i, scheduler.queue, config.RandomSliderDance && rand.Intn(2) == 0)
+			scheduler.queue = utils.PreprocessQueueForDiff(i, scheduler.queue, config.RandomSliderDance && rand.Intn(2) == 0, diff)
 		}
 	}
 
@@ -79,16 +79,17 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 		next, cOk := scheduler.queue[i+1].(*objects.Circle)
 
 		if pOk && cOk && (!current.SliderPoint || current.SliderPointStart || (current.SliderPointEnd && diff.IsLazer())) && (!next.SliderPoint || next.SliderPointStart || (next.SliderPointEnd && diff.IsLazer())) {
-			dst := current.GetStackedEndPositionMod(diff).Dst(next.GetStackedStartPositionMod(diff))
+			dst := objects.GetStackedEndPositionModForDiff(current, diff).Dst(next.GetStackedStartPositionMod(diff))
 
-			if dst <= float32(diff.CircleRadius*1.995) && next.GetStartTime()-current.GetEndTime() <= 3 { // Sacrificing a bit of UR for better looks
-				sTime := (next.GetStartTime() + current.GetEndTime()) / 2
+			currentEndTime := objects.GetEndTimeForDiff(current, diff)
+			if dst <= float32(diff.CircleRadius*1.995) && next.GetStartTime()-currentEndTime <= 3 { // Sacrificing a bit of UR for better looks
+				sTime := (next.GetStartTime() + currentEndTime) / 2
 
 				if current.SliderPointEnd && diff.IsLazer() { // Prioritize slider end timing
-					sTime = current.GetEndTime()
+					sTime = currentEndTime
 				}
 
-				dC := objects.DummyCircle(current.GetStackedEndPositionMod(diff).Add(next.GetStackedStartPositionMod(diff)).Scl(0.5), sTime)
+				dC := objects.DummyCircle(objects.GetStackedEndPositionModForDiff(current, diff).Add(next.GetStackedStartPositionMod(diff)).Scl(0.5), sTime)
 
 				if !diff.IsLazer() || (!current.SliderPointEnd && !next.SliderPointEnd) { // Don't double-click if any of them is a slider end
 					dC.DoubleClick = true
@@ -112,7 +113,7 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 		for j := i + 1; j < len(scheduler.queue); j++ {
 			o := scheduler.queue[j]
 
-			if current.GetEndTime() < o.GetStartTime() {
+			if objects.GetEndTimeForDiff(current, diff) < o.GetStartTime() {
 				break
 			}
 

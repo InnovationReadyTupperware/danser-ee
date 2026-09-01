@@ -39,12 +39,12 @@ func (mover *AngleOffsetMover) SetObjects(objs []objects.IHitObject) int {
 
 	start, end := objs[0], objs[1]
 
-	mover.startTime = start.GetEndTime()
+	mover.startTime = mover.GetObjectsEndTime(start)
 	mover.endTime = end.GetStartTime()
 
 	timeDelta := mover.endTime - mover.startTime
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	distance := startPos.Dst(endPos)

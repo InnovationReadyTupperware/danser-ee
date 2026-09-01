@@ -1,6 +1,7 @@
 package input
 
 import (
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 	"github.com/innovationreadytupperware/danser-ee/app/graphics"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
 )
@@ -44,7 +45,7 @@ func (processor *RelaxInputProcessor) Update(time float64) {
 		if isLazer {
 			pos := obj.GetStackedStartPositionMod(currDiff)
 
-			if (!c2 || time <= obj.GetEndTime()) &&
+			if (!c2 || time <= objects.GetEndTimeForDiff(obj, currDiff)) &&
 				time >= obj.GetStartTime()-leniency &&
 				pos.Dst(processor.cursor.RawPosition) <= float32(currDiff.CircleRadiusL) &&
 				time-obj.GetStartTime() <= currDiff.Hit50U {

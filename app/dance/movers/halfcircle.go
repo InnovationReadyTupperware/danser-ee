@@ -34,10 +34,10 @@ func (mover *HalfCircleMover) SetObjects(objs []objects.IHitObject) int {
 
 	start, end := objs[0], objs[1]
 
-	mover.startTime = start.GetEndTime()
+	mover.startTime = mover.GetObjectsEndTime(start)
 	mover.endTime = end.GetStartTime()
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	if config.StreamTrigger < 0 || (mover.endTime-mover.startTime) < float64(config.StreamTrigger) {

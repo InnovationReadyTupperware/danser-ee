@@ -22,10 +22,10 @@ func NewAxisMover() MultiPointMover {
 func (mover *AxisMover) SetObjects(objs []objects.IHitObject) int {
 	start, end := objs[0], objs[1]
 
-	mover.startTime = start.GetEndTime()
+	mover.startTime = mover.GetObjectsEndTime(start)
 	mover.endTime = end.GetStartTime()
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	var midP vector.Vector2f

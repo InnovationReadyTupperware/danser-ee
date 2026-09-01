@@ -27,10 +27,10 @@ func (mover *PippiMover) SetObjects(objs []objects.IHitObject) int {
 	startC, cOk := start.(*objects.Circle)
 	endC, eOk := end.(*objects.Circle)
 
-	mover.startTime = max(start.GetEndTime(), end.GetStartTime()-(mover.diff.Preempt-100*mover.diff.Speed))
+	mover.startTime = max(mover.GetObjectsEndTime(start), end.GetStartTime()-(mover.diff.Preempt-100*mover.diff.Speed))
 	mover.endTime = end.GetStartTime()
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	timeDifference := mover.endTime - mover.startTime
@@ -40,7 +40,7 @@ func (mover *PippiMover) SetObjects(objs []objects.IHitObject) int {
 	if cOk && startC.DoubleClick {
 		points = append(points, startPos)
 	} else {
-		points = append(points, mover.modifyPos(start.GetEndTime(), start.GetType() == objects.SPINNER, startPos))
+		points = append(points, mover.modifyPos(mover.GetObjectsEndTime(start), start.GetType() == objects.SPINNER, startPos))
 	}
 
 	for t := sixtyTime; t < timeDifference; t += sixtyTime {

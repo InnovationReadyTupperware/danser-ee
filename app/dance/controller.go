@@ -144,18 +144,18 @@ func (controller *GenericController) InitCursors() {
 	// generated cursors must not traverse an unstable or disproportionate path.
 	for i := range queue {
 		if s, ok := queue[i].(*objects.Slider); ok && (s.IsPathological() || s.IsSingular()) {
-			queue = utils.PreprocessQueue(i, queue, true)
+			queue = utils.PreprocessQueueForDiff(i, queue, true, controller.bMap.Diff)
 		}
 	}
 
 	// Convert sliders to pseudo-circles for tag cursors
 	if !settings.CursorDance.ComboTag && !settings.CursorDance.Battle &&
 		settings.CursorDance.TAGSliderDance && participantCount > 1 {
-		queue = utils.ExpandSliderDanceQueue(queue)
+		queue = utils.ExpandSliderDanceQueueForDiff(queue, controller.bMap.Diff)
 	}
 
 	if !settings.CursorDance.Resolve2BAfterTAG {
-		queue = utils.Solve2B(queue)
+		queue = utils.Solve2BForDiff(queue, controller.bMap.Diff)
 	}
 
 	// Solo knockout scores every generated cursor as a complete participant.

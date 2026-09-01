@@ -39,10 +39,10 @@ func (mover *BezierMover) SetObjects(objs []objects.IHitObject) int {
 
 	start, end := objs[0], objs[1]
 
-	mover.startTime = start.GetEndTime()
+	mover.startTime = mover.GetObjectsEndTime(start)
 	mover.endTime = end.GetStartTime()
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	dst := startPos.Dst(endPos)
@@ -73,20 +73,20 @@ func (mover *BezierMover) SetObjects(objs []objects.IHitObject) int {
 	} else if ok1 && ok2 {
 		endAngle := s1.GetEndAngleMod(mover.diff)
 		startAngle := s2.GetStartAngleMod(mover.diff)
-		mover.pt = vector.NewVec2fRad(endAngle, s1.GetStackedPositionAtMod(mover.startTime-10, mover.diff).Dst(startPos)*aggressiveness*sliderAggressiveness/10).Add(startPos)
-		pt2 := vector.NewVec2fRad(startAngle, s2.GetStackedPositionAtMod(mover.endTime+10, mover.diff).Dst(endPos)*aggressiveness*sliderAggressiveness/10).Add(endPos)
+		mover.pt = vector.NewVec2fRad(endAngle, objects.GetStackedPositionAtModForDiff(start, mover.startTime-10, mover.diff).Dst(startPos)*aggressiveness*sliderAggressiveness/10).Add(startPos)
+		pt2 := vector.NewVec2fRad(startAngle, objects.GetStackedPositionAtModForDiff(end, mover.endTime+10, mover.diff).Dst(endPos)*aggressiveness*sliderAggressiveness/10).Add(endPos)
 		points[0], points[1], points[2], points[3] = startPos, mover.pt, pt2, endPos
 		pointCount = 4
 	} else if ok1 {
 		endAngle := s1.GetEndAngleMod(mover.diff)
-		pt1 := vector.NewVec2fRad(endAngle, s1.GetStackedPositionAtMod(mover.startTime-10, mover.diff).Dst(startPos)*aggressiveness*sliderAggressiveness/10).Add(startPos)
+		pt1 := vector.NewVec2fRad(endAngle, objects.GetStackedPositionAtModForDiff(start, mover.startTime-10, mover.diff).Dst(startPos)*aggressiveness*sliderAggressiveness/10).Add(startPos)
 		mover.pt = vector.NewVec2fRad(endPos.AngleRV(mover.pt), genScale*aggressiveness).Add(endPos)
 		points[0], points[1], points[2], points[3] = startPos, pt1, mover.pt, endPos
 		pointCount = 4
 	} else if ok2 {
 		startAngle := s2.GetStartAngleMod(mover.diff)
 		mover.pt = vector.NewVec2fRad(startPos.AngleRV(mover.pt), genScale*aggressiveness).Add(startPos)
-		pt1 := vector.NewVec2fRad(startAngle, s2.GetStackedPositionAtMod(mover.endTime+10, mover.diff).Dst(endPos)*aggressiveness*sliderAggressiveness/10).Add(endPos)
+		pt1 := vector.NewVec2fRad(startAngle, objects.GetStackedPositionAtModForDiff(end, mover.endTime+10, mover.diff).Dst(endPos)*aggressiveness*sliderAggressiveness/10).Add(endPos)
 		points[0], points[1], points[2], points[3] = startPos, mover.pt, pt1, endPos
 		pointCount = 4
 	} else {

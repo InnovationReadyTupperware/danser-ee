@@ -60,7 +60,7 @@ func (mover *SplineMover) SetObjects(objs []objects.IHitObject) int {
 		o := objs[i]
 
 		if i == 0 {
-			cEnd := o.GetStackedEndPositionMod(mover.diff)
+			cEnd := objects.GetStackedEndPositionModForDiff(o, mover.diff)
 			nStart := objs[i+1].GetStackedStartPositionMod(mover.diff)
 
 			var wPoint vector.Vector2f
@@ -73,15 +73,15 @@ func (mover *SplineMover) SetObjects(objs []objects.IHitObject) int {
 			}
 
 			points = append(points, cEnd, wPoint)
-			timing = append(timing, max(o.GetStartTime(), o.GetEndTime()))
+			timing = append(timing, max(o.GetStartTime(), mover.GetObjectsEndTime(o)))
 
-			mover.startTime = max(o.GetStartTime(), o.GetEndTime())
+			mover.startTime = max(o.GetStartTime(), mover.GetObjectsEndTime(o))
 
 			continue
 		}
 
 		if _, ok := o.(objects.ILongObject); ok || i == len(objs)-1 {
-			pEnd := objs[i-1].GetStackedEndPositionMod(mover.diff)
+			pEnd := objects.GetStackedEndPositionModForDiff(objs[i-1], mover.diff)
 			cStart := o.GetStackedStartPositionMod(mover.diff)
 
 			var wPoint vector.Vector2f
@@ -180,7 +180,7 @@ func (mover *SplineMover) SetObjects(objs []objects.IHitObject) int {
 			}
 		}
 
-		points = append(points, o.GetStackedEndPositionMod(mover.diff))
+		points = append(points, objects.GetStackedEndPositionModForDiff(o, mover.diff))
 		timing = append(timing, o.GetStartTime())
 		mover.objs = append(mover.objs, o)
 	}

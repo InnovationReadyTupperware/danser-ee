@@ -50,6 +50,8 @@ type Circle struct {
 	SliderPointStart bool
 	SliderPointEnd   bool
 
+	sliderPointLatched bool
+
 	// DoubleClick is used in cursordances when 2 nearby circles are merged to one
 	DoubleClick bool
 }
@@ -152,11 +154,21 @@ func (circle *Circle) SetTiming(timings *Timings, _ int, _ bool) {
 
 func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 	circle.diff = diff
+	circle.sliderPointLatched = false
 
 	startTime := circle.StartTime - diff.Preempt
 
 	if circle.SliderPoint {
 		startTime = circle.appearTime
+	}
+	fadeInStartTime := startTime
+	fadeInDuration := float64(diff.TimeFadeIn)
+	if circle.SliderPoint && !circle.SliderPointStart {
+		if !circle.firstEndCircle {
+			fadeInDuration = 0
+		} else if settings.Objects.Sliders.Snaking.In {
+			fadeInStartTime += diff.Preempt / 3
+		}
 	}
 
 	endTime := circle.StartTime
@@ -210,11 +222,11 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 	for _, t := range circles {
 		if diff.CheckModActive(difficulty.Hidden) {
 			if !circle.SliderPoint || circle.SliderPointStart || circle.firstEndCircle {
-				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, startTime+diff.Preempt*0.4, 0.0, 1.0))
-				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime+diff.Preempt*0.4, startTime+diff.Preempt*0.7, 1.0, 0.0))
+				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, fadeInStartTime, fadeInStartTime+diff.Preempt*0.4, 0.0, 1.0))
+				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, fadeInStartTime+diff.Preempt*0.4, fadeInStartTime+diff.Preempt*0.7, 1.0, 0.0))
 			}
 		} else if !diff.CheckModActive(difficulty.Traceable) || circle.HitObjectID == 0 {
-			t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, startTime+diff.TimeFadeIn, 0.0, 1.0))
+			t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, fadeInStartTime, fadeInStartTime+fadeInDuration, 0.0, 1.0))
 			if fadeHitCircleEarly && (!circle.SliderPoint || circle.SliderPointStart) {
 				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, endTime+float64(diff.Hit100), endTime+float64(diff.Hit50), 1.0, 0.0))
 			} else if circle.SliderPoint {
@@ -231,7 +243,7 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 		circle.reverseArrow = sprite.NewSpriteSingle(skin.GetTexture("reversearrow"), 0, vector.NewVec2d(0, 0), vector.Centre)
 		circle.reverseArrow.SetAlpha(0)
 
-		circle.reverseArrow.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, min(endTime, startTime+150), 0.0, 1.0))
+		circle.reverseArrow.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, fadeInStartTime, min(endTime, fadeInStartTime+150), 0.0, 1.0))
 		circle.reverseArrow.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, endTime, endTime, 1.0, 0.0))
 
 		circle.sprites = append(circle.sprites, circle.reverseArrow)
@@ -278,57 +290,133 @@ func setReverse(arrow *sprite.Sprite, start float64, length float64, loops int) 
 }
 
 func (circle *Circle) Arm(clicked bool, time float64) {
-	circle.hitCircle.ClearTransformations()
-	circle.hitCircleOverlay.ClearTransformations()
-	circle.comboText.ClearTransformations()
+	circle.clearHitTransforms(time)
 
-	startTime := time
+	if circle.shouldAnimateHit(clicked) {
+		circle.addLegacyHitAnimation(time, time+difficulty.HitFadeOut)
+		return
+	}
+
+	duration := 60.0
+	if !clicked {
+		duration = 100
+	}
+	circle.addHitFadeOut(time, time+duration, easing.OutQuad)
+}
+
+// ArmSliderPoint applies the Lazer legacy endpoint lifecycle. Repeats use a
+// span-length fade capped at 300 ms, while tails use the shorter 100 ms miss
+// fade (or the 60 ms no-hit-animation path). A successful repeat latches its
+// position before the slider body retracts past it.
+func (circle *Circle) ArmSliderPoint(clicked bool, time, spanDuration float64) {
+	circle.clearHitTransforms(time)
+
+	if clicked && circle.shouldAnimateHit(true) {
+		circle.addLegacyHitAnimation(time, time+difficulty.HitFadeOut)
+		if circle.reverseArrow != nil {
+			circle.addReverseArrowAnimation(time, sliderPointFadeDuration(false, true, spanDuration))
+		}
+	} else {
+		duration := sliderPointFadeDuration(circle.SliderPointEnd, clicked, spanDuration)
+		circle.addHitFadeOut(time, time+duration, easing.Linear)
+	}
+
+	if clicked && !circle.SliderPointEnd {
+		circle.sliderPointLatched = true
+	}
+}
+
+func (circle *Circle) clearHitTransforms(time float64) {
+	if circle.hitCircle != nil {
+		circle.hitCircle.ClearTransformations()
+	}
+	if circle.hitCircleOverlay != nil {
+		circle.hitCircleOverlay.ClearTransformations()
+	}
+	if circle.reverseArrow != nil {
+		circle.reverseArrow.ClearTransformations()
+	}
+	if circle.comboText != nil {
+		circle.comboText.ClearTransformations()
+	}
 
 	if circle.approachCircle != nil {
 		circle.approachCircle.ClearTransformations()
-		circle.approachCircle.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, startTime, 0.0, 0.0))
+		circle.approachCircle.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, time, time, 0.0, 0.0))
 	}
+}
 
+func (circle *Circle) addLegacyHitAnimation(startTime, endTime float64) {
 	endScale := 1.4
 	if skin.GetInfo().Version < 2 {
 		endScale = 1.8
 	}
 
-	// Slider repeats and tails only receive Lazer's legacy hit-circle
-	// animation when the skin supplied a visible endpoint component. A nil
-	// endpoint texture is meaningful: applying the transform anyway used to
-	// make every skin behave as if it had a slider tail.
-	if circle.shouldAnimateHit(clicked) {
-		endTime := startTime + difficulty.HitFadeOut
-		circle.hitCircle.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
-		circle.hitCircleOverlay.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
-
-		if circle.reverseArrow != nil {
-			circle.reverseArrow.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
+	for _, hit := range []*sprite.Sprite{circle.hitCircle, circle.hitCircleOverlay} {
+		if hit == nil {
+			continue
 		}
 
-		if skin.GetInfo().Version < 2 {
-			circle.comboText.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
+		hit.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
+		hit.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
+	}
+
+	if skin.GetInfo().Version < 2 && circle.comboText != nil {
+		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
+		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
+	} else if circle.comboText != nil {
+		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, startTime+60, 1.0, 0.0))
+	}
+}
+
+func (circle *Circle) addReverseArrowAnimation(startTime, duration float64) {
+	if circle.reverseArrow == nil {
+		return
+	}
+
+	endTime := startTime + duration
+	circle.reverseArrow.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, 1.4))
+	circle.reverseArrow.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
+}
+
+func (circle *Circle) addHitFadeOut(startTime, endTime float64, ease func(float64) float64) {
+	for _, hit := range []*sprite.Sprite{circle.hitCircle, circle.hitCircleOverlay, circle.reverseArrow} {
+		if hit == nil {
+			continue
 		}
 
-		circle.hitCircle.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
-		circle.hitCircleOverlay.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
+		hit.AddTransform(animation.NewSingleTransform(animation.Fade, ease, startTime, endTime, hit.GetAlpha(), 0.0))
+	}
 
-		if circle.reverseArrow != nil {
-			circle.reverseArrow.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
-		}
-
-		if skin.GetInfo().Version < 2 {
-			circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
-		} else {
-			circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, startTime+60, 1.0, 0.0))
-		}
-	} else {
-		endTime := startTime + 60
-		circle.hitCircle.AddTransform(animation.NewSingleTransform(animation.Fade, easing.OutQuad, startTime, endTime, circle.hitCircle.GetAlpha(), 0.0))
-		circle.hitCircleOverlay.AddTransform(animation.NewSingleTransform(animation.Fade, easing.OutQuad, startTime, endTime, circle.hitCircleOverlay.GetAlpha(), 0.0))
+	if circle.comboText != nil {
 		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, circle.comboText.GetAlpha(), 0.0))
 	}
+}
+
+// setSliderPosition updates an unjudged endpoint's raw path position. Once a
+// repeat has been judged successfully its position is deliberately frozen,
+// matching Lazer's repeat drawable instead of following the retracting body.
+func (circle *Circle) setSliderPosition(position vector.Vector2f, rotation float64) {
+	if circle.sliderPointLatched {
+		return
+	}
+
+	circle.StartPosRaw = position
+	circle.ArrowRotation = rotation
+}
+
+// sliderPointFadeDuration returns the parent lifecycle used when an endpoint
+// has no legacy hit-circle animation to play.
+func sliderPointFadeDuration(isEnd, clicked bool, spanDuration float64) float64 {
+	if !isEnd {
+		return min(300.0, max(0.0, spanDuration))
+	}
+
+	if clicked {
+		return 60
+	}
+
+	return 100
 }
 
 // shouldAnimateHit keeps the Lazer hit-animation switch separate from the
@@ -336,7 +424,7 @@ func (circle *Circle) Arm(clicked bool, time float64) {
 // or legacy endpoint must satisfy both settings, while ordinary hit circles
 // only depend on the global setting.
 func (circle *Circle) shouldAnimateHit(clicked bool) bool {
-	if !clicked || !settings.Objects.HitAnimations {
+	if !clicked || !settings.Objects.HitAnimations || circle.diff == nil {
 		return false
 	}
 

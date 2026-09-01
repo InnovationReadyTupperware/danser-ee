@@ -31,10 +31,10 @@ func (mover *AggressiveMover) Reset(diff *difficulty.Difficulty, id int) {
 func (mover *AggressiveMover) SetObjects(objs []objects.IHitObject) int {
 	start, end := objs[0], objs[1]
 
-	mover.startTime = start.GetEndTime()
+	mover.startTime = mover.GetObjectsEndTime(start)
 	mover.endTime = end.GetStartTime()
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	scaledDistance := float32(mover.endTime - mover.startTime)

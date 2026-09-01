@@ -74,7 +74,7 @@ func (mover *MomentumMover) SetObjects(objs []objects.IHitObject) int {
 		next = objs[i+2]
 	}
 
-	startPos := start.GetStackedEndPositionMod(mover.diff)
+	startPos := objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	endPos := end.GetStackedStartPositionMod(mover.diff)
 
 	dst := startPos.Dst(endPos)
@@ -160,7 +160,7 @@ func (mover *MomentumMover) SetObjects(objs []objects.IHitObject) int {
 		a2 = a + r*anorm2(a2-a)
 	}
 
-	startTime := start.GetEndTime()
+	startTime := mover.GetObjectsEndTime(start)
 	endTime := end.GetStartTime()
 	duration := endTime - startTime
 
@@ -178,7 +178,7 @@ func (mover *MomentumMover) SetObjects(objs []objects.IHitObject) int {
 		mover.curve = curves.NewBezierNA([]vector.Vector2f{startPos, endPos})
 	}
 
-	mover.startTime = start.GetEndTime()
+	mover.startTime = mover.GetObjectsEndTime(start)
 	mover.endTime = end.GetStartTime()
 	mover.first = false
 

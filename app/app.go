@@ -467,8 +467,8 @@ func run() {
 
 		// An AT launch without explicit knockout or play mode uses the replay
 		// pipeline so custom AR, OD, CS, and HP values can be applied. Keep this
-		// provenance available to gameplay setup so generated playback can use
-		// the same failure eligibility as osu!lazer.
+		// provenance available to gameplay setup so the generated cursor remains
+		// visual playback rather than becoming a failing player simulation.
 		if !settings.KNOCKOUT && modsParsed.Active(difficulty2.Autoplay) {
 			settings.PLAY = false
 			settings.KNOCKOUT = true

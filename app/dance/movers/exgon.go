@@ -45,12 +45,12 @@ func (mover *ExGonMover) SetObjects(objs []objects.IHitObject) int {
 
 	start, end := objs[0], objs[1]
 
-	mover.nextTime = start.GetEndTime() + mover.delay
+	mover.nextTime = mover.GetObjectsEndTime(start) + mover.delay
 
 	mover.startTime = start.GetStartTime()
 	mover.endTime = end.GetStartTime()
 
-	mover.lastPos = start.GetStackedEndPositionMod(mover.diff)
+	mover.lastPos = objects.GetStackedEndPositionModForDiff(start, mover.diff)
 	mover.endPos = end.GetStackedStartPositionMod(mover.diff)
 
 	return 2

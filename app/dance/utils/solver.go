@@ -5,10 +5,17 @@ import (
 	"math"
 	"slices"
 
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 )
 
 func Solve2B(queue []objects.IHitObject) []objects.IHitObject {
+	return Solve2BForDiff(queue, nil)
+}
+
+// Solve2BForDiff resolves overlaps while preserving the slider timing and
+// cursor-dance representation for the consuming gameplay provenance.
+func Solve2BForDiff(queue []objects.IHitObject, diff *difficulty.Difficulty) []objects.IHitObject {
 	// Resolving 2B conflicts
 	for i := range queue {
 		s, ok := queue[i].(*objects.Slider)
@@ -25,8 +32,8 @@ func Solve2B(queue []objects.IHitObject) []objects.IHitObject {
 		// Looking just by i-1 (like i+1 in forward detection) wouldn't detect that scenario because objects
 		// are not sorted by end times
 		for j := i - 1; j >= 0; j-- {
-			if o := queue[j]; o.GetEndTime() >= s.GetStartTime() {
-				queue = PreprocessQueue(i, queue, true)
+			if o := queue[j]; objects.GetEndTimeForDiff(o, diff) >= s.GetStartTime() {
+				queue = PreprocessQueueForDiff(i, queue, true, diff)
 				found = true
 				break
 			}
@@ -34,8 +41,8 @@ func Solve2B(queue []objects.IHitObject) []objects.IHitObject {
 
 		// If no conflict was detected in the past then look one object ahead, no looping is needed in this scenario
 		if !found && i+1 < len(queue) {
-			if o := queue[i+1]; o.GetStartTime() <= s.GetEndTime() {
-				queue = PreprocessQueue(i, queue, true)
+			if o := queue[i+1]; o.GetStartTime() <= objects.GetEndTimeForDiff(s, diff) {
+				queue = PreprocessQueueForDiff(i, queue, true, diff)
 			}
 		}
 	}
@@ -51,14 +58,14 @@ func Solve2B(queue []objects.IHitObject) []objects.IHitObject {
 		startTime := spinner.GetStartTime()
 
 		// Adjust spinner's start time if it overlaps with previous circle/slider point
-		if i-1 >= 0 && math.Abs(queue[i-1].GetEndTime()-startTime) < 1 {
+		if i-1 >= 0 && math.Abs(objects.GetEndTimeForDiff(queue[i-1], diff)-startTime) < 1 {
 			startTime += 30
 		}
 
 		for j := i + 1; j < len(queue); j++ {
 			nextObj := queue[j]
 
-			if nextObj.GetStartTime() > spinner.GetEndTime() {
+			if nextObj.GetStartTime() > objects.GetEndTimeForDiff(spinner, diff) {
 				break
 			}
 
@@ -67,7 +74,7 @@ func Solve2B(queue []objects.IHitObject) []objects.IHitObject {
 				subSpinners = append(subSpinners, objects.NewDummySpinner(startTime, endTime))
 			}
 
-			startTime = nextObj.GetEndTime() + 30
+			startTime = objects.GetEndTimeForDiff(nextObj, diff) + 30
 		}
 
 		if startTime == spinner.GetStartTime() {
@@ -75,8 +82,9 @@ func Solve2B(queue []objects.IHitObject) []objects.IHitObject {
 		}
 
 		// Generate a spinner if there's still time left
-		if spinner.GetEndTime() > startTime {
-			subSpinners = append(subSpinners, objects.NewDummySpinner(startTime, spinner.GetEndTime()))
+		spinnerEndTime := objects.GetEndTimeForDiff(spinner, diff)
+		if spinnerEndTime > startTime {
+			subSpinners = append(subSpinners, objects.NewDummySpinner(startTime, spinnerEndTime))
 		}
 
 		queue = append(queue[:i], append(subSpinners, queue[i+1:]...)...)
