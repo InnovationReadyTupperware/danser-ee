@@ -611,7 +611,8 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 
 			player.updateStats.Add(time.Duration(elapsedNanos))
 
-			musicState := musicPlayer.GetState()
+			playback := snapshotPlayback(musicPlayer)
+			musicState := playback.State
 
 			speed := 1.0
 
@@ -637,14 +638,14 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 				// submitted early and then appear to jump when decoding resumes.
 				// BASS may report a stale zero while a seek is still resolving; never
 				// accept that value as a backwards jump in the gameplay timeline.
-				musicPos := musicPlayer.GetPosition() * 1000
+				musicPos := playback.Position * 1000
 				if musicPos >= player.rawPositionF && !math.IsNaN(musicPos) && !math.IsInf(musicPos, 0) {
 					player.rawPositionF = musicPos
 					player.lastMusicPos = musicPos
 				}
 			} else {
-				musicPos := musicPlayer.GetPosition() * 1000
-				speed = musicPlayer.GetSpeed()
+				musicPos := playback.Position * 1000
+				speed = playback.Speed
 
 				if musicPos != player.lastMusicPos || musicState == bass.MusicPaused {
 					player.rawPositionF = musicPos
@@ -808,8 +809,21 @@ func (player *Player) UpdateRecording(delta float64) bool {
 	return player.update(delta, true)
 }
 
+func snapshotPlayback(track bass.ITrack) bass.PlaybackSnapshot {
+	if realtimeTrack, ok := track.(*bass.TrackBass); ok {
+		return realtimeTrack.SnapshotPlayback()
+	}
+
+	return bass.PlaybackSnapshot{
+		State:    track.GetState(),
+		Position: track.GetPosition(),
+		Speed:    track.GetSpeed(),
+	}
+}
+
 func (player *Player) update(delta float64, recordingClock bool) bool {
 	speed := 1.0
+	playback := snapshotPlayback(player.musicPlayer)
 
 	_, virtualMusic := player.musicPlayer.(*bass.TrackVirtual)
 
@@ -823,7 +837,7 @@ func (player *Player) update(delta float64, recordingClock bool) bool {
 		// position freezes automatically on pauses and stalls, keeping
 		// audio and frames locked together. Virtual tracks never touch
 		// the mixer, so they keep the wall-clock path.
-		speed = player.musicPlayer.GetSpeed()
+		speed = playback.Speed
 		mixerPosition := bass.MixerPosition()
 		if !player.mixerClockStarted {
 			player.lastMixerPosition = player.mixerAtMusicStart
@@ -852,8 +866,8 @@ func (player *Player) update(delta float64, recordingClock bool) bool {
 		}
 		player.lastMixerPosition = mixerPosition
 	} else {
-		if player.musicPlayer.GetState() == bass.MusicPlaying {
-			speed = player.musicPlayer.GetSpeed()
+		if playback.State == bass.MusicPlaying {
+			speed = playback.Speed
 		} else if !(player.progressMsF < player.startPointE || player.start) {
 			speed = settings.SPEED * player.bMap.Diff.GetSpeed()
 		}
@@ -948,14 +962,14 @@ func (player *Player) updateMain(delta float64) {
 		speedAdjust *= speedVal
 	}
 
-	player.musicPlayer.SetTempo(speedAdjust)
-	player.musicPlayer.SetPitch(mutils.Lerp(1, settings.PITCH, player.pitchGlider.GetValue()))
-	player.musicPlayer.SetRelativeFrequency(freqAdjust * player.frequencyGlider.GetValue())
-
 	// Publish one coherent relationship for every audio submission in this
 	// update. Individual objects may be processed after a late frame, but
 	// their samples are then scheduled against their nominal event time.
-	player.publishAudioClock()
+	player.applyPlaybackRate(
+		speedAdjust,
+		mutils.Lerp(1, settings.PITCH, player.pitchGlider.GetValue()),
+		freqAdjust*player.frequencyGlider.GetValue(),
+	)
 
 	if player.progressMsF >= player.startPointE {
 		if _, ok := player.controller.(*dance.GenericController); ok {
@@ -1019,15 +1033,23 @@ func (player *Player) updateMain(delta float64) {
 	player.volumeGlider.Update(player.progressMsF)
 	player.objectsAlpha.Update(player.progressMsF)
 
-	if player.musicPlayer.GetState() == bass.MusicPlaying {
+	if realtimeTrack, ok := player.musicPlayer.(*bass.TrackBass); ok {
+		realtimeTrack.SetVolumeRelativeIfPlaying(player.volumeGlider.GetValue())
+	} else if player.musicPlayer.GetState() == bass.MusicPlaying {
 		player.musicPlayer.SetVolumeRelative(player.volumeGlider.GetValue())
 	}
 }
 
 func (player *Player) updateMusic(delta float64) {
-	player.musicPlayer.Update()
+	boost := 0.0
+	if realtimeTrack, ok := player.musicPlayer.(*bass.TrackBass); ok {
+		boost = realtimeTrack.UpdateAnalysis()
+	} else {
+		player.musicPlayer.Update()
+		boost = player.musicPlayer.GetBoost()
+	}
 
-	target := mutils.Clamp(player.musicPlayer.GetBoost()*(settings.Audio.BeatScale-1.0)+1.0, 1.0, settings.Audio.BeatScale)
+	target := mutils.Clamp(boost*(settings.Audio.BeatScale-1.0)+1.0, 1.0, settings.Audio.BeatScale)
 
 	if settings.Audio.BeatUseTimingPoints {
 		player.Scl = 1 + player.coin.Beat*(settings.Audio.BeatScale-1.0)
@@ -1049,6 +1071,24 @@ func (player *Player) publishAudioClock() {
 		PlaybackRate:     player.musicPlayer.GetSpeed(),
 		Valid:            true,
 	})
+}
+
+func (player *Player) applyPlaybackRate(tempo, pitch, relativeFrequency float64) {
+	if realtimeTrack, ok := player.musicPlayer.(*bass.TrackBass); ok {
+		clock := realtimeTrack.ApplyPlaybackRate(tempo, pitch, relativeFrequency)
+		audio.SetClockSnapshot(audio.ClockSnapshot{
+			GameplayTimeMs:   player.progressMsF,
+			MixerTimeSeconds: clock.MixerPosition,
+			PlaybackRate:     clock.Speed,
+			Valid:            true,
+		})
+		return
+	}
+
+	player.musicPlayer.SetTempo(tempo)
+	player.musicPlayer.SetPitch(pitch)
+	player.musicPlayer.SetRelativeFrequency(relativeFrequency)
+	player.publishAudioClock()
 }
 
 func (player *Player) DrawMain(float64) {

@@ -37,6 +37,22 @@ type TrackBass struct {
 	closed            bool
 }
 
+// PlaybackSnapshot is one coherent observation of a realtime track. Grouping
+// these values avoids repeated scheduler round trips to the BASS owner thread
+// in the 1 kHz gameplay update loop.
+type PlaybackSnapshot struct {
+	State    int
+	Position float64
+	Speed    float64
+}
+
+// PlaybackClock describes the mixer and source rates after a playback-rate
+// update. Both values come from the same audio-thread transaction.
+type PlaybackClock struct {
+	MixerPosition float64
+	Speed         float64
+}
+
 // NewTrack loads a tempo-capable track and attaches it to the master mixer in
 // a paused state. Attaching before playback permits seeks to use mixer-source
 // positions without racing a later add operation.
@@ -319,24 +335,26 @@ func (track *TrackBass) GetPosition() float64 {
 		return 0
 	}
 
-	return runOnAudioThreadResult(func() float64 {
-		if track.channel == 0 || track.closed {
-			return 0
-		}
+	return runOnAudioThreadResult(track.positionInternal)
+}
 
-		var pos C.QWORD
-		if track.addedToMixer {
-			pos = C.BASS_Mixer_ChannelGetPosition(track.channel, C.BASS_POS_BYTE)
-		} else {
-			pos = C.BASS_ChannelGetPosition(track.channel, C.BASS_POS_BYTE)
-		}
+func (track *TrackBass) positionInternal() float64 {
+	if track.channel == 0 || track.closed {
+		return 0
+	}
 
-		if uint64(pos) == ^uint64(0) {
-			return 0
-		}
+	var pos C.QWORD
+	if track.addedToMixer {
+		pos = C.BASS_Mixer_ChannelGetPosition(track.channel, C.BASS_POS_BYTE)
+	} else {
+		pos = C.BASS_ChannelGetPosition(track.channel, C.BASS_POS_BYTE)
+	}
 
-		return float64(C.BASS_ChannelBytes2Seconds(track.channel, pos))
-	})
+	if uint64(pos) == ^uint64(0) {
+		return 0
+	}
+
+	return float64(C.BASS_ChannelBytes2Seconds(track.channel, pos))
 }
 
 func (track *TrackBass) SetTempo(tempo float64) {
@@ -344,14 +362,16 @@ func (track *TrackBass) SetTempo(tempo float64) {
 		return
 	}
 
-	runOnAudioThread(func() {
-		if track.channel == 0 || track.closed || track.speed == tempo {
-			return
-		}
+	runOnAudioThread(func() { track.setTempoInternal(tempo) })
+}
 
-		track.speed = tempo
-		C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO, C.float((tempo-1.0)*100))
-	})
+func (track *TrackBass) setTempoInternal(tempo float64) {
+	if track.channel == 0 || track.closed || track.speed == tempo {
+		return
+	}
+
+	track.speed = tempo
+	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO, C.float((tempo-1.0)*100))
 }
 
 func (track *TrackBass) GetTempo() float64 {
@@ -367,14 +387,16 @@ func (track *TrackBass) SetPitch(pitch float64) {
 		return
 	}
 
-	runOnAudioThread(func() {
-		if track.channel == 0 || track.closed || track.pitch == pitch {
-			return
-		}
+	runOnAudioThread(func() { track.setPitchInternal(pitch) })
+}
 
-		track.pitch = pitch
-		C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO_PITCH, C.float((pitch-1.0)*14.4))
-	})
+func (track *TrackBass) setPitchInternal(pitch float64) {
+	if track.channel == 0 || track.closed || track.pitch == pitch {
+		return
+	}
+
+	track.pitch = pitch
+	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_TEMPO_PITCH, C.float((pitch-1.0)*14.4))
 }
 
 func (track *TrackBass) GetPitch() float64 {
@@ -390,14 +412,16 @@ func (track *TrackBass) SetRelativeFrequency(rFreq float64) {
 		return
 	}
 
-	runOnAudioThread(func() {
-		if track.channel == 0 || track.closed || track.relativeFrequency == rFreq {
-			return
-		}
+	runOnAudioThread(func() { track.setRelativeFrequencyInternal(rFreq) })
+}
 
-		track.relativeFrequency = rFreq
-		C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_FREQ, C.float(rFreq*track.baseFrequency))
-	})
+func (track *TrackBass) setRelativeFrequencyInternal(relativeFrequency float64) {
+	if track.channel == 0 || track.closed || track.relativeFrequency == relativeFrequency {
+		return
+	}
+
+	track.relativeFrequency = relativeFrequency
+	C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_FREQ, C.float(relativeFrequency*track.baseFrequency))
 }
 
 func (track *TrackBass) GetRelativeFrequency() float64 {
@@ -421,17 +445,76 @@ func (track *TrackBass) GetState() int {
 		return MusicStopped
 	}
 
-	return runOnAudioThreadResult(func() int {
-		if track.channel == 0 || track.closed || !track.addedToMixer {
-			return MusicStopped
+	return runOnAudioThreadResult(track.stateInternal)
+}
+
+func (track *TrackBass) stateInternal() int {
+	if track.channel == 0 || track.closed || !track.addedToMixer {
+		return MusicStopped
+	}
+
+	state := int(C.BASS_ChannelIsActive(track.channel))
+	if state == MusicPlaying && C.BASS_Mixer_ChannelFlags(track.channel, 0, 0)&C.BASS_MIXER_CHAN_PAUSE > 0 {
+		return MusicPaused
+	}
+
+	return state
+}
+
+// SnapshotPlayback reads the state, source position, and effective playback
+// speed in one trip to the BASS owner thread.
+func (track *TrackBass) SnapshotPlayback() PlaybackSnapshot {
+	if track == nil {
+		return PlaybackSnapshot{Speed: 1}
+	}
+
+	return runOnAudioThreadResult(func() PlaybackSnapshot {
+		return PlaybackSnapshot{
+			State:    track.stateInternal(),
+			Position: track.positionInternal(),
+			Speed:    track.speed * track.relativeFrequency,
+		}
+	})
+}
+
+// ApplyPlaybackRate applies adjacent rate controls and returns the resulting
+// output/source clock relationship without releasing the audio thread between
+// operations.
+func (track *TrackBass) ApplyPlaybackRate(tempo, pitch, relativeFrequency float64) PlaybackClock {
+	if track == nil {
+		return PlaybackClock{Speed: 1}
+	}
+
+	return runOnAudioThreadResult(func() PlaybackClock {
+		if !math.IsNaN(tempo) && !math.IsInf(tempo, 0) && tempo > 0 {
+			track.setTempoInternal(tempo)
+		}
+		if !math.IsNaN(pitch) && !math.IsInf(pitch, 0) {
+			track.setPitchInternal(pitch)
+		}
+		if !math.IsNaN(relativeFrequency) && !math.IsInf(relativeFrequency, 0) && relativeFrequency > 0 {
+			track.setRelativeFrequencyInternal(relativeFrequency)
 		}
 
-		state := int(C.BASS_ChannelIsActive(track.channel))
-		if state == MusicPlaying && C.BASS_Mixer_ChannelFlags(track.channel, 0, 0)&C.BASS_MIXER_CHAN_PAUSE > 0 {
-			return MusicPaused
+		return PlaybackClock{
+			MixerPosition: mixerPositionSecondsInternal(),
+			Speed:         track.speed * track.relativeFrequency,
 		}
+	})
+}
 
-		return state
+// SetVolumeRelativeIfPlaying updates the realtime volume only while the track
+// is active, keeping the state check and mutation in one audio transaction.
+func (track *TrackBass) SetVolumeRelativeIfPlaying(volume float64) {
+	if track == nil {
+		return
+	}
+
+	volume *= settings.Audio.GeneralVolume * settings.Audio.MusicVolume
+	runOnAudioThread(func() {
+		if track.stateInternal() == MusicPlaying {
+			C.BASS_ChannelSetAttribute(track.channel, C.BASS_ATTRIB_VOL, C.float(volume))
+		}
 	})
 }
 
@@ -440,56 +523,71 @@ func (track *TrackBass) Update() {
 		return
 	}
 
-	runOnAudioThread(func() {
-		if track.channel == 0 || track.closed {
-			return
-		}
+	runOnAudioThread(track.updateAnalysisInternal)
+}
 
-		if track.playing {
-			if track.addedToMixer {
-				C.BASS_Mixer_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
-			} else {
-				C.BASS_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
-			}
-		} else {
-			for i := range track.fft {
-				track.fft[i] = 0
-			}
-		}
+// UpdateAnalysis refreshes the FFT and level data and returns the beat boost
+// in the same audio-thread transaction.
+func (track *TrackBass) UpdateAnalysis() float64 {
+	if track == nil {
+		return 0
+	}
 
-		toPeak := 0.0
-		beatAv := 0.0
-		for i, value := range track.fft {
-			h := math.Abs(float64(value))
-			toPeak = max(toPeak, h)
-			if i > 0 && i < 5 {
-				beatAv = max(beatAv, float64(value))
-			}
-		}
-
-		boost := 0.0
-		for i := 0; i < 10; i++ {
-			boost += float64(track.fft[i]*track.fft[i]) * float64(10-i) / float64(10)
-		}
-
-		track.lowMax = beatAv
-		track.boost = boost
-		track.peak = toPeak
-
-		level := 0
-		if track.playing {
-			if track.addedToMixer {
-				level = int(C.BASS_Mixer_ChannelGetLevel(track.channel))
-			} else {
-				level = int(C.BASS_ChannelGetLevel(track.channel))
-			}
-		}
-
-		left := level & 65535
-		right := level >> 16
-		track.leftChannel = float64(left) / 32768
-		track.rightChannel = float64(right) / 32768
+	return runOnAudioThreadResult(func() float64 {
+		track.updateAnalysisInternal()
+		return track.boost
 	})
+}
+
+func (track *TrackBass) updateAnalysisInternal() {
+	if track.channel == 0 || track.closed {
+		return
+	}
+
+	if track.playing {
+		if track.addedToMixer {
+			C.BASS_Mixer_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
+		} else {
+			C.BASS_ChannelGetData(track.channel, unsafe.Pointer(&track.fft[0]), C.BASS_DATA_FFT1024)
+		}
+	} else {
+		for i := range track.fft {
+			track.fft[i] = 0
+		}
+	}
+
+	toPeak := 0.0
+	beatAv := 0.0
+	for i, value := range track.fft {
+		h := math.Abs(float64(value))
+		toPeak = max(toPeak, h)
+		if i > 0 && i < 5 {
+			beatAv = max(beatAv, float64(value))
+		}
+	}
+
+	boost := 0.0
+	for i := 0; i < 10; i++ {
+		boost += float64(track.fft[i]*track.fft[i]) * float64(10-i) / float64(10)
+	}
+
+	track.lowMax = beatAv
+	track.boost = boost
+	track.peak = toPeak
+
+	level := 0
+	if track.playing {
+		if track.addedToMixer {
+			level = int(C.BASS_Mixer_ChannelGetLevel(track.channel))
+		} else {
+			level = int(C.BASS_ChannelGetLevel(track.channel))
+		}
+	}
+
+	left := level & 65535
+	right := level >> 16
+	track.leftChannel = float64(left) / 32768
+	track.rightChannel = float64(right) / 32768
 }
 
 func (track *TrackBass) GetFFT() []float32 {

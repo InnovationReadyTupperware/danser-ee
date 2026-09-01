@@ -16,7 +16,7 @@ import (
 // reason about. Offline rendering also relies on the same guarantee before it
 // asks the mixer for the next output block.
 type audioExecutor struct {
-	commands chan func()
+	commands chan *audioCommand
 	stop     chan struct{}
 	done     chan struct{}
 	ready    chan struct{}
@@ -24,6 +24,17 @@ type audioExecutor struct {
 	lifecycleMu sync.Mutex
 	stopping    bool
 	submissions sync.WaitGroup
+}
+
+type audioCommand struct {
+	fn   func()
+	done chan struct{}
+}
+
+var audioCommandPool = sync.Pool{
+	New: func() any {
+		return &audioCommand{done: make(chan struct{}, 1)}
+	},
 }
 
 var (
@@ -40,7 +51,7 @@ func startExecutor() {
 	}
 
 	e := &audioExecutor{
-		commands: make(chan func()),
+		commands: make(chan *audioCommand),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 		ready:    make(chan struct{}),
@@ -58,7 +69,7 @@ func startExecutor() {
 		for {
 			select {
 			case command := <-e.commands:
-				command()
+				runAudioCommand(command)
 			case <-e.stop:
 				return
 			}
@@ -66,6 +77,11 @@ func startExecutor() {
 	}()
 
 	<-e.ready
+}
+
+func runAudioCommand(command *audioCommand) {
+	defer func() { command.done <- struct{}{} }()
+	command.fn()
 }
 
 func stopExecutor() {
@@ -122,12 +138,12 @@ func runOnAudioThread(fn func()) {
 	e.lifecycleMu.Unlock()
 	defer e.submissions.Done()
 
-	done := make(chan struct{})
-	e.commands <- func() {
-		defer close(done)
-		fn()
-	}
-	<-done
+	command := audioCommandPool.Get().(*audioCommand)
+	command.fn = fn
+	e.commands <- command
+	<-command.done
+	command.fn = nil
+	audioCommandPool.Put(command)
 }
 
 func runOnAudioThreadResult[T any](fn func() T) T {
