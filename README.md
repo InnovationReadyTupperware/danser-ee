@@ -111,7 +111,7 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Lazer's combo color normalization |                     ✅ HSPA perceived-brightness control                      |                   -                   |
 | Lazer's hit animation toggle      |                      ✅ configurable; enabled by default                      |            fixed animation            |
 | Slider judgment granularity       |                per-event head, tick, repeat, and tail results                 | approximate slider tick/tail handling |
-| Slider miss judgment markers      |                red/gray X markers, skin-aware and configurable                |                   -                   |
+| Slider miss-result presentation   |              `slidertickmiss` / `sliderendmiss` skin components               |                   -                   |
 | Slider visual timing              |                        fractional end-time evaluation                         |            integer timing             |
 | Slider snaking                    |                           frame-computed, seek-safe                           |         pre-scheduled gliders         |
 | Slider hit animations             |                          configurable, on by default                          |                   -                   |
