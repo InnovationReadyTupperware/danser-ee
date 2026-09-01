@@ -51,6 +51,47 @@ type drainPeriod struct {
 	start, end int64
 }
 
+// drainedDuration counts only active drain periods, including periods crossed
+// by one large update. This keeps seeks and delayed frames from losing drain
+// while still excluding time before gameplay and during breaks.
+func drainedDuration(periods []drainPeriod, from, to int64) int64 {
+	if to <= from {
+		return 0
+	}
+
+	var duration int64
+	for _, period := range periods {
+		start := max(from, period.start)
+		end := min(to, period.end)
+		if end > start {
+			duration += end - start
+		}
+	}
+
+	return duration
+}
+
+// healthObjectEndTime keeps the health timeline aligned with the participant's
+// gameplay provenance. Lazer's non-classic health path uses the fractional
+// slider duration, while ClassicHealth intentionally retains Stable timing.
+func healthObjectEndTime(object objects.IHitObject, player *difficultyPlayer) float64 {
+	if player != nil && player.diff != nil && player.diff.IsLazer() && !player.classicHealth {
+		return objects.GetEndTimeForDiff(object, player.diff)
+	}
+
+	return object.GetEndTime()
+}
+
+// ignoresPathologicalSliderDetails applies the cursor-dance fallback to the
+// CL health path. Generated cursors collapse pathological sliders to their
+// head target, so their unreachable nested events must not drain health.
+func (hp *HealthProcessor) ignoresPathologicalSliderDetails(slider *objects.Slider) bool {
+	return hp.player != nil && hp.player.cursor != nil &&
+		hp.player.cursor.IsCursorDance && hp.player.diff != nil &&
+		hp.player.diff.IsLazer() && hp.player.classicHealth &&
+		slider != nil && slider.IsPathological()
+}
+
 type HealthProcessor struct {
 	beatMap *beatmap.BeatMap
 	player  *difficultyPlayer
@@ -115,7 +156,7 @@ func (hp *HealthProcessor) calculateDrainPeriods() {
 			}
 		}
 
-		lastDrainEnd = int64(o.GetEndTime())
+		lastDrainEnd = int64(healthObjectEndTime(o, hp.player))
 	}
 
 	hp.drains = append(hp.drains, drainPeriod{lastDrainStart, lastDrainEnd})
@@ -166,7 +207,7 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 
 			hp.Increase(-hp.PassiveDrain*(o.GetStartTime()-float64(lastTime+breakTime)), false)
 
-			lastTime = int64(o.GetEndTime())
+			lastTime = int64(healthObjectEndTime(o, hp.player))
 
 			lowestHp = min(lowestHp, hp.health)
 
@@ -177,7 +218,7 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 				break
 			}
 
-			decr := hp.PassiveDrain * (o.GetEndTime() - o.GetStartTime())
+			decr := hp.PassiveDrain * (healthObjectEndTime(o, hp.player) - o.GetStartTime())
 			hpUnder := min(0, hp.health-decr)
 
 			hp.Increase(-decr, false)
@@ -185,10 +226,14 @@ func (hp *HealthProcessor) CalculateRate() { //nolint:gocyclo
 			lazerSkipScore := false
 
 			if s, ok := o.(*objects.Slider); ok {
-				if hp.player.diff.IsLazer() {
-					// The legacy processor is also used by CL's ClassicHealth
-					// setting. Feed it the same explicit Lazer event sequence as
-					// runtime judgment, while retaining stable's calculation below.
+				if hp.ignoresPathologicalSliderDetails(s) {
+					// Cursor dance represents this authored slider with its head
+					// only. Keep the parent result below, but do not model
+					// unreachable nested events in the ideal health schedule.
+				} else if hp.player.diff.IsLazer() && !hp.player.classicHealth {
+					// Keep the fallback Lazer schedule for direct users of the
+					// legacy processor. Production Lazer gameplay with Classic's
+					// ClassicHealth setting uses the stable-compatible schedule below.
 					lazerSkipScore = true
 
 					headResult := Hit300
@@ -275,6 +320,12 @@ func (hp *HealthProcessor) ResetHp() {
 }
 
 func (hp *HealthProcessor) AddResult(result JudgementResult) {
+	if result.IsSliderNested() && result.object != nil {
+		if slider, ok := result.object.GetObject().(*objects.Slider); ok && hp.ignoresPathologicalSliderDetails(slider) {
+			return
+		}
+	}
+
 	hp.addResultWithPart(result.HitResult, result.sliderPart)
 }
 
@@ -365,15 +416,6 @@ func (hp *HealthProcessor) reducePassive(amount int64) {
 }
 
 func (hp *HealthProcessor) Update(time int64) {
-	drainTime := false
-
-	for _, d := range hp.drains {
-		if d.start <= time && d.end >= time {
-			drainTime = true
-			break
-		}
-	}
-
 	hp.spinnerActive = false
 	for _, d := range hp.spinners {
 		if d.GetStartTime() > float64(time) {
@@ -386,8 +428,8 @@ func (hp *HealthProcessor) Update(time int64) {
 		}
 	}
 
-	if drainTime && time > hp.lastTime {
-		hp.reducePassive(time - hp.lastTime)
+	if time > hp.lastTime {
+		hp.reducePassive(drainedDuration(hp.drains, hp.lastTime, time))
 	}
 
 	hp.lastTime = time

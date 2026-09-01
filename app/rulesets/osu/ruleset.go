@@ -107,10 +107,14 @@ type subSet struct {
 
 	ppv2 api.IPerformanceCalculator
 
-	recoveries  int
-	failed      bool
-	sdpfFail    bool
-	replayEnded bool
+	recoveries int
+	// failureRecorded is the score/health failure latch. It is separate from
+	// failed because generated knockout participants keep playing after their
+	// score becomes F.
+	failureRecorded bool
+	failed          bool
+	sdpfFail        bool
+	replayEnded     bool
 
 	potentialCombo int
 }
@@ -124,9 +128,9 @@ type endListener func(time int64, number int64)
 type failListener func(cursor *graphics.Cursor)
 
 // FailurePolicy controls how a cursor's health failure is routed. It is
-// deliberately separate from mod-specific failure overrides: a generated
-// participant can be delegated to a knockout overlay while a replay-backed
-// participant in a knockout remains locally failure-immune.
+// deliberately separate from mod-specific failure overrides: generated
+// participants can record F while continuing, while replay-backed
+// participants in a knockout remain locally failure-immune.
 type FailurePolicy uint8
 
 const (
@@ -140,6 +144,10 @@ const (
 	// FailurePolicyDelegate sends the failure to the per-participant handler.
 	// The handler decides whether the failure was accepted.
 	FailurePolicyDelegate
+
+	// FailurePolicyContinue records the failure in the score but keeps the
+	// participant active without invoking failure presentation callbacks.
+	FailurePolicyContinue
 )
 
 type failHandler func(cursor *graphics.Cursor) bool
@@ -251,13 +259,7 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 
 		log.Println(fmt.Sprintf("Calculating HP rates for \"%s\"...", cursor.Name))
 
-		var hp IHealthProcessor
-
-		if diff.IsLazer() && !player.classicHealth {
-			hp = NewHealthProcessorV2(beatMap, player)
-		} else {
-			hp = NewHealthProcessor(beatMap, player, !cursor.OldSpinnerScoring)
-		}
+		hp := newHealthProcessor(beatMap, player, !cursor.OldSpinnerScoring)
 
 		hp.CalculateRate()
 		hp.ResetHp()
@@ -327,6 +329,14 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 	}
 
 	return ruleset
+}
+
+func newHealthProcessor(beatMap *beatmap.BeatMap, player *difficultyPlayer, lowerSpinnerDrain bool) IHealthProcessor {
+	if player.diff.IsLazer() && !player.classicHealth {
+		return NewHealthProcessorV2(beatMap, player)
+	}
+
+	return NewHealthProcessor(beatMap, player, lowerSpinnerDrain)
 }
 
 func (set *OsuRuleSet) Update(time int64) {
@@ -831,7 +841,19 @@ func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 	}
 
 	// actual fail
-	if subSet.failed {
+	if subSet.failed || subSet.failureRecorded {
+		return
+	}
+
+	// Lazer keeps a failed score at F even when its surrounding mode continues
+	// applying judgements. Mark the score before callbacks so a rejected
+	// delegated failure cannot lose its rank.
+	subSet.failureRecorded = true
+	if subSet.score != nil {
+		subSet.score.Grade = F
+	}
+
+	if player.failurePolicy == FailurePolicyContinue {
 		return
 	}
 

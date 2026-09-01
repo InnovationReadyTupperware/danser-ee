@@ -18,7 +18,10 @@ func newFailurePolicyTestRuleset(t *testing.T) (*OsuRuleSet, *difficultyPlayer, 
 		cursor: cursor,
 		diff:   difficulty.NewDifficulty(5, 5, 5, 5),
 	}
-	subset := &subSet{player: player}
+	subset := &subSet{
+		player: player,
+		score:  &Score{Accuracy: 1},
+	}
 	ruleset := &OsuRuleSet{
 		cursors: map[*graphics.Cursor]*subSet{
 			cursor: subset,
@@ -63,6 +66,43 @@ func TestFailurePolicySuppressKeepsParticipantActive(t *testing.T) {
 	}
 }
 
+func TestFailurePolicyContinueRecordsFailedRankAndKeepsParticipantActive(t *testing.T) {
+	ruleset, player, subSet := newFailurePolicyTestRuleset(t)
+	normalNotified := 0
+	delegated := 0
+
+	player.failurePolicy = FailurePolicyContinue
+	ruleset.SetFailListener(func(cursor *graphics.Cursor) {
+		normalNotified++
+	})
+	ruleset.SetPlayerFailHandler(func(cursor *graphics.Cursor) bool {
+		delegated++
+		return true
+	})
+
+	ruleset.failInternal(player)
+	ruleset.failInternal(player)
+
+	if subSet.score.Grade != F {
+		t.Fatalf("continued failure grade = %v, want F", subSet.score.Grade)
+	}
+	if subSet.failed {
+		t.Fatal("continued failure eliminated the participant")
+	}
+	if !subSet.failureRecorded {
+		t.Fatal("continued failure was not latched")
+	}
+	if normalNotified != 0 || delegated != 0 {
+		t.Fatalf("continued failure callbacks = (normal %d, delegated %d), want (0, 0)", normalNotified, delegated)
+	}
+
+	subSet.score.AddResult(JudgementResult{HitResult: Hit300, MaxResult: Hit300})
+	subSet.score.CalculateGrade(player.diff.GetGameplayMode(), player.diff.Mods)
+	if subSet.score.Grade != F {
+		t.Fatalf("continued failure grade after later judgement = %v, want F", subSet.score.Grade)
+	}
+}
+
 func TestFailurePolicyDelegateHonorsHandlerDecision(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -97,6 +137,9 @@ func TestFailurePolicyDelegateHonorsHandlerDecision(t *testing.T) {
 			}
 			if subSet.failed != tt.wantFailed {
 				t.Fatalf("participant failed = %t, want %t", subSet.failed, tt.wantFailed)
+			}
+			if subSet.score.Grade != F {
+				t.Fatalf("delegated failure grade = %v, want F", subSet.score.Grade)
 			}
 		})
 	}

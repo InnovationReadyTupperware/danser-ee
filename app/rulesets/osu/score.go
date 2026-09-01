@@ -87,6 +87,12 @@ func (s *Score) AddResult(result JudgementResult) {
 }
 
 func (s *Score) CalculateGrade(mode difficulty.GameplayMode, mods difficulty.Modifier) {
+	// F is a terminal grade, not a terminal score state. AddResult and PP
+	// calculation continue through SendResult after a generated failure.
+	if s.Grade == F {
+		return
+	}
+
 	var baseGrade Grade
 
 	if mode.IsLazer() {

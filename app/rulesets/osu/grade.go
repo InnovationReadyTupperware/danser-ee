@@ -12,6 +12,9 @@ const (
 	SH
 	SS
 	SSH
+	// F is kept outside the normal grade sequence so adding it does not change
+	// the numeric values used by existing callers.
+	F Grade = 255
 )
 
 func (grade Grade) String() string {
@@ -32,6 +35,8 @@ func (grade Grade) String() string {
 		return "SS"
 	case SSH:
 		return "SSH"
+	case F:
+		return "F"
 	case NONE:
 		return "None"
 	default:
@@ -57,6 +62,8 @@ func (grade Grade) TextureName() string {
 		return "x"
 	case SSH:
 		return "xh"
+	case F:
+		return "f"
 	case NONE:
 		return "none"
 	default:

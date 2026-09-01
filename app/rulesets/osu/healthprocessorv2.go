@@ -63,7 +63,7 @@ func (hp *HealthProcessorV2) calculateDrainPeriods() {
 			}
 		}
 
-		lastDrainEnd = int64(o.GetEndTime())
+		lastDrainEnd = int64(healthObjectEndTime(o, hp.player))
 	}
 
 	hp.drains = append(hp.drains, drainPeriod{lastDrainStart, lastDrainEnd})
@@ -110,7 +110,7 @@ func (hp *HealthProcessorV2) CalculateRate() { //nolint:gocyclo
 
 			if hp.player.classicNoSliderHeadAccuracy {
 				healthIncreases = append(healthIncreases, healthIncrease{
-					time:     s.GetEndTime(),
+					time:     healthObjectEndTime(s, hp.player),
 					increase: hp.getHPResult(Hit300),
 				})
 			}
@@ -291,17 +291,8 @@ func (hp *HealthProcessorV2) IncreaseRelative(amount float64, fromHitObject bool
 }
 
 func (hp *HealthProcessorV2) Update(time int64) {
-	drainTime := false
-
-	for _, d := range hp.drains {
-		if d.start <= time && d.end >= time {
-			drainTime = true
-			break
-		}
-	}
-
-	if drainTime && time > hp.lastTime {
-		hp.Increase(-hp.passiveDrain*float64(time-hp.lastTime), false)
+	if time > hp.lastTime {
+		hp.Increase(-hp.passiveDrain*float64(drainedDuration(hp.drains, hp.lastTime, time)), false)
 	}
 
 	hp.lastTime = time

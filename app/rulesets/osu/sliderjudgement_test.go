@@ -137,12 +137,15 @@ func TestSliderJudgementResultParts(t *testing.T) {
 		part    sliderJudgementPart
 		isHead  bool
 		nested  bool
+		tick    bool
+		repeat  bool
+		tail    bool
 		summary bool
 	}{
 		{name: "head", part: sliderPartHead, isHead: true},
-		{name: "tick", part: sliderPartTick, nested: true},
-		{name: "repeat", part: sliderPartRepeat, nested: true},
-		{name: "tail", part: sliderPartTail, nested: true},
+		{name: "tick", part: sliderPartTick, nested: true, tick: true},
+		{name: "repeat", part: sliderPartRepeat, nested: true, repeat: true},
+		{name: "tail", part: sliderPartTail, nested: true, tail: true},
 		{name: "summary", part: sliderPartSummary, summary: true},
 	}
 
@@ -154,6 +157,15 @@ func TestSliderJudgementResultParts(t *testing.T) {
 			}
 			if result.IsSliderNested() != tt.nested {
 				t.Fatalf("IsSliderNested() = %t, want %t", result.IsSliderNested(), tt.nested)
+			}
+			if result.IsSliderTick() != tt.tick {
+				t.Fatalf("IsSliderTick() = %t, want %t", result.IsSliderTick(), tt.tick)
+			}
+			if result.IsSliderRepeat() != tt.repeat {
+				t.Fatalf("IsSliderRepeat() = %t, want %t", result.IsSliderRepeat(), tt.repeat)
+			}
+			if result.IsSliderTail() != tt.tail {
+				t.Fatalf("IsSliderTail() = %t, want %t", result.IsSliderTail(), tt.tail)
 			}
 			if result.IsSliderSummary() != tt.summary {
 				t.Fatalf("IsSliderSummary() = %t, want %t", result.IsSliderSummary(), tt.summary)

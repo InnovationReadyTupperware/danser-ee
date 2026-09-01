@@ -270,6 +270,21 @@ func (result JudgementResult) IsSliderNested() bool {
 	return result.sliderPart >= sliderPartTick && result.sliderPart <= sliderPartTail
 }
 
+// IsSliderTick reports whether this result belongs to a slider tick.
+func (result JudgementResult) IsSliderTick() bool {
+	return result.sliderPart == sliderPartTick
+}
+
+// IsSliderRepeat reports whether this result belongs to a slider repeat.
+func (result JudgementResult) IsSliderRepeat() bool {
+	return result.sliderPart == sliderPartRepeat
+}
+
+// IsSliderTail reports whether this result belongs to a slider tail.
+func (result JudgementResult) IsSliderTail() bool {
+	return result.sliderPart == sliderPartTail
+}
+
 // IsSliderSummary reports whether this is the final Classic slider collapse
 // result, rather than one of the nested slider events.
 func (result JudgementResult) IsSliderSummary() bool {
