@@ -133,7 +133,7 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Cursor-dance spinner RPM policy |  map-scaled target; OD 11 default ceiling  |  fixed autoplay RPM   |
 | Spinner shape movement          |        shared phase and polar paths        |    shape-specific     |
 | Spinner RPM display             |          Lazer trailing RPM meter          | legacy filtered rate  |
-| Cursor-dance RPM stability      |         settles to captured target         |           -           |
+| Cursor-dance RPM stability      | duration-aware ramp toward captured target |           -           |
 | Stable spinner replay behavior  |          preserved under Classic           |           -           |
 
 ### Audio and recording

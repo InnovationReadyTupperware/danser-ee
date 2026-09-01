@@ -116,7 +116,7 @@ func (spinner *Spinner) SetTiming(timings *Timings, _ int, _ bool) {
 func (spinner *Spinner) SetDifficulty(diff *difficulty.Difficulty) {
 	spinner.diff = diff
 	spinner.autoplayRPM = difficulty.SpinnerAutoplayRPM(diff, spinAtLowestRPMEnabled())
-	spinner.rpmRamp.Reset()
+	spinner.rpmRamp.Configure(spinner.StartTime, spinner.EndTime)
 
 	spinner.ScaledHeight = 768
 	spinner.ScaledWidth = settings.Graphics.GetAspectRatio() * spinner.ScaledHeight

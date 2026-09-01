@@ -115,16 +115,32 @@ func (meter *SpinnerRPMMeter) compact() {
 // SpinnerRPMRamp supplies the cursor-dance-only entrance animation. The
 // target is known exactly for generated movement, but the value still eases
 // in so the HUD does not jump from zero to the target on the first spinner
-// frame. Once the value is close enough to affect no displayed integer, it is
-// snapped to the exact target so float32 cursor geometry cannot reintroduce
-// a 249/250-style boundary oscillation.
+// frame. Configure binds the ramp to a spinner timeline so short spinners can
+// reach the target's neighborhood without a short-versus-long threshold.
+// A zero-value ramp retains the original nominal-frame behavior for callers
+// which do not provide a timeline.
 type SpinnerRPMRamp struct {
 	value    float64
 	lastTime float64
 	hasTime  bool
+
+	startTime  float64
+	endTime    float64
+	configured bool
 }
 
-// Reset returns the ramp to its zero-rate startup state.
+// Configure binds the ramp to a spinner timeline and resets its current rate.
+// The timeline is retained across Reset calls so a seek can recompute the
+// display value from the absolute spinner position.
+func (ramp *SpinnerRPMRamp) Configure(startTime, endTime float64) {
+	ramp.startTime = startTime
+	ramp.endTime = endTime
+	ramp.configured = true
+	ramp.Reset()
+}
+
+// Reset returns the ramp to its zero-rate startup state while retaining any
+// timeline supplied by Configure.
 func (ramp *SpinnerRPMRamp) Reset() {
 	ramp.value = 0
 	ramp.lastTime = 0
@@ -132,9 +148,10 @@ func (ramp *SpinnerRPMRamp) Reset() {
 }
 
 // Update advances the ramp toward targetRPM and returns its display value.
-// The first sample establishes the timeline and returns zero. A backwards
-// timestamp also resets the ramp, matching the seek behavior of
-// SpinnerRPMMeter.
+// A configured ramp evaluates the absolute spinner timeline. An unconfigured
+// ramp establishes its timeline from the first sample for compatibility. A
+// backwards timestamp resets cached state, matching SpinnerRPMMeter's seek
+// behavior.
 func (ramp *SpinnerRPMRamp) Update(currentTime, targetRPM float64) float64 {
 	if !isFiniteSpinnerRateValue(currentTime) || targetRPM <= 0 || !isFiniteSpinnerRateValue(targetRPM) {
 		ramp.Reset()
@@ -147,6 +164,13 @@ func (ramp *SpinnerRPMRamp) Update(currentTime, targetRPM float64) float64 {
 		} else if currentTime == ramp.lastTime {
 			return ramp.value
 		}
+	}
+
+	if ramp.configured {
+		ramp.value = spinnerRPMRampValue(currentTime, ramp.startTime, ramp.endTime, targetRPM)
+		ramp.lastTime = currentTime
+		ramp.hasTime = true
+		return ramp.value
 	}
 
 	if !ramp.hasTime {
@@ -170,6 +194,51 @@ func (ramp *SpinnerRPMRamp) Update(currentTime, targetRPM float64) float64 {
 
 	ramp.lastTime = currentTime
 	return ramp.value
+}
+
+func spinnerRPMRampValue(currentTime, startTime, endTime, targetRPM float64) float64 {
+	if !isFiniteSpinnerRateValue(currentTime) || targetRPM <= 0 || !isFiniteSpinnerRateValue(targetRPM) {
+		return 0
+	}
+	if !isFiniteSpinnerRateValue(startTime) || !isFiniteSpinnerRateValue(endTime) {
+		return 0
+	}
+
+	duration := endTime - startTime
+	if !isFiniteSpinnerRateValue(duration) || duration <= 0 || currentTime <= startTime {
+		return 0
+	}
+
+	progress := 1.0
+	if currentTime < endTime {
+		progress = (currentTime - startTime) / duration
+	}
+	progress = max(0.0, min(progress, 1.0))
+
+	// This is a smooth, monotone ease-out. Its first derivative starts at one
+	// and both its first and second derivatives end at zero, so holding the
+	// soft cap after EndTime does not introduce a visible velocity kink.
+	progressSquared := progress * progress
+	progressCubed := progressSquared * progress
+	progressFourth := progressCubed * progress
+	progressFifth := progressFourth * progress
+	easedProgress := progress + 4*progressCubed - 7*progressFourth + 3*progressFifth
+	easedProgress = max(0.0, min(easedProgress, 1.0))
+
+	rampRate := -math.Log(spinnerRPMRampDecayPerFrame) / nominalSpinnerFrameMilliseconds
+	naturalSettle := max(0.0, (math.Log(targetRPM)-math.Log(spinnerRPMSettledTolerance))/rampRate)
+	effectiveHorizon := math.Hypot(naturalSettle, duration)
+
+	// Expm1 preserves useful precision while the ramp is close to zero. The
+	// smooth horizon is at least the natural settling time, so a positive
+	// duration always finishes within the existing settling tolerance without
+	// explicitly snapping to targetRPM.
+	value := -targetRPM * math.Expm1(-rampRate*effectiveHorizon*easedProgress)
+	if !isFiniteSpinnerRateValue(value) || value < 0 {
+		return 0
+	}
+
+	return min(value, targetRPM)
 }
 
 func isFiniteSpinnerRateValue(value float64) bool {

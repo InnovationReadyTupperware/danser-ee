@@ -95,13 +95,15 @@ func (spinner *Spinner) Init(ruleSet *OsuRuleSet, object objects.IHitObject, pla
 	spinner.fadeStartRelative = 100000
 
 	for _, player := range spinner.players {
-		spinner.state[player] = new(spinnerState)
+		state := new(spinnerState)
+		state.cursorDanceRPMRamp.Configure(rSpinner.GetStartTime(), rSpinner.GetEndTime())
+		spinner.state[player] = state
 		spinner.fadeStartRelative = min(spinner.fadeStartRelative, player.diff.Preempt)
-		spinner.state[player].frameVariance = FrameTime
+		state.frameVariance = FrameTime
 
 		requirements := calculateSpinnerRequirements(player.diff, rSpinner.GetStartTime(), rSpinner.GetEndTime())
-		spinner.state[player].requirement = requirements.required
-		spinner.state[player].maximumBonusSpins = requirements.maximumBonus
+		state.requirement = requirements.required
+		state.maximumBonusSpins = requirements.maximumBonus
 	}
 
 	spinner.maxAcceleration = 0.00008 + max(0, (5000-float64(spinnerTime))/1000/2000)
