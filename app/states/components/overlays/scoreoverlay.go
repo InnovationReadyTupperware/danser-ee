@@ -102,6 +102,7 @@ type ScoreOverlay struct {
 
 	rankBack  *sprite.Sprite
 	rankFront *sprite.Sprite
+	rankGrade osu.Grade
 
 	oldGrade osu.Grade
 
@@ -386,7 +387,7 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 	object := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number]
 	presentJudgement := !judgementResult.IsCatchUp()
 
-	if presentJudgement && (judgementResult.HitResult&(osu.BaseHitsM) > 0 || judgementResult.IsSliderNested() || judgementResult.IsSliderHead()) {
+	if presentJudgement {
 		overlay.results.AddJudgmentResult(judgementResult, object)
 	}
 
@@ -446,13 +447,11 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 
 	if overlay.oldGrade != sc.Grade {
 		goroutines.Run(func() {
-			var tex *texture.TextureRegion
-			if sc.Grade != osu.NONE {
-				tex = skin.GetTexture("ranking-" + sc.Grade.TextureName() + "-small")
-			}
+			tex := play.GetGradeTexture(sc.Grade, true)
 
 			overlay.rankBack.Texture = tex
 			overlay.rankFront.Texture = tex
+			overlay.rankGrade = sc.Grade
 
 			overlay.oldGrade = sc.Grade
 		})
@@ -878,13 +877,35 @@ func (overlay *ScoreOverlay) drawScore(batch *batch.QuadBatch, alpha float64) {
 	batch.ResetTransform()
 	batch.SetTranslation(vector.NewVec2d(accOffset+xOff, accYPos+accSize/2+yOff))
 	batch.SetScale(scoreScale*0.8, scoreScale*0.8)
+	gradeScale := batch.GetScale()
 
 	if !settings.Gameplay.Score.ShowGradeAlways {
-		overlay.rankBack.Draw(overlay.audioTime, batch)
-		overlay.rankFront.Draw(overlay.audioTime, batch)
+		if overlay.rankBack.Texture != nil {
+			overlay.rankBack.Draw(overlay.audioTime, batch)
+			overlay.rankFront.Draw(overlay.audioTime, batch)
+		} else {
+			overlay.drawRankFallback(batch, scoreAlpha, gradeScale, overlay.rankBack)
+			overlay.drawRankFallback(batch, scoreAlpha, gradeScale, overlay.rankFront)
+		}
 	} else if overlay.rankBack.Texture != nil {
 		batch.DrawTexture(*overlay.rankBack.Texture)
+	} else {
+		play.DrawGradeText(batch, overlay.keyFont, overlay.rankGrade, vector.NewVec2d(0, 0), 44)
 	}
+
+	batch.SetColor(1, 1, 1, scoreAlpha)
+}
+
+func (overlay *ScoreOverlay) drawRankFallback(batch *batch.QuadBatch, alpha float64, baseScale vector.Vector2d, rank *sprite.Sprite) {
+	rankAlpha := rank.GetAlpha()
+	if rankAlpha < 0.01 {
+		return
+	}
+
+	batch.SetColor(1, 1, 1, alpha*rankAlpha)
+	scale := rank.GetScale().Y
+	batch.SetScale(baseScale.X*scale, baseScale.Y*scale)
+	play.DrawGradeText(batch, overlay.keyFont, overlay.rankGrade, vector.NewVec2d(0, 0), 44)
 }
 
 func (overlay *ScoreOverlay) drawKeys(batch *batch.QuadBatch, alpha float64) {

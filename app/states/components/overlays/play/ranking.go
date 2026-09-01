@@ -56,6 +56,7 @@ type RankingPanel struct {
 	beatmapCreator string
 	playedBy       string
 	gradeS         *sprite.Sprite
+	grade          osu.Grade
 	hpSections     []vector.Vector2d
 	shapeRenderer  *shape.Renderer
 	hpGraph        []vector.Vector2d
@@ -138,7 +139,8 @@ func NewRankingPanel(cursor *graphics.Cursor, ruleset *osu.OsuRuleSet, hitError 
 
 	panel.pp = fmt.Sprintf("%."+strconv.Itoa(settings.Gameplay.PPCounter.Decimals)+"fpp", score.PP.Total)
 
-	panel.gradeS = sprite.NewSpriteSingle(skin.GetTexture("ranking-"+score.Grade.TextureName()), 5, rRPos, vector.Centre)
+	panel.grade = score.Grade
+	panel.gradeS = sprite.NewSpriteSingle(GetGradeTexture(score.Grade, false), 5, rRPos, vector.Centre)
 
 	p := graphics.Pixel.GetRegion()
 	rTop := sprite.NewSpriteSingle(&p, 999, vector.NewVec2d(0, 0), vector.TopLeft)
@@ -267,6 +269,16 @@ func (panel *RankingPanel) Draw(batch *batch.QuadBatch, alpha float64) {
 	batch.ResetTransform()
 
 	panel.manager.Draw(panel.time, batch)
+
+	if panel.gradeS.Texture == nil && panel.grade != osu.NONE {
+		batch.ResetTransform()
+		batch.SetColor(1, 1, 1, alpha)
+		gradeFont := font.GetFont("HUDFont")
+		if gradeFont == nil {
+			gradeFont = font.GetFont("Quicksand Bold")
+		}
+		DrawGradeText(batch, gradeFont, panel.grade, panel.gradeS.GetPosition(), 220)
+	}
 
 	fnt := skin.GetFont("score")
 

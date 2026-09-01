@@ -37,6 +37,14 @@ type sliderJudgmentMarker struct {
 	textureName string
 }
 
+type judgmentPresentationKind uint8
+
+const (
+	judgmentPresentationNone judgmentPresentationKind = iota
+	judgmentPresentationHit
+	judgmentPresentationSliderMarker
+)
+
 func NewHitResults(diff *difficulty.Difficulty) *HitResults {
 	// Preload all frames to avoid stalling during gameplay
 	skin.GetFrames("hit0", true)
@@ -59,10 +67,18 @@ func NewHitResults(diff *difficulty.Difficulty) *HitResults {
 // AddJudgmentResult adds the visual effects associated with a gameplay
 // judgment. Slider-part results are deliberately accepted here as well as
 // ordinary hit results: Lazer exposes missed slider parts as independent
-// judgments, while Stable keeps its historical slider visuals.
+// judgments, and Stable slider misses are mapped to the same legacy markers.
 func (results *HitResults) AddJudgmentResult(judgement osu.JudgementResult, object objects.IHitObject) {
-	results.addHitResult(judgement.Time, judgement.HitResult, judgement.Position.Copy64(), object)
-	results.addSliderJudgmentMarker(judgement)
+	if judgement.IsCatchUp() {
+		return
+	}
+
+	switch classifyJudgment(judgement) {
+	case judgmentPresentationHit:
+		results.addHitResult(judgement.Time, judgement.HitResult, judgement.Position.Copy64(), object)
+	case judgmentPresentationSliderMarker:
+		results.addSliderJudgmentMarker(judgement)
+	}
 }
 
 // AddResult preserves the original hit-result API for callers that do not
@@ -74,8 +90,9 @@ func (results *HitResults) AddResult(time int64, result osu.HitResult, position 
 func (results *HitResults) addHitResult(time int64, result osu.HitResult, position vector.Vector2d, object objects.IHitObject) {
 	var tex string
 	var particle string
+	baseResult := result &^ osu.Additions
 
-	switch result & osu.BaseHitsM {
+	switch baseResult {
 	case osu.Hit300:
 		tex = "hit300"
 		particle = "particle300"
@@ -86,6 +103,8 @@ func (results *HitResults) addHitResult(time int64, result osu.HitResult, positi
 		tex = "hit50"
 		particle = "particle50"
 	case osu.Miss:
+		tex = "hit0"
+	case osu.SliderMiss:
 		tex = "hit0"
 	}
 
@@ -144,19 +163,12 @@ func (results *HitResults) addHitResult(time int64, result osu.HitResult, positi
 	if len(frames) == 1 {
 		if particles {
 			hit.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.Linear, float64(time), fadeOut, 0.9, 1.05))
+		} else if baseResult == osu.Miss || baseResult == osu.SliderMiss {
+			addLegacyMissTransforms(hit, float64(time), fadeIn, fadeOut, position)
 		} else {
 			hit.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.Linear, float64(time), float64(time+difficulty.ResultFadeIn*0.8), 0.6, 1.1))
 			hit.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.Linear, fadeIn, float64(time+difficulty.ResultFadeIn*1.2), 1.1, 0.9))
 			hit.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.Linear, float64(time+difficulty.ResultFadeIn*1.2), float64(time+difficulty.ResultFadeIn*1.4), 0.9, 1.0))
-		}
-
-		if result == osu.Miss {
-			rotation := rand.Float64()*0.3 - 0.15
-
-			hit.AddTransformUnordered(animation.NewSingleTransform(animation.Rotate, easing.Linear, float64(time), fadeIn, 0.0, rotation))
-			hit.AddTransformUnordered(animation.NewSingleTransform(animation.Rotate, easing.Linear, fadeIn, fadeOut, rotation, rotation*2))
-
-			hit.AddTransformUnordered(animation.NewSingleTransform(animation.MoveY, easing.Linear, float64(time), fadeOut, position.Y-5, position.Y+40))
 		}
 	}
 
@@ -166,7 +178,7 @@ func (results *HitResults) addHitResult(time int64, result osu.HitResult, positi
 
 	results.top.Add(hit)
 
-	if !settings.Gameplay.ShowHitLighting || result&osu.BaseHitsM < osu.Hit50 {
+	if !settings.Gameplay.ShowHitLighting || object == nil || baseResult&osu.BaseHits == 0 {
 		return
 	}
 
@@ -180,12 +192,34 @@ func (results *HitResults) addHitResult(time int64, result osu.HitResult, positi
 	results.bottom.Add(lighting)
 }
 
+// addLegacyMissTransforms matches the single-frame miss branch in Lazer's
+// LegacyJudgementPieceOld, including the version-gated drop and rotation.
+func addLegacyMissTransforms(hit *sprite.Animation, startTime, fadeIn, fadeOut float64, position vector.Vector2d) {
+	hit.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.Linear, startTime, startTime, 1.6, 1.6))
+	hit.AddTransformUnordered(animation.NewSingleTransform(animation.Scale, easing.InQuad, startTime, startTime+100, 1.6, 1.0))
+
+	if skin.GetInfo().Version > 1 {
+		hit.AddTransformUnordered(animation.NewSingleTransform(animation.MoveY, easing.Linear, startTime, startTime, position.Y-5, position.Y-5))
+		hit.AddTransformUnordered(animation.NewSingleTransform(animation.MoveY, easing.InQuad, startTime, fadeOut, position.Y-5, position.Y+75))
+	}
+
+	rotation := rand.Float64()*0.3 - 0.15
+	hit.AddTransformUnordered(animation.NewSingleTransform(animation.Rotate, easing.Linear, startTime, startTime, 0, 0))
+	hit.AddTransformUnordered(animation.NewSingleTransform(animation.Rotate, easing.Linear, startTime, fadeIn, 0, rotation))
+	hit.AddTransformUnordered(animation.NewSingleTransform(animation.Rotate, easing.InQuad, fadeIn, fadeOut, rotation, rotation*2))
+}
+
 func (results *HitResults) addSliderJudgmentMarker(judgement osu.JudgementResult) {
-	if results.diff == nil || !results.diff.IsLazer() || !settings.Objects.Sliders.ShowSliderJudgmentMarkers {
+	if results.diff == nil || !settings.Objects.Sliders.ShowSliderJudgmentMarkers {
 		return
 	}
 
-	definition, ok := sliderJudgmentMarkerFor(judgement.HitResult, judgement.IsSliderNested(), judgement.IsSliderHead())
+	definition, ok := sliderJudgmentMarkerForPart(
+		judgement.HitResult,
+		judgement.IsSliderNested(),
+		judgement.IsSliderHead(),
+		judgement.IsSliderTail(),
+	)
 	if !ok {
 		return
 	}
@@ -204,7 +238,7 @@ func (results *HitResults) addSliderJudgmentMarker(judgement osu.JudgementResult
 	// animation reaches the correct X here through the normal skin hierarchy.
 	marker := sprite.NewAnimation(
 		frames,
-		skin.GetInfo().GetFrameTime(max(1, len(frames))),
+		1000.0/60,
 		false,
 		startTime+1,
 		position,
@@ -218,6 +252,32 @@ func (results *HitResults) addSliderJudgmentMarker(judgement osu.JudgementResult
 	marker.ResetValuesToTransforms()
 
 	results.top.Add(marker)
+}
+
+// classifyJudgment keeps ordinary result popups separate from slider-part
+// markers. Nested slider hits and markerless miss results must not become
+// duplicate ordinary hit popups.
+func classifyJudgment(judgement osu.JudgementResult) judgmentPresentationKind {
+	if _, ok := sliderJudgmentMarkerForPart(
+		judgement.HitResult,
+		judgement.IsSliderNested(),
+		judgement.IsSliderHead(),
+		judgement.IsSliderTail(),
+	); ok {
+		return judgmentPresentationSliderMarker
+	}
+
+	baseResult := judgement.HitResult &^ osu.Additions
+	switch baseResult {
+	case osu.Hit50, osu.Hit100, osu.Hit300, osu.Miss:
+		return judgmentPresentationHit
+	case osu.SliderMiss:
+		if !judgement.IsSliderNested() || judgement.IsSliderHead() {
+			return judgmentPresentationHit
+		}
+	}
+
+	return judgmentPresentationNone
 }
 
 func addLegacySliderJudgmentMarkerTransforms(marker sprite.ISprite, startTime float64, frameCount int) {
@@ -264,6 +324,10 @@ func addLegacySliderJudgmentMarkerTransforms(marker sprite.ISprite, startTime fl
 }
 
 func sliderJudgmentMarkerFor(result osu.HitResult, nested, head bool) (sliderJudgmentMarker, bool) {
+	return sliderJudgmentMarkerForPart(result, nested, head, false)
+}
+
+func sliderJudgmentMarkerForPart(result osu.HitResult, nested, head, tail bool) (sliderJudgmentMarker, bool) {
 	if !nested && !head {
 		return sliderJudgmentMarker{}, false
 	}
@@ -285,6 +349,20 @@ func sliderJudgmentMarkerFor(result osu.HitResult, nested, head bool) (sliderJud
 		return sliderJudgmentMarker{
 			textureName: "sliderendmiss",
 		}, true
+	case osu.SliderMiss:
+		if !nested {
+			return sliderJudgmentMarker{}, false
+		}
+
+		if tail {
+			return sliderJudgmentMarker{
+				textureName: "sliderendmiss",
+			}, true
+		}
+
+		return sliderJudgmentMarker{
+			textureName: "slidertickmiss",
+		}, true
 	default:
 		return sliderJudgmentMarker{}, false
 	}
@@ -297,7 +375,23 @@ func (results *HitResults) Update(time float64) {
 }
 
 func (results *HitResults) DrawBottom(batch *batch.QuadBatch, c []color2.Color, alpha float64) {
-	results.color = c[0]
+	results.alpha = alpha
+	if len(c) == 0 {
+		return
+	}
+
+	results.DrawBottomWithColor(batch, c[0], alpha)
+}
+
+// DrawBottomWithColor draws the lower layer for one participant. Knockout
+// uses one presenter per replay, so each participant must retain its own hit
+// lighting color instead of sharing the first overlay color.
+func (results *HitResults) DrawBottomWithColor(batch *batch.QuadBatch, c color2.Color, alpha float64) {
+	if results.diff == nil {
+		return
+	}
+
+	results.color = c
 	results.alpha = alpha
 
 	batch.ResetTransform()
@@ -312,6 +406,10 @@ func (results *HitResults) DrawBottom(batch *batch.QuadBatch, c []color2.Color, 
 }
 
 func (results *HitResults) DrawTop(batch *batch.QuadBatch, _ float64) {
+	if results.diff == nil {
+		return
+	}
+
 	batch.ResetTransform()
 	batch.SetColor(1, 1, 1, results.alpha)
 

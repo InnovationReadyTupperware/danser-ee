@@ -17,6 +17,7 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/app/skin"
 	"github.com/innovationreadytupperware/danser-ee/app/states/components/common"
+	"github.com/innovationreadytupperware/danser-ee/app/states/components/overlays/play"
 	"github.com/innovationreadytupperware/danser-ee/app/utils"
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
 	"github.com/innovationreadytupperware/danser-ee/framework/bass"
@@ -116,6 +117,7 @@ type KnockoutOverlay struct {
 	players      map[string]*knockoutPlayer
 	playersArray []*knockoutPlayer
 	deathBubbles []*bubble
+	results      []*play.HitResults
 	names        map[*graphics.Cursor]string
 	generator    *rand.Rand
 
@@ -160,6 +162,10 @@ func NewKnockoutOverlay(controller dance.KnockoutController) *KnockoutOverlay {
 	overlay.ScaledWidth = overlay.ScaledHeight * settings.Graphics.GetAspectRatio()
 
 	overlay.fade = animation.NewGlider(1)
+	overlay.results = make([]*play.HitResults, len(controller.GetCursors()))
+	for i, cursor := range controller.GetCursors() {
+		overlay.results[i] = play.NewHitResults(controller.GetRuleset().GetPlayerDifficulty(cursor))
+	}
 
 	for i, r := range controller.GetReplays() {
 		cursor := controller.GetCursors()[i]
@@ -266,9 +272,24 @@ func (overlay *KnockoutOverlay) hitReceived(cursor *graphics.Cursor, judgementRe
 	}
 
 	player := overlay.players[overlay.names[cursor]]
+	if player == nil {
+		return
+	}
 
 	if overlay.controller.GetRuleset().GetBeatMap().Diff.Mods.Active(difficulty.HardRock) != overlay.controller.GetReplays()[player.oldIndex].ModsV.Active(difficulty.HardRock) {
 		judgementResult.Position.Y = 384 - judgementResult.Position.Y
+	}
+
+	if player.oldIndex >= 0 && player.oldIndex < len(overlay.results) {
+		hitObjects := overlay.controller.GetBeatMap().HitObjects
+		if judgementResult.Number >= 0 && judgementResult.Number < int64(len(hitObjects)) {
+			overlay.results[player.oldIndex].AddJudgmentResult(
+				judgementResult,
+				hitObjects[judgementResult.Number],
+			)
+		} else {
+			overlay.results[player.oldIndex].AddJudgmentResult(judgementResult, nil)
+		}
 	}
 
 	player.score = score.Score
@@ -414,6 +435,9 @@ func (overlay *KnockoutOverlay) Update(time float64) {
 
 	overlay.updateBreaks(overlay.normalTime)
 	overlay.fade.Update(overlay.normalTime)
+	for _, results := range overlay.results {
+		results.Update(overlay.normalTime)
+	}
 
 	for _, r := range overlay.controller.GetReplays() {
 		player := overlay.players[r.Name]
@@ -446,10 +470,27 @@ func (overlay *KnockoutOverlay) DrawBackground(batch *batch.QuadBatch, _ []color
 	overlay.boundaries.Draw(batch.Projection, float32(overlay.controller.GetBeatMap().Diff.CircleRadius), float32(alpha))
 }
 
-func (overlay *KnockoutOverlay) DrawBeforeObjects(_ *batch.QuadBatch, _ []color2.Color, _ float64) {}
+func (overlay *KnockoutOverlay) DrawBeforeObjects(batch *batch.QuadBatch, colors []color2.Color, alpha float64) {
+	alpha *= overlay.fade.GetValue()
+
+	for i, results := range overlay.results {
+		if results == nil || i >= len(colors) {
+			continue
+		}
+
+		results.DrawBottomWithColor(batch, colors[i], alpha)
+	}
+}
 
 func (overlay *KnockoutOverlay) DrawNormal(batch *batch.QuadBatch, colors []color2.Color, alpha float64) {
 	alpha *= overlay.fade.GetValue()
+
+	for _, results := range overlay.results {
+		if results != nil {
+			results.DrawTop(batch, alpha)
+		}
+	}
+	batch.Flush()
 
 	scl := 384.0 * (1080.0 / 900.0 * 0.9) / (51)
 
@@ -610,17 +651,23 @@ func (overlay *KnockoutOverlay) DrawHUD(batch *batch.QuadBatch, colors []color2.
 		}
 
 		if r.Grade != osu.NONE {
-			text := skin.GetTexture("ranking-" + r.Grade.TextureName() + "-small")
+			text := play.GetGradeTexture(r.Grade, true)
+			gradePosition := vector.NewVec2d(2.6*scl+nWidth+xSlideLeft, rowBaseY)
 
-			ratio := 1.0 / 44.0 // default skin's grade height
-			if text.Height < 44 {
-				ratio = 1.0 / float64(text.Height) // if skin's grade is smaller, make it bigger
+			if text != nil {
+				ratio := 1.0 / 44.0 // default skin's grade height
+				if text.Height < 44 {
+					ratio = 1.0 / float64(text.Height) // if skin's grade is smaller, make it bigger
+				}
+
+				batch.SetSubScale(scl*0.9*ratio, scl*0.9*ratio)
+				batch.SetTranslation(gradePosition)
+
+				batch.DrawTexture(*text)
+			} else {
+				batch.ResetTransform()
+				play.DrawGradeText(batch, overlay.font, r.Grade, gradePosition, scl*0.9)
 			}
-
-			batch.SetSubScale(scl*0.9*ratio, scl*0.9*ratio)
-			batch.SetTranslation(vector.NewVec2d(2.6*scl+nWidth+xSlideLeft, rowBaseY))
-
-			batch.DrawTexture(*text)
 		}
 
 		batch.SetColor(1, 1, 1, alpha*player.fade.GetValue()*player.fadeHit.GetValue())
