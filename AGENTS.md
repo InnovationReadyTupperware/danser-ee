@@ -101,31 +101,24 @@ has a console open.
   in a log. Log a safe identifier or path when it is needed to diagnose the
   operation.
 
-## Six ways to break the experience
+## Common ways to break the experience
 
-These are the recurring failure modes worth keeping in mind during review.
+Use these broad failure modes as review prompts when a change crosses more
+than one part of the product.
 
-1. **Wire only the path you tested.** Launcher argument construction, direct
-   CLI invocation, and the gameplay process are separate boundaries. A fix in
-   one is not automatically a fix in the others.
-2. **Treat Stable or Lazer as a global switch.** Gameplay provenance belongs to
-   each difficulty or participant: stable-versioned replays remain Stable,
-   replay-free generated playback defaults to Lazer, and a knockout can mix
-   both. Classic presentation settings do not erase that provenance.
-3. **Let the clocks drift apart.** Gameplay timestamps, the master audio mixer,
-   rendered frames, and offline recording must share a deliberate timeline.
-   Seek and decoder stalls invalidate old anchors; frame-triggered audio or
-   stale seek state produces output that looks right but sounds wrong.
-4. **Cross native or thread boundaries casually.** BASS, SDL, OpenGL, and Dear
-   ImGui own unmanaged state and thread expectations. Keep ownership and
-   teardown order explicit, and cancel and join workers before freeing what
-   they use.
-5. **Turn library work into a launcher freeze.** Catalog scans, search,
-   thumbnails, and skin or beatmap loading need bounded, cancellable work that
-   cannot block the UI frame or let stale generations overwrite newer state.
-6. **Hide recording failures or destroy the evidence.** Validate output names
-   and recording settings, observe encoder and pipe failures, and do not remove
-   recoverable intermediate output until finalization has succeeded.
+1. **Fix only the path you tested.** Check the relevant entry points, modes,
+   and output types so shared behavior does not diverge between workflows.
+2. **Lose track of provenance.** Keep rules and presentation aligned with the
+   source and mode that own them; avoid turning a participant- or map-specific
+   decision into a global switch.
+3. **Let timelines diverge.** Gameplay, audio, rendering, seeking, and
+   recording need an explicit relationship so the result remains coherent.
+4. **Blur ownership and lifecycle.** Make resource ownership, thread
+   boundaries, cancellation, synchronization, and teardown order explicit,
+   especially around native resources and background work.
+5. **Hide or lose failures.** Surface errors where the user is working, keep
+   diagnostics actionable, and preserve recoverable output when a later step
+   can fail.
 
 ## Glossary
 
