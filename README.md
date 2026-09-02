@@ -171,6 +171,7 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Feature                     |            danser-ee             |     danser-go (fork base)     |
 |-----------------------------|:--------------------------------:|:-----------------------------:|
 | Deadline-based frame timing |         ✅ + thread-safe         | unsynchronized, polling-based |
+| Windows high-rate pacing    | ✅ MMCSS-managed render scheduling with a spin-tail cap | ❌ Custom-cap waits can incur full scheduler-quantum stalls |
 | Refreshed dependencies      |                ✅                |               -               |
 | Platform support            | Windows-first, Linux best effort |        Upstream policy        |
 
