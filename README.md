@@ -303,6 +303,10 @@ To verify that all Go packages compile:
 go build ./...
 ```
 
+> [!NOTE]
+> Use `dist-win.sh` or `dist-linux.sh` for release packages. A normal development
+> build does not assemble the launcher and bundled runtime files.
+
 ### Frame pacing diagnostics
 
 Set `DANSER_FRAME_PROBE=1` before starting an interactive gameplay process to
@@ -317,10 +321,6 @@ On PowerShell:
 $env:DANSER_FRAME_PROBE = '1'
 .\danser.exe <arguments>
 ```
-
-Use the distribution scripts when preparing release-style packages; they handle the launcher and runtime files differently from a normal development build.
-
-Release versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) and are entered without a leading `v`, for example `1.0.0-alpha.1`, `1.0.0-rc.1`, or `1.0.0`. The same version is used for the GitHub tag, release, and Windows/Linux archive names.
 
 ## Credits and license
 
