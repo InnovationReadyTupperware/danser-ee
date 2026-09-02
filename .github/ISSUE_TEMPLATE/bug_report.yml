@@ -1,0 +1,122 @@
+name: Bug report
+description: Report broken behavior, regressions, crashes, or reliability problems.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+          Please search open and closed issues before opening a new one. Keep the
+          report focused on one reproducible problem. Include a replay or other
+          supporting file when it helps us investigate.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched open and closed issues for duplicates.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Which part of danser-ee is affected?
+      options:
+        - Launcher
+        - Gameplay window
+        - Replay playback or judgement
+        - Playing osu!standard maps
+        - Cursor dance, TAG, or knockout
+        - Audio or recording
+        - Rendering or graphics
+        - Beatmap, skin, or database loading
+        - CLI or startup
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the release version, commit SHA, or branch name.
+      placeholder: "1.0.0 or 35197955"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include details relevant to the problem. For graphics issues, include the GPU, driver, and display. For loading, recording, or performance issues, include RAM, storage, free space, and the affected path.
+      placeholder: |
+        OS: Windows 11 x64
+        CPU: 12-core desktop CPU
+        RAM: 32 GB
+        GPU/driver: NVIDIA RTX 4070 / driver 576.XX
+        Display: 2560x1440 at 165 Hz (if relevant)
+        Storage: NVMe SSD / SATA SSD / HDD
+        Affected path: Songs, cache, output, or other path (if relevant)
+        Free space: 120 GB (if relevant)
+        Install: release ZIP / source build
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Mode and command
+      description: Include the mode, relevant flags, map or replay, and settings involved.
+      placeholder: |
+        Mode: replay / cursor dance / record / launcher / ...
+        Command or launcher settings:
+        Map or replay:
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest deterministic sequence that reproduces the problem.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or stack traces
+      description: Paste the relevant output.
+      render: text
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots, recordings, or supporting files
+      description: Add relevant replays, screenshots, recordings, or other supporting files when they help explain the issue.
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: If you found a temporary workaround, include it here.

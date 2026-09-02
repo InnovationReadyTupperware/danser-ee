@@ -35,6 +35,17 @@ logging, and verification details that are easy to miss.
 - Changes that alter replay, timing, scoring, rendering, audio, or output
   behavior without focused verification and a clear compatibility story.
 
+## Modern Go Guidelines
+
+If you are using a coding harness such as OpenAI Codex, Claude Code, Cursor, or
+OpenCode for any work that may touch Go code, enable JetBrains'
+[Modern Go Guidelines](https://github.com/JetBrains/go-modern-guidelines#instructions).
+We require this because coding agents often reproduce older Go patterns:
+training data lags behind the language, and familiar examples outweigh newer
+idioms. The guidelines give the harness a current Go reference so changes begin
+with modern, idiomatic code instead of creating cleanup work for the next
+contributor.
+
 ## Reporting an issue
 
 Use [GitHub Issues](https://github.com/InnovationReadyTupperware/danser-ee/issues)
@@ -44,8 +55,9 @@ For a bug, include the danser version or commit, operating system, relevant
 mode and command-line flags, map or replay details, steps to reproduce, and
 the relevant `danser.log` or `launcher.log` contents when available.
 Screenshots or a short recording are especially useful for rendering, timing,
-audio, launcher, and gameplay window problems. The issue template lists the
-machine details that are most useful for graphics and sound failures.
+audio, launcher, and gameplay window problems. The issue template calls out the
+machine details that are most useful for graphics, loading, recording, and
+performance failures.
 
 For a feature, question, or proposal, describe the user problem, the desired
 observable behavior, and any constraints or modes that must continue to work.

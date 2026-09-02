@@ -1,0 +1,77 @@
+name: Feature request
+description: Suggest an improvement, new capability, or change in observable behavior.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests, product ideas, and technical proposals all belong in Issues.
+        Search existing open and closed issues before starting a new request.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched open and closed issues for duplicates.
+          required: true
+        - label: I understand this request may be declined, deferred, or reimplemented by the maintainer.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Which part of danser-ee would this change affect?
+      options:
+        - Launcher
+        - Gameplay window
+        - Replay playback or judgement
+        - Playing osu!standard maps
+        - Cursor dance, TAG, or knockout
+        - Audio or recording
+        - Rendering or graphics
+        - Beatmap, skin, or database loading
+        - CLI or startup
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user problem or limitation would this address?
+      placeholder: Describe the situation and who it affects.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should danser-ee do instead?
+      placeholder: Describe the desired observable result.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other approaches have you tried?
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Compatibility considerations
+      description: Mention modes, platforms, outputs, or existing workflows that must continue to work.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add screenshots, recordings, examples, or links that help explain the request.

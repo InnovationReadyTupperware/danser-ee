@@ -270,7 +270,7 @@ Settings and knockout usage are detailed in the upstream [danser-go wiki](https:
 * OpenGL support from a modern graphics driver. Recording requires buffer storage, direct-state access, image copy, and texture readback capabilities; preflight reports missing capabilities before encoder startup. Linux build environments may also need `libgl1-mesa-dev`.
 * Linux builds may additionally need `xorg-dev`, `libgtk-3`, and `libgtk-3-dev`.
 
-### Recommended development workflow
+### Build and run from source
 
 Clone the repository and work from its root directory:
 
@@ -306,26 +306,6 @@ go build ./...
 Use the distribution scripts when preparing release-style packages; they handle the launcher and runtime files differently from a normal development build.
 
 Release versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) and are entered without a leading `v`, for example `1.0.0-alpha.1`, `1.0.0-rc.1`, or `1.0.0`. The same version is used for the GitHub tag, release, and Windows/Linux archive names.
-
-## If you REALLY want to contribute still... read this first
-
-`danser-ee` is not actively accepting general contributions right now.
-
-Small, focused fixes may be considered. Large features and broad changes are more likely to be deferred, closed, or reimplemented independently by the main maintainer, InnovationReadyTupperware, rather than merged from the submitted pull request.
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
-It contains the detailed intake, scope, verification, and review expectations.
-
-### You must enable Modern Go Guidelines
-
-If you are using a coding harness such as OpenAI Codex, Claude Code, Cursor, or
-OpenCode for any work that may touch Go code, enable JetBrains'
-[Modern Go Guidelines](https://github.com/JetBrains/go-modern-guidelines#instructions).
-We require this because coding agents often reproduce older Go patterns:
-training data lags behind the language, and familiar examples outweigh newer
-idioms. The guidelines give the harness a current Go reference so changes begin
-with modern, idiomatic code instead of creating cleanup work for the next
-contributor.
 
 ## Credits and license
 

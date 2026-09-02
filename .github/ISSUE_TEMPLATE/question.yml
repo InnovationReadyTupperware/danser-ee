@@ -1,0 +1,65 @@
+name: Question or proposal
+description: Ask a usage question or propose a technical approach for discussion in an Issue.
+title: "[Question]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+          Please search open and closed issues before opening a new one. Use this
+          form for usage questions and technical proposals. Include any relevant
+          commands, replays, or supporting files.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched open and closed issues for an existing answer or proposal.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Launcher
+        - Gameplay window
+        - Replay playback or judgement
+        - Playing osu!standard maps
+        - Cursor dance, TAG, or knockout
+        - Audio or recording
+        - Rendering or graphics
+        - Beatmap, skin, or database loading
+        - CLI or startup
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the release version, commit SHA, or branch name when relevant.
+      placeholder: "1.0.0 or 35197955"
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question or proposal
+      description: State the question or technical idea clearly and explain the desired outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and what you tried
+      description: Include commands, settings, documentation links, or attempted solutions that are relevant.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting files
+      description: Add relevant replays, logs, screenshots, or recordings.
