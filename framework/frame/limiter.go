@@ -9,16 +9,20 @@ import (
 )
 
 const (
-	nanosPerSecond = int64(time.Second)
-	maximumFPS     = nanosPerSecond
-	yieldTail      = 100 * time.Microsecond
-	maxInt64       = int64(1<<63 - 1)
+	nanosPerSecond       = int64(time.Second)
+	maximumFPS           = nanosPerSecond
+	yieldTail            = 100 * time.Microsecond
+	renderSleepThreshold = 2 * time.Millisecond
+	renderSpinTail       = time.Millisecond
+	maxInt64             = int64(1<<63 - 1)
 )
 
 type limiterClock struct {
-	now   func() int64
-	sleep func(time.Duration)
-	yield func()
+	now                  func() int64
+	sleep                func(time.Duration)
+	yield                func()
+	coarseSleepThreshold time.Duration
+	coarseSleepTail      time.Duration
 }
 
 // Limiter spaces calls to Sync so a loop does not run faster than the
@@ -48,6 +52,21 @@ func NewLimiter(fps int) *Limiter {
 		now:   qpc.GetNanoTime,
 		sleep: time.Sleep,
 		yield: runtime.Gosched,
+	})
+}
+
+// NewRenderLimiter creates a limiter for latency-sensitive realtime drawing.
+// It avoids scheduler waits for deadlines under two milliseconds and spins
+// during the final millisecond of longer waits. This costs more CPU than
+// NewLimiter, but keeps short frame deadlines on the MMCSS-managed render
+// thread instead of relying on a scheduler wakeup.
+func NewRenderLimiter(fps int) *Limiter {
+	return newLimiter(fps, limiterClock{
+		now:                  qpc.GetNanoTime,
+		sleep:                time.Sleep,
+		yield:                func() {},
+		coarseSleepThreshold: renderSleepThreshold,
+		coarseSleepTail:      renderSpinTail,
 	})
 }
 
@@ -133,8 +152,17 @@ func waitForDeadline(deadline int64, clock limiterClock) int64 {
 	}
 
 	remaining := deadline - now
-	if remaining > int64(yieldTail) && clock.sleep != nil {
-		clock.sleep(time.Duration(remaining - int64(yieldTail)))
+	sleepThreshold := clock.coarseSleepThreshold
+	if sleepThreshold <= 0 {
+		sleepThreshold = yieldTail
+	}
+	sleepTail := clock.coarseSleepTail
+	if sleepTail <= 0 {
+		sleepTail = yieldTail
+	}
+
+	if remaining > int64(sleepThreshold) && clock.sleep != nil {
+		clock.sleep(time.Duration(remaining - int64(sleepTail)))
 	}
 
 	for {

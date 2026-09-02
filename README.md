@@ -303,6 +303,21 @@ To verify that all Go packages compile:
 go build ./...
 ```
 
+### Frame pacing diagnostics
+
+Set `DANSER_FRAME_PROBE=1` before starting an interactive gameplay process to
+retain up to 128 of the slowest samples for each instrumented render layer.
+When gameplay closes, danser writes `FrameProbe:` entries to `danser.log`,
+ordered from slowest to fastest and grouped by main loop, graphics pipeline,
+and player rendering stages.
+
+On PowerShell:
+
+```powershell
+$env:DANSER_FRAME_PROBE = '1'
+.\danser.exe <arguments>
+```
+
 Use the distribution scripts when preparing release-style packages; they handle the launcher and runtime files differently from a normal development build.
 
 Release versions follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) and are entered without a leading `v`, for example `1.0.0-alpha.1`, `1.0.0-rc.1`, or `1.0.0`. The same version is used for the GitHub tag, release, and Windows/Linux archive names.

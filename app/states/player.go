@@ -180,8 +180,9 @@ type Player struct {
 	updateWG       sync.WaitGroup
 	disposeOnce    sync.Once
 
-	mBuffer []byte
-	ftGraph *shape.SteppingGraph
+	mBuffer   []byte
+	ftGraph   *shape.SteppingGraph
+	drawProbe *profiler.StageProbe
 }
 
 // NewPlayer creates a gameplay player for beatMap. automatedPlayback identifies
@@ -196,6 +197,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 	player.mBuffer = make([]byte, 0, 256)
 
 	player.ftGraph = shape.NewSteppingGraph(1920-600-20, 1080-300-40, 600, 250, 6, 16.667, "ms")
+	player.drawProbe = profiler.NewStageProbe("Player.DrawMain", "setup", "background", "pre-objects", "objects", "overlays", "cursor-upload", "cursor-draw", "post")
 	player.ftGraph.SetLabel(0, "BG Tasks", color2.NewIA(0x00ff34ff))
 	player.ftGraph.SetLabel(1, "Input", color2.NewIA(0xffff00ff))
 	player.ftGraph.SetLabel(2, "Draw", color2.NewIA(0xbf6500ff))
@@ -1092,6 +1094,7 @@ func (player *Player) applyPlaybackRate(tempo, pitch, relativeFrequency float64)
 }
 
 func (player *Player) DrawMain(float64) {
+	sample := player.drawProbe.Begin()
 	profiler.StartGroup("Player.DrawMain", profiler.PDraw)
 
 	if player.lastTime <= 0 {
@@ -1122,6 +1125,7 @@ func (player *Player) DrawMain(float64) {
 
 	objectCameras := player.objectCamera.GenRotated(settings.DIVIDES, -2*math.Pi/float64(settings.DIVIDES))
 	cursorCameras := player.mainCamera.GenRotated(settings.DIVIDES, -2*math.Pi/float64(settings.DIVIDES))
+	sample.Mark()
 
 	bgAlpha := player.dimGlider.GetValue()
 	if settings.Playfield.Background.FlashToTheBeat {
@@ -1129,6 +1133,7 @@ func (player *Player) DrawMain(float64) {
 	}
 
 	player.background.Draw(player.progressMsF, player.batch, player.blurGlider.GetValue(), bgAlpha, player.bgCamera.GetProjectionView())
+	sample.Mark()
 
 	if player.progressMsF > 0 {
 		timeDiff := player.progressMsF - player.lastProgressMsF
@@ -1178,8 +1183,10 @@ func (player *Player) DrawMain(float64) {
 	if player.overlay != nil {
 		player.drawOverlayPart(player.overlay.DrawBeforeObjects, cursorColors, objectCameras[0], player.objectsAlphaFail.GetValue())
 	}
+	sample.Mark()
 
 	player.objectContainer.Draw(player.batch, player.mainCamera.GetProjectionView(), objectCameras, player.progressMsF, float32(player.Scl), float32(player.objectsAlpha.GetValue()*player.objectsAlphaFail.GetValue()))
+	sample.Mark()
 
 	if player.overlay != nil {
 		player.drawOverlayPart(player.overlay.DrawNormal, cursorColors, objectCameras[0], 1)
@@ -1190,11 +1197,13 @@ func (player *Player) DrawMain(float64) {
 	if player.overlay != nil && player.overlay.ShouldDrawHUDBeforeCursor() {
 		player.drawOverlayPart(player.overlay.DrawHUD, cursorColors, player.uiCamera.GetProjectionView(), 1)
 	}
+	sample.Mark()
 
 	if settings.Playfield.DrawCursors {
 		for _, g := range player.controller.GetCursors() {
 			g.UpdateRenderer()
 		}
+		sample.Mark()
 
 		player.batch.SetAdditive(false)
 
@@ -1223,7 +1232,10 @@ func (player *Player) DrawMain(float64) {
 		}
 
 		graphics.EndCursorRender()
+	} else {
+		sample.Mark()
 	}
+	sample.Mark()
 
 	player.batch.SetAdditive(false)
 
@@ -1234,8 +1246,10 @@ func (player *Player) DrawMain(float64) {
 	if bloomEnabled {
 		player.bloomEffect.EndAndRender()
 	}
+	sample.Mark()
 
 	profiler.EndGroup()
+	player.drawProbe.Commit(sample)
 }
 
 func (player *Player) Draw(d float64) {
@@ -1593,6 +1607,7 @@ func (player *Player) Hide() {}
 
 func (player *Player) Dispose() {
 	player.disposeOnce.Do(func() {
+		player.drawProbe.Dump()
 		player.stopMemoryProfiler()
 
 		if player.updateStop != nil {

@@ -68,6 +68,7 @@ var batch *batch2.QuadBatch
 
 var limiter *frame.Limiter
 var screenFBO *buffer.Framebuffer
+var pushFrameProbe *profiler.StageProbe
 
 // activeMSAA is captured after profile loading. Changing the profile while
 // gameplay is running is intentionally restart-only so every gameplay FBO
@@ -689,7 +690,7 @@ func run() {
 			gcontext.Focus()
 		}
 
-		limiter = frame.NewLimiter(int(settings.Graphics.FPSCap))
+		limiter = frame.NewRenderLimiter(int(settings.Graphics.FPSCap))
 	})
 
 	if startupErr != nil {
@@ -889,6 +890,14 @@ func mainLoopSS() error {
 
 func mainLoopNormal() {
 	var renderErr error
+	var finishLatencyScheduling func() error
+	probe := profiler.NewStageProbe("MainLoop", "events", "draw", "screenshot", "swap", "limit")
+	defer probe.Dump()
+	pushFrameProbe = profiler.NewStageProbe("App.pushFrame", "state", "framebuffer-bind", "clear", "player", "resolve", "cleanup")
+	defer func() {
+		pushFrameProbe.Dump()
+		pushFrameProbe = nil
+	}()
 
 	goroutines.CallMain(func() {
 		gcontext.RegisterListener(func(event gcontext.KeyEvent) {
@@ -921,9 +930,17 @@ func mainLoopNormal() {
 		})
 	})
 
-	goroutines.RunMainLoop(func() bool {
+	goroutines.RunMainLoopWithHooks(func() bool {
 		return !gcontext.ShouldClose()
 	}, func() {
+		var err error
+		finishLatencyScheduling, err = platform.BeginLatencySensitiveThread()
+		if err != nil {
+			log.Printf("Platform: Warning: could not enable latency-sensitive render scheduling: %v", err)
+		}
+	}, func() {
+		sample := probe.Begin()
+
 		if renderErr != nil {
 			gcontext.SetShouldClose(true)
 			return
@@ -942,6 +959,7 @@ func mainLoopNormal() {
 		profiler.StartGroup("gcontext.HandleEvents", profiler.PInput)
 
 		gcontext.HandleEvents()
+		sample.Mark()
 
 		profiler.EndGroup()
 
@@ -950,16 +968,19 @@ func mainLoopNormal() {
 			gcontext.SetShouldClose(true)
 			return
 		}
+		sample.Mark()
 
 		if scheduleScreenshot {
 			w, h := gcontext.GetFramebufferSize()
 			utils.MakeScreenshot(w, h, "", true)
 			scheduleScreenshot = false
 		}
+		sample.Mark()
 
 		profiler.StartGroup("App.mainLoopNormal", profiler.PSwapBuffers)
 
 		gcontext.SwapBuffers()
+		sample.Mark()
 
 		profiler.EndGroup()
 
@@ -974,7 +995,17 @@ func mainLoopNormal() {
 			limiter.SetFPS(fCap)
 			limiter.Sync()
 		}
+		sample.Mark()
 		profiler.EndGroup()
+
+		probe.Commit(sample)
+	}, func() {
+		if finishLatencyScheduling == nil {
+			return
+		}
+		if err := finishLatencyScheduling(); err != nil {
+			log.Printf("Platform: Warning: could not restore render-thread scheduling: %v", err)
+		}
 	})
 
 	settings.CloseWatcher()
@@ -985,6 +1016,7 @@ func mainLoopNormal() {
 }
 
 func pushFrame() error {
+	sample := pushFrameProbe.Begin()
 	profiler.StartGroup("App.pushFrame", profiler.PDraw)
 	profiler.ResetStats()
 
@@ -993,6 +1025,7 @@ func pushFrame() error {
 
 	blend.Enable()
 	blend.SetFunction(blend.One, blend.OneMinusSrcAlpha)
+	sample.Mark()
 
 	if err := ensureScreenFramebuffer(); err != nil {
 		blend.ClearStack()
@@ -1005,22 +1038,28 @@ func pushFrame() error {
 	if activeMSAA > 0 {
 		screenFBO.Bind()
 	}
+	sample.Mark()
 
 	gl.ClearColor(0, 0, 0, 1)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
+	sample.Mark()
 
 	if player != nil {
 		player.Draw(0)
 	}
+	sample.Mark()
 
 	if activeMSAA > 0 {
 		screenFBO.Unbind()
 	}
+	sample.Mark()
 
 	blend.ClearStack()
 	viewport.Pop()
+	sample.Mark()
 
 	profiler.EndGroup()
+	pushFrameProbe.Commit(sample)
 
 	return nil
 }

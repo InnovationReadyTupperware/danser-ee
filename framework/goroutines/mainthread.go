@@ -16,6 +16,8 @@ var (
 	mainLoopAdded    chan bool
 	mainLoopCond     func() bool
 	mainLoopFunc     func()
+	mainLoopStart    func()
+	mainLoopFinish   func()
 	mainLoopFinished chan bool
 )
 
@@ -58,6 +60,18 @@ func RunMain(run func()) {
 	}
 
 mainLoop:
+	executeMainLoop()
+
+	mainLoopFinished <- true
+}
+
+func executeMainLoop() {
+	if mainLoopStart != nil {
+		mainLoopStart()
+	}
+	if mainLoopFinish != nil {
+		defer mainLoopFinish()
+	}
 
 	for mainLoopCond() {
 		profiler.Reset()
@@ -81,18 +95,25 @@ mainLoop:
 
 		profiler.EndGroup()
 	}
-
-	mainLoopFinished <- true
 }
 
 // RunMainLoop wires runFunc to the main thread and runs it in a loop as long as runCond returns true
 //
 // RunMainLoop returns when runCond returns false
 func RunMainLoop(runCond func() bool, runFunc func()) {
+	RunMainLoopWithHooks(runCond, nil, runFunc, nil)
+}
+
+// RunMainLoopWithHooks is RunMainLoop with setup and cleanup hooks that execute
+// on the main OS thread. It is intended for native thread-scoped resources;
+// cleanup runs after the loop terminates and before this function returns.
+func RunMainLoopWithHooks(runCond func() bool, setup func(), runFunc func(), cleanup func()) {
 	checkRun()
 
 	mainLoopCond = runCond
 	mainLoopFunc = runFunc
+	mainLoopStart = setup
+	mainLoopFinish = cleanup
 	mainLoopAdded <- true
 
 	<-mainLoopFinished

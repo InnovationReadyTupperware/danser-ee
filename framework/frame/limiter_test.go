@@ -129,6 +129,54 @@ func TestLimiter_HighFPSUsesOnlyTheYieldTail(t *testing.T) {
 	}
 }
 
+func TestRenderLimiter_SpinsForSubTwoMillisecondDeadline(t *testing.T) {
+	clock := &fakeLimiterClock{}
+	limiter := newLimiter(1000, limiterClock{
+		now:                  clock.nowValue,
+		sleep:                clock.sleep,
+		yield:                clock.yield,
+		coarseSleepThreshold: renderSleepThreshold,
+		coarseSleepTail:      renderSpinTail,
+	})
+
+	limiter.Sync()
+	limiter.Sync()
+
+	if len(clock.sleeps) != 0 {
+		t.Fatalf("render limiter used coarse sleep: %v", clock.sleeps)
+	}
+	if clock.yieldCalls == 0 {
+		t.Fatal("render limiter did not wait for the deadline")
+	}
+	if got, want := clock.now, int64(time.Millisecond); got != want {
+		t.Fatalf("clock after second Sync = %d, want %d", got, want)
+	}
+}
+
+func TestRenderLimiter_SleepsBeforeOneMillisecondSpinTail(t *testing.T) {
+	clock := &fakeLimiterClock{}
+	limiter := newLimiter(100, limiterClock{
+		now:                  clock.nowValue,
+		sleep:                clock.sleep,
+		yield:                clock.yield,
+		coarseSleepThreshold: renderSleepThreshold,
+		coarseSleepTail:      renderSpinTail,
+	})
+
+	limiter.Sync()
+	limiter.Sync()
+
+	if got, want := len(clock.sleeps), 1; got != want {
+		t.Fatalf("sleep calls = %d, want %d", got, want)
+	}
+	if got, want := clock.sleeps[0], 9*time.Millisecond; got != want {
+		t.Fatalf("coarse sleep = %v, want %v", got, want)
+	}
+	if clock.yieldCalls == 0 {
+		t.Fatal("render limiter did not spin after coarse sleep")
+	}
+}
+
 func TestLimiter_SetFPSIsSafeWhileSyncRuns(t *testing.T) {
 	var now atomic.Int64
 	clock := limiterClock{
