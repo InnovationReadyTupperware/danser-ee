@@ -61,9 +61,9 @@ Danser Enterprise Edition (danser-ee) is a GUI/CLI visualization tool for osu!st
 
 ## What's the difference between danser-go and danser-ee?
 
-If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience while building on it with bug fixes, correctness fixes, launcher polish, and modernization where upstream currently falls short.
+If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience and continues building on it with fixes, refinements, and broader product work where we think the experience can be improved.
 
-This is a high-level snapshot of what actually changed since the fork point (`upstream/dev` at `3eb75a34`), not a commit-based summary and not a complete changelog.
+The comparison below is a high-level snapshot of meaningful differences since the fork point (`upstream/dev` at `3eb75a34`). It is not intended to represent every change or serve as a complete changelog.
 
 ### Core experience and launcher
 
@@ -72,8 +72,8 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 | Core danser experience          |                             ✅                             |                            ✅                             |
 | Native dialogs (SDL3)           |                             ✅                             |                sqweek/dialog (Wieku fork)                 |
 | CLI no-argument behavior        |               ✅ Helpful usage, no rickroll                |                   ❌ Surprise rickroll                    |
-| Launcher resource lifecycle     |                    ✅ On-demand resource loading          |                    Eager resource loading                |
-| Launcher preview lifecycle      |                       ✅ Dormant when unused              |                    Active while unused                    |
+| Launcher resource lifecycle     |               ✅ On-demand resource loading                |                  Eager resource loading                   |
+| Launcher preview lifecycle      |                   ✅ Dormant when unused                   |                    Active while unused                    |
 | Launcher event pipeline         | ✅ Bounded typed events with main-thread state application | ❌ Mixed cross-thread callbacks and shared launcher state |
 | Child-process supervision       |      ✅ Cancellable lifecycle and bounded diagnostics      |    ❌ Shared `exec.Cmd` lifecycle and direct teardown     |
 | Filesystem watcher lifecycle    |       ✅ Owned watcher with coalesced notifications        |                ❌ Global watcher lifecycle                |
@@ -84,19 +84,19 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 
 ### Library and song selection
 
-| Feature                            |                              danser-ee                              |              danser-go (fork base)              |
-|------------------------------------|:-------------------------------------------------------------------:|:-----------------------------------------------:|
-| Beatmap catalog startup            |                 ✅ Cache-first catalog publication                  | ❌❌❌ Synchronous full-library materialization |
-| Incremental beatmap reconciliation |             ✅ Fingerprint-driven delta reconciliation              |             ❌ Full catalog rebuild             |
-| Catalog reconciliation progress    |          ✅ Staged main-thread telemetry in the output row          |                        -                        |
-| Catalog refresh orchestration      |          ✅ Coalesced, cancellable generation coordinator           |  ❌ Shared lock around sequential refresh work  |
-| Library search readiness            | ✅ Search remains warm while the launcher is idle and during catalog refreshes | Selector-bound search preparation |
-| Song search pipeline               |      ✅ Precomputed query index and reusable result projection      |   ❌❌❌ Per-query full result reconstruction   |
-| Song-select scrolling              | ✅ Variable-height virtualized layout with logarithmic range lookup |      ❌❌❌ Repeated full-list layout work      |
-| Song-set grouping                  |        ✅ Stable indexed grouping independent of sort order         |       ❌ Per-result directory regrouping        |
-| Library artwork loading            |          ✅ Deferred background loading outside active scrolling          |        ❌ Synchronous tooltip asset work        |
-| Optional osu!.db acceleration      |               ✅ Read-only Stable metadata bootstrap                |                        -                        |
-| Lazy beatmap and skin assets       |                  ✅ Demand-driven asset resolution                  |             ❌ Eager asset indexing             |
+| Feature                            |                                   danser-ee                                    |              danser-go (fork base)              |
+|------------------------------------|:------------------------------------------------------------------------------:|:-----------------------------------------------:|
+| Beatmap catalog startup            |                       ✅ Cache-first catalog publication                       | ❌❌❌ Synchronous full-library materialization |
+| Incremental beatmap reconciliation |                   ✅ Fingerprint-driven delta reconciliation                   |             ❌ Full catalog rebuild             |
+| Catalog reconciliation progress    |               ✅ Staged main-thread telemetry in the output row                |                        -                        |
+| Catalog refresh orchestration      |                ✅ Coalesced, cancellable generation coordinator                |  ❌ Shared lock around sequential refresh work  |
+| Library search readiness           | ✅ Search remains warm while the launcher is idle and during catalog refreshes |        Selector-bound search preparation        |
+| Song search pipeline               |           ✅ Precomputed query index and reusable result projection            |   ❌❌❌ Per-query full result reconstruction   |
+| Song-select scrolling              |      ✅ Variable-height virtualized layout with logarithmic range lookup       |      ❌❌❌ Repeated full-list layout work      |
+| Song-set grouping                  |              ✅ Stable indexed grouping independent of sort order              |       ❌ Per-result directory regrouping        |
+| Library artwork loading            |            ✅ Deferred background loading outside active scrolling             |        ❌ Synchronous tooltip asset work        |
+| Optional osu!.db acceleration      |                     ✅ Read-only Stable metadata bootstrap                     |                        -                        |
+| Lazy beatmap and skin assets       |                       ✅ Demand-driven asset resolution                        |             ❌ Eager asset indexing             |
 
 ### Gameplay compatibility and slider visuals
 
@@ -168,12 +168,12 @@ This is a high-level snapshot of what actually changed since the fork point (`up
 
 ### Runtime and platform
 
-| Feature                     |            danser-ee             |     danser-go (fork base)     |
-|-----------------------------|:--------------------------------:|:-----------------------------:|
-| Deadline-based frame timing |         ✅ + thread-safe         | unsynchronized, polling-based |
+| Feature                     |                        danser-ee                        |                    danser-go (fork base)                    |
+|-----------------------------|:-------------------------------------------------------:|:-----------------------------------------------------------:|
+| Deadline-based frame timing |                    ✅ + thread-safe                     |                unsynchronized, polling-based                |
 | Windows high-rate pacing    | ✅ MMCSS-managed render scheduling with a spin-tail cap | ❌ Custom-cap waits can incur full scheduler-quantum stalls |
-| Refreshed dependencies      |                ✅                |               -               |
-| Platform support            | Windows-first, Linux best effort |        Upstream policy        |
+| Refreshed dependencies      |                           ✅                            |                              -                              |
+| Platform support            |            Windows-first, Linux best effort             |                       Upstream policy                       |
 
 <small><em>Scope note: This comparison reflects the behavior observed in the documented fork base and the changes currently implemented in danser-ee. The approaches shown here are not necessarily the only or best possible solutions, and some may continue to evolve as the project matures. The table is intended to document meaningful differences in good faith, not to claim final authority over how they should be solved.</em></small>
 
