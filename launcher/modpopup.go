@@ -151,7 +151,7 @@ func (m *modPopup) tryDrawClassicSettings() {
 		checkboxOption("No slider head accuracy requirement", &conf.NoSliderHeadAccuracy)
 		checkboxOption("Apply classic note lock", &conf.ClassicNoteLock)
 		checkboxOption("Always play a slider's tail sample", &conf.AlwaysPlayTailSample)
-		checkboxOption("Fade hit circles early", &conf.FadeHitCircleEarly)
+		checkboxOption("Fade hit circles earlier", &conf.FadeHitCircleEarlier)
 		checkboxOption("Classic health", &conf.ClassicHealth)
 
 		difficulty.SetModConfig(m.bld.diff, conf)

@@ -210,12 +210,12 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 	circles := []sprite.ISprite{circle.hitCircle, circle.hitCircleOverlay, circle.comboText}
 
 	// Stable always fades hit circles before the miss deadline. Lazer keeps
-	// them visible until judgement unless Classic explicitly restores the
+	// them visible until judgment unless Classic explicitly restores the
 	// legacy presentation setting carried in the replay.
-	fadeHitCircleEarly := !diff.IsLazer()
+	fadeHitCircleEarlier := !diff.IsLazer()
 	if diff.IsLazer() && diff.CheckModActive(difficulty.Classic) {
 		if classicSettings, ok := difficulty.GetModConfig[difficulty.ClassicSettings](diff); ok {
-			fadeHitCircleEarly = classicSettings.FadeHitCircleEarly
+			fadeHitCircleEarlier = classicSettings.FadeHitCircleEarlier
 		}
 	}
 
@@ -227,7 +227,7 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 			}
 		} else if !diff.CheckModActive(difficulty.Traceable) || circle.HitObjectID == 0 {
 			t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, fadeInStartTime, fadeInStartTime+fadeInDuration, 0.0, 1.0))
-			if fadeHitCircleEarly && (!circle.SliderPoint || circle.SliderPointStart) {
+			if fadeHitCircleEarlier && (!circle.SliderPoint || circle.SliderPointStart) {
 				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, endTime+float64(diff.Hit100), endTime+float64(diff.Hit50), 1.0, 0.0))
 			} else if circle.SliderPoint {
 				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, endTime, endTime, 1.0, 0.0))

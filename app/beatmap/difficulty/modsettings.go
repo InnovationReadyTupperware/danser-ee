@@ -47,7 +47,7 @@ type ClassicSettings struct {
 	NoSliderHeadAccuracy bool `json:"no_slider_head_accuracy"`
 	ClassicNoteLock      bool `json:"classic_note_lock"`
 	AlwaysPlayTailSample bool `json:"always_play_tail_sample"`
-	FadeHitCircleEarly   bool `json:"fade_hit_circle_early"`
+	FadeHitCircleEarlier bool `json:"fade_hit_circle_earlier"`
 	ClassicHealth        bool `json:"classic_health"`
 }
 
@@ -56,7 +56,7 @@ func NewClassicSettings() ClassicSettings {
 		NoSliderHeadAccuracy: true,
 		ClassicNoteLock:      true,
 		AlwaysPlayTailSample: true,
-		FadeHitCircleEarly:   true,
+		FadeHitCircleEarlier: true,
 		ClassicHealth:        true,
 	}
 }
