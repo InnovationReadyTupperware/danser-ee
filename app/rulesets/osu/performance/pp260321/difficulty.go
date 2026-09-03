@@ -1,4 +1,4 @@
-package pp26xxxx
+package pp260321
 
 import (
 	"log"
@@ -8,13 +8,15 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/preprocessing"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/skills"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/skills"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 const (
+	// CurrentVersion identifies the March 2026 pp-dev snapshot. It is an
+	// intermediate snapshot, not the later rework deployed in July 2026.
 	CurrentVersion int = 20260321
 )
 
@@ -258,7 +260,7 @@ func (diffCalc *DifficultyCalculator) GetVersion() int {
 }
 
 func (diffCalc *DifficultyCalculator) GetVersionMessage() string {
-	return "Not yet released 2026 changes"
+	return "2026-03-21 pp-dev snapshot (pre-release)"
 }
 
 func calculateStarRating(basePerformance float64) float64 {

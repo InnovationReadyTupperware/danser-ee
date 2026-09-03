@@ -82,6 +82,7 @@ func LoadConfig(file *os.File) (*Config, error) {
 	config.normalizeCursorDance()
 	config.migrateHitCounterColors()
 	config.migrateBlendWeights()
+	config.migratePPVersion()
 
 	if config.General.OsuReplaysDir == "" { // Set the replay directory if it hasn't been loaded
 		config.General.OsuReplaysDir = filepath.Join(filepath.Dir(config.General.OsuSongsDir), "Replays")
@@ -452,6 +453,28 @@ func (config *Config) migrateBlendWeights() {
 	config.Recording.MotionBlur.GaussWeightsMult = config.Recording.MotionBlur.BlendWeights.GaussWeightsMult
 
 	config.Recording.MotionBlur.BlendWeights = nil
+}
+
+func (config *Config) migratePPVersion() {
+	if config.Gameplay == nil {
+		return
+	}
+
+	config.Gameplay.PPVersion = CanonicalPPVersion(config.Gameplay.PPVersion)
+}
+
+// CanonicalPPVersion maps stored PPVersion values to stable identifiers.
+// "latest" and "26xxxx" remain accepted as aliases of the calculators they
+// already selected.
+func CanonicalPPVersion(version string) string {
+	switch version {
+	case "latest":
+		return "251020"
+	case "26xxxx":
+		return "260321"
+	default:
+		return version
+	}
 }
 
 func (config *Config) attachToGlobals() {

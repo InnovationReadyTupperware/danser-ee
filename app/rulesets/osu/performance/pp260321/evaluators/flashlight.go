@@ -4,7 +4,7 @@ import (
 	"math"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/preprocessing"
 )
 
 const (

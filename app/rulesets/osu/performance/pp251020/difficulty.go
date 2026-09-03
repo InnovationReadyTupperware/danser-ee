@@ -15,7 +15,9 @@ import (
 const (
 	// StarScalingFactor is a global stars multiplier
 	StarScalingFactor float64 = 0.0265
-	CurrentVersion    int     = 20251020
+	// CurrentVersion identifies the calculator snapshot deployed with osu!'s
+	// 2025-10-29 performance-points update.
+	CurrentVersion int = 20251020
 )
 
 type DifficultyCalculator struct{}

@@ -7,7 +7,7 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp241007"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp251020"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
@@ -19,7 +19,9 @@ func initConstructors() {
 		return
 	}
 
-	switch settings.Gameplay.PPVersion {
+	version := settings.CanonicalPPVersion(settings.Gameplay.PPVersion)
+
+	switch version {
 	case "211112":
 		diffCalcInit = pp211112.NewDifficultyCalculator
 		ppCalcInit = pp211112.NewPPCalculator
@@ -32,9 +34,12 @@ func initConstructors() {
 	case "250306":
 		diffCalcInit = pp250306.NewDifficultyCalculator
 		ppCalcInit = pp250306.NewPPCalculator
-	case "26xxxx":
-		diffCalcInit = pp26xxxx.NewDifficultyCalculator
-		ppCalcInit = pp26xxxx.NewPPCalculator
+	case "251020":
+		diffCalcInit = pp251020.NewDifficultyCalculator
+		ppCalcInit = pp251020.NewPPCalculator
+	case "260321":
+		diffCalcInit = pp260321.NewDifficultyCalculator
+		ppCalcInit = pp260321.NewPPCalculator
 	default:
 		diffCalcInit = pp251020.NewDifficultyCalculator
 		ppCalcInit = pp251020.NewPPCalculator

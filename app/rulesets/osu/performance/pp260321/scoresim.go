@@ -1,4 +1,4 @@
-package pp26xxxx
+package pp260321
 
 import (
 	"math"
@@ -6,7 +6,7 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/preprocessing"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 

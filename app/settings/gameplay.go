@@ -244,7 +244,7 @@ func initGameplay() *gameplay {
 		FlashlightDim:           1,
 		PlayUsername:            "Guest",
 		IgnoreFailsInReplays:    false,
-		PPVersion:               "latest",
+		PPVersion:               "251020",
 		AlwaysSkipIntro:         false,
 	}
 }
@@ -274,7 +274,7 @@ type gameplay struct {
 	FlashlightDim           float64
 	PlayUsername            string `liveedit:"false"`
 	IgnoreFailsInReplays    bool
-	PPVersion               string `liveedit:"false" label:"PP counter version" combo:"211112|2021 pp rework (First Xexxar),220930|2022 pp rework,241007|2024 pp rework,250306|2025 Q1 update,26xxxx|Upcoming,latest|2025 Q4 update (latest)"`
+	PPVersion               string `liveedit:"false" label:"PP counter version" combo:"211112|211112 | 2021-11-12 pp rework (First Xexxar),220930|220930 | 2022-09-30 SR/PP update,241007|241007 | 2024-10-28 deployed rework,250306|250306 | 2025-03-06 pp update,251020|251020 | 2025-10-29 deployed rework,260321|260321 | March 2026 pp-dev snapshot (pre-release)"`
 	AlwaysSkipIntro         bool   `liveedit:"false"`
 }
 

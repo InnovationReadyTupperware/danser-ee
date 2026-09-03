@@ -1,11 +1,11 @@
-package pp26xxxx
+package pp260321
 
 import (
 	"math"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp26xxxx/skills"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/skills"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
