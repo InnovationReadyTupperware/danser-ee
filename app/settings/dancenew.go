@@ -85,7 +85,7 @@ func (d *defaultsFactory) InitSpinner() *spinner {
 }
 
 type spinnerBehavior struct {
-	SpinAtLowestRPM bool `label:"Spin at lowest RPM" liveedit:"false" tooltip:"Use the lowest osu!lazer RPM that awards all normal and bonus spinner ticks. When disabled, use the maximum rate needed through OD 11."`
+	SpinAtLowestRPM bool `label:"Spin at lowest RPM" liveedit:"false" tooltip:"Use the lowest osu!lazer RPM that completes the spinner with full bonus score for the map's OD. When disabled, always use the OD 11 maximum. Stable spinners keep the legacy 477 RPM rate."`
 }
 
 func (d *defaultsFactory) InitSpinnerBehavior() *spinnerBehavior {
