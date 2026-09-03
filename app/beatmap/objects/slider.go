@@ -110,6 +110,7 @@ type Slider struct {
 
 	workloadClassComputed bool
 	workloadClass         SliderWorkloadClass
+	movementFallback      bool
 }
 
 func NewSlider(data []string) *Slider {
@@ -566,6 +567,7 @@ func (slider *Slider) resetTimingData() {
 	slider.timingComputed = false
 	slider.stablePathComputed = false
 	slider.workloadClassComputed = false
+	slider.movementFallback = false
 }
 
 func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
@@ -1012,9 +1014,10 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 	slider.follower.SetAlpha(0.0)
 
 	// Pathological and singular sliders use the normal hit-note presentation
-	// for generated movement and slider-detail audio. Keep the authored slider
-	// data for gameplay and body rendering, but avoid allocating endpoint
-	// objects that the presentation policy will never traverse or animate.
+	// for slider-dance expansion and slider-detail audio. Keep the authored
+	// slider data for bounded direct cursor tracking, gameplay, and body
+	// rendering, but avoid allocating endpoint objects that this presentation
+	// policy will not animate.
 	if !slider.IsPathological() && !slider.IsSingular() {
 		spanDuration := slider.visualSpanDuration()
 		for i := 1; i <= slider.RepeatCount; i++ {
@@ -1083,9 +1086,10 @@ func (slider *Slider) Update(time float64) bool {
 		}
 	}
 
-	// Pathological sliders are represented as one generated hit-note target.
-	// Do not replay their dense nested events here; the head hit remains handled
-	// by HitEdge while gameplay still owns the authored judgement data.
+	// Pathological sliders suppress generated slider-detail presentation even
+	// when direct cursor tracking retains their authored path. The head hit
+	// remains handled by HitEdge while gameplay still owns the nested judgement
+	// data.
 	if slider.isSliding && !slider.IsPathological() {
 		points := slider.ScorePoints
 		if slider.diff != nil && slider.diff.IsLazer() && len(slider.ScorePointsLazer) > 0 {

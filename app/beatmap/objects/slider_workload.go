@@ -11,9 +11,10 @@ type SliderWorkloadClass uint8
 const (
 	// SliderWorkloadNormal uses the ordinary per-slider presentation paths.
 	SliderWorkloadNormal SliderWorkloadClass = 0
-	// SliderWorkloadPathological routes generated movement and slider-detail
+	// SliderWorkloadPathological routes slider-dance expansion and slider-detail
 	// audio through the normal hit-note policy. The authored slider remains
-	// available to gameplay and rendering.
+	// available to gameplay and rendering, and to direct cursor tracking when
+	// its traversal stays within the bounded movement regime.
 	SliderWorkloadPathological SliderWorkloadClass = 1 << 0
 	// SliderWorkloadSingular describes a slider whose effective traversal has
 	// no usable path or no positive time span. It is handled as one effective
@@ -70,11 +71,23 @@ func (class SliderWorkloadClass) String() string {
 	}
 }
 
-// IsPathological reports whether generated movement and slider-detail audio
-// should use the normal hit-note policy for this slider. It must not be used
-// to reject the map or discard the authored gameplay geometry.
+// IsPathological reports whether slider-dance expansion and slider-detail
+// audio should use the normal hit-note policy for this slider. It must not be
+// used to reject the map or discard the authored gameplay geometry.
 func (slider *Slider) IsPathological() bool {
 	return slider.WorkloadClass().Has(SliderWorkloadPathological)
+}
+
+// NeedsGeneratedMovementFallback reports whether direct traversal leaves the
+// bounded playfield/path regime used by generated cursor movement. Dense but
+// bounded geometry can still be tracked directly when slider dance is off.
+func (slider *Slider) NeedsGeneratedMovementFallback() bool {
+	if slider == nil {
+		return false
+	}
+
+	slider.WorkloadClass()
+	return slider.movementFallback
 }
 
 // IsSingular reports whether the slider's effective traversal has no usable
@@ -90,14 +103,19 @@ func (slider *Slider) updateWorkloadClass() {
 		return
 	}
 
+	slider.movementFallback = false
+
 	var class SliderWorkloadClass
 	if slider.isSingularTraversal() {
 		class |= SliderWorkloadSingular
 	}
 
 	if slider.multiCurve != nil {
-		if slider.multiCurve.GetLengthLazer() > pathologicalSliderPathLength ||
-			len(slider.multiCurve.GetLines()) > pathologicalSliderRenderSegments {
+		if slider.multiCurve.GetLengthLazer() > pathologicalSliderPathLength {
+			class |= SliderWorkloadPathological
+			slider.movementFallback = true
+		}
+		if len(slider.multiCurve.GetLines()) > pathologicalSliderRenderSegments {
 			class |= SliderWorkloadPathological
 		}
 
@@ -107,6 +125,7 @@ func (slider *Slider) updateWorkloadClass() {
 				outsideSliderWorkloadBounds(line.Point1.X, line.Point1.Y) ||
 				outsideSliderWorkloadBounds(line.Point2.X, line.Point2.Y) {
 				class |= SliderWorkloadPathological
+				slider.movementFallback = true
 				break
 			}
 		}

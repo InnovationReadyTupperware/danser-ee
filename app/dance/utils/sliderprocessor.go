@@ -8,7 +8,8 @@ import (
 )
 
 func objectPreProcess(hitobject objects.IHitObject, sliderDance bool, diff *difficulty.Difficulty) ([]objects.IHitObject, bool) {
-	if s1, ok1 := hitobject.(*objects.Slider); ok1 && (sliderDance || s1.IsPathological() || s1.IsSingular()) {
+	if s1, ok1 := hitobject.(*objects.Slider); ok1 &&
+		(sliderDance || s1.IsSingular() || s1.NeedsGeneratedMovementFallback()) {
 		return s1.GetAsDummyCirclesForDiff(diff), true
 	}
 

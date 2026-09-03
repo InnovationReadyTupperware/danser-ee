@@ -139,11 +139,13 @@ func (controller *GenericController) InitCursors() {
 
 	queue := controller.bMap.GetObjectsCopy()
 
-	// Treat pathological and singular sliders as one normal hit-note target.
-	// Their authored slider data remains owned by the gameplay object, but
-	// generated cursors must not traverse an unstable or disproportionate path.
+	// Singular sliders have no usable path to track. Scored generated
+	// participants also retain the pathological-slider fallback expected by
+	// their health model; ordinary cursor dance can track bounded pathological
+	// sliders directly when slider dance is disabled.
 	for i := range queue {
-		if s, ok := queue[i].(*objects.Slider); ok && (s.IsPathological() || s.IsSingular()) {
+		if s, ok := queue[i].(*objects.Slider); ok &&
+			(s.IsSingular() || (controller.knockout && s.IsPathological())) {
 			queue = utils.PreprocessQueueForDiff(i, queue, true, controller.bMap.Diff)
 		}
 	}

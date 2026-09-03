@@ -2,6 +2,7 @@ package utils
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
@@ -68,7 +69,7 @@ func TestExpandSliderDanceQueueUsesLazerScorePointsForLazerDifficulty(t *testing
 }
 
 func TestPathologicalSliderDanceQueueUsesOnlyHeadPoint(t *testing.T) {
-	slider := newDenseTestSlider(t, 1000)
+	slider := newBoundedDenseTestSlider(t, 1000)
 	queue := []objects.IHitObject{
 		objects.DummyCircle(vector.NewVec2f(10, 10), 0),
 		slider,
@@ -87,8 +88,42 @@ func TestPathologicalSliderDanceQueueUsesOnlyHeadPoint(t *testing.T) {
 	}
 
 	processed := PreprocessQueue(1, queue, false)
-	if _, ok := processed[1].(*objects.Slider); ok {
-		t.Fatal("pathological slider remained when slider dance was disabled")
+	if _, ok := processed[1].(*objects.Slider); !ok {
+		t.Fatal("pathological slider was collapsed when slider dance was disabled")
+	}
+
+	sliderDanceProcessed := PreprocessQueue(1, queue, true)
+	if _, ok := sliderDanceProcessed[1].(*objects.Slider); ok {
+		t.Fatal("pathological slider remained when slider dance was enabled")
+	}
+}
+
+func TestExtremeTraversalPreprocessingDoesNotRequireSliderDance(t *testing.T) {
+	slider := newDenseTestSlider(t, 1000)
+	if !slider.NeedsGeneratedMovementFallback() {
+		t.Fatal("extreme slider did not request the generated-movement fallback")
+	}
+
+	queue := []objects.IHitObject{slider}
+	processed := PreprocessQueue(0, queue, false)
+	if _, ok := processed[0].(*objects.Slider); ok {
+		t.Fatal("extreme slider remained when slider dance was disabled")
+	}
+}
+
+func TestSingularSliderPreprocessingDoesNotRequireSliderDance(t *testing.T) {
+	slider := objects.NewSlider([]string{
+		"256", "192", "1000", "2", "0",
+		"L", "1", "0", "0", "0:0",
+	})
+	if slider == nil || !slider.IsSingular() {
+		t.Fatal("test slider was not classified as singular")
+	}
+
+	queue := []objects.IHitObject{slider}
+	processed := PreprocessQueue(0, queue, false)
+	if _, ok := processed[0].(*objects.Slider); ok {
+		t.Fatal("singular slider remained when slider dance was disabled")
 	}
 }
 
@@ -134,6 +169,44 @@ func newDenseTestSlider(t testHelper, startTime float64) *objects.Slider {
 	timings.AddPoint(0, 600, 1, 1, 1, 4, false, false, false)
 	timings.FinalizePoints()
 	slider.SetTiming(timings, 14, false)
+	return slider
+}
+
+func newBoundedDenseTestSlider(t testHelper, startTime float64) *objects.Slider {
+	t.Helper()
+
+	var curve strings.Builder
+	curve.WriteString("L")
+	for i := range 514 {
+		if i%2 == 0 {
+			curve.WriteString("|257:192")
+		} else {
+			curve.WriteString("|256:192")
+		}
+	}
+
+	slider := objects.NewSlider([]string{
+		"256", "192", formatTestTime(startTime), "2", "0",
+		curve.String(), "1", "514", "0", "0:0",
+	})
+	if slider == nil {
+		t.Fatalf("bounded dense test slider was rejected")
+	}
+
+	timings := objects.NewTimings()
+	timings.SliderMult = 2.06
+	timings.TickRate = 0.5
+	timings.AddPoint(0, 600, 1, 1, 1, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+
+	if !slider.IsPathological() {
+		t.Fatalf("bounded dense test slider was not classified as pathological")
+	}
+	if slider.NeedsGeneratedMovementFallback() {
+		t.Fatalf("bounded dense test slider requested the generated-movement fallback")
+	}
+
 	return slider
 }
 
