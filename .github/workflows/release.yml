@@ -10,6 +10,11 @@ on:
         description: 'SemVer 2.0.0 release version without a leading v'
         type: string
         required: true
+      previous_version:
+        description: 'Previous release version for the compare link (blank uses the newest reachable SemVer tag)'
+        type: string
+        required: false
+        default: ''
       draft:
         description: 'Create draft release'
         type: boolean
@@ -205,10 +210,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
+          PREVIOUS_VERSION: ${{ inputs.previous_version }}
           DRAFT_RELEASE: ${{ inputs.draft }}
         run: |
           set -euo pipefail
           shopt -s nullglob
+
+          notes_file="$(mktemp)"
+          trap 'rm -f -- "$notes_file"' EXIT
 
           version="$RELEASE_VERSION"
           bash scripts/validate-semver.sh "$version"
@@ -219,7 +228,9 @@ jobs:
             exit 1
           fi
 
-          release_args=("$version" --title "$version" --target main)
+          bash scripts/prepare-release-notes.sh "$version" "$PREVIOUS_VERSION" > "$notes_file"
+
+          release_args=("$version" --title "$version" --target main --notes-file "$notes_file")
           if [[ "$DRAFT_RELEASE" == 'true' ]]; then
             release_args+=(--draft)
           fi

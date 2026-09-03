@@ -149,7 +149,6 @@ The comparison below is a high-level snapshot of meaningful differences since th
 | Timestamped hitsound scheduling   |                   nominal event timestamps on the master-mixer timeline                    |              ❌ Frame-triggered playback; not mixer-locked               |
 | Audio lifecycle safety            |      serialized BASS access, cancellable voices, and explicit map/storyboard cleanup       |                                    -                                     |
 | Offline audio output              |          mixer-clocked rendering with actual output format and zero-filled blocks          |                         source-clocked rendering                         |
-| Extreme slider audio handling     |     ✅ detail audio suppressed; playfield-bounded positional pan; head sound retained      | legacy position-based slider audio; no dedicated extreme-geometry policy |
 | BASS core version                 |                                          2.4.18.3                                          |                                older 2.4                                 |
 | Floating-point realtime audio     |                                             ✅                                             |                               16-bit mixer                               |
 
