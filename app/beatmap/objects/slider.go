@@ -475,62 +475,6 @@ func GetEndTimeForDiff(hitObject IHitObject, diff *difficulty.Difficulty) float6
 	return hitObject.GetEndTime()
 }
 
-func (slider *Slider) GetAsDummyCircles() []IHitObject {
-	return slider.GetAsDummyCirclesForDiff(slider.diff)
-}
-
-// GetAsDummyCirclesForDiff expands a slider using the score-point timeline
-// associated with diff. Pathological and singular sliders intentionally keep
-// their bounded one-point fallback.
-func (slider *Slider) GetAsDummyCirclesForDiff(diff *difficulty.Difficulty) []IHitObject {
-	circles := []IHitObject{slider.createDummyCircle(slider.GetStartTime(), true, false, diff)}
-
-	if slider.IsPathological() || slider.IsSingular() {
-		return circles
-	}
-
-	points := slider.ScorePoints
-	isLazer := diff != nil && diff.IsLazer()
-	if isLazer && len(slider.ScorePointsLazer) > 0 {
-		points = slider.ScorePointsLazer
-	}
-
-	for i, p := range points {
-		time := p.Time
-		if i == len(points)-1 && settings.KNOCKOUT && !isLazer { // Lazer ends work differently so skip -36ms
-			time = math.Floor(max(slider.StartTime+(slider.EndTime-slider.StartTime)/2, slider.EndTime-36))
-		}
-
-		circles = append(circles, slider.createDummyCircle(time, false, i == len(points)-1, diff))
-	}
-
-	return circles
-}
-
-func (slider *Slider) createDummyCircle(time float64, inheritStart, inheritEnd bool, diff *difficulty.Difficulty) *Circle {
-	// Slider dance points inherit the source slider's stack map. Build that
-	// representation directly instead of creating DummyCircleInherit's throwaway
-	// map and immediately replacing it; dense Aspire sliders can otherwise make
-	// thousands of avoidable map allocations during queue expansion.
-	pos := slider.PositionAtForDiff(time, diff)
-	circle := &Circle{HitObject: &HitObject{
-		StartPosRaw:   pos,
-		EndPosRaw:     pos,
-		StartTime:     time,
-		EndTime:       time,
-		StackLeniency: slider.StackLeniency,
-		StackIndexMap: slider.StackIndexMap,
-		ComboSet:      slider.ComboSet,
-	}}
-	circle.SliderPoint = true
-	circle.SliderPointStart = inheritStart
-	circle.SliderPointEnd = inheritEnd
-	circle.silent = true
-	circle.textureName = "sliderstart"
-
-	return circle
-}
-
 func (slider *Slider) SetTiming(timings *Timings, beatmapVersion int, diffCalcOnly bool) {
 	slider.resetTimingData()
 	slider.Timings = timings

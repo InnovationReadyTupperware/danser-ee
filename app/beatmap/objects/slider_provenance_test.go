@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
-	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 func TestSliderPositionAtForDiffUsesTheParticipantGameplayPath(t *testing.T) {
@@ -79,45 +78,6 @@ func TestSliderExitAngleUsesTheParticipantGameplayEndpoint(t *testing.T) {
 				t.Fatalf("exit angle = %g, want %g", got, want)
 			}
 		})
-	}
-}
-
-func TestSliderDummyCirclesUseTheParticipantScorePointTimeline(t *testing.T) {
-	previousKnockout := settings.KNOCKOUT
-	settings.KNOCKOUT = false
-	t.Cleanup(func() { settings.KNOCKOUT = previousKnockout })
-
-	slider := newProvenanceTestSlider(t)
-	stable := difficulty.NewDifficulty(5, 5, 5, 5)
-	stable.SetGameplayMode(difficulty.GameplayStable)
-	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
-
-	stableCircles := slider.GetAsDummyCirclesForDiff(stable)
-	if got, want := len(stableCircles), len(slider.ScorePoints)+1; got != want {
-		t.Fatalf("Stable cursor points = %d, want %d", got, want)
-	}
-	for i, point := range slider.ScorePoints {
-		circle := stableCircles[i+1]
-		if circle.GetStartTime() != point.Time {
-			t.Fatalf("Stable cursor point %d time = %g, want %g", i, circle.GetStartTime(), point.Time)
-		}
-		if circle.GetStartPosition() != slider.PositionAt(point.Time) {
-			t.Fatalf("Stable cursor point %d position = %v, want %v", i, circle.GetStartPosition(), slider.PositionAt(point.Time))
-		}
-	}
-
-	lazerCircles := slider.GetAsDummyCirclesForDiff(lazer)
-	if got, want := len(lazerCircles), len(slider.ScorePointsLazer)+1; got != want {
-		t.Fatalf("Lazer cursor points = %d, want %d", got, want)
-	}
-	for i, point := range slider.ScorePointsLazer {
-		circle := lazerCircles[i+1]
-		if circle.GetStartTime() != point.Time {
-			t.Fatalf("Lazer cursor point %d time = %g, want %g", i, circle.GetStartTime(), point.Time)
-		}
-		if circle.GetStartPosition() != slider.PositionAtLazer(point.Time) {
-			t.Fatalf("Lazer cursor point %d position = %v, want %v", i, circle.GetStartPosition(), slider.PositionAtLazer(point.Time))
-		}
 	}
 }
 

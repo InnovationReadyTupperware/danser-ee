@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/audio"
-	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
 func TestPathologicalSliderClassificationUsesOptimizationMetadata(t *testing.T) {
@@ -82,9 +81,6 @@ func TestSingularSliderUsesOneEffectivePoint(t *testing.T) {
 		t.Fatal("zero-path slider was incorrectly classified as pathological")
 	}
 
-	if got := len(slider.GetAsDummyCircles()); got != 1 {
-		t.Fatalf("zero-path slider dance points = %d, want one", got)
-	}
 	if got := slider.PositionAt(slider.StartTime + 100); got != slider.StartPosRaw {
 		t.Fatalf("zero-path PositionAt = %v, want start position %v", got, slider.StartPosRaw)
 	}
@@ -115,9 +111,6 @@ func TestSingularSliderRecognizesSubMillisecondStableDuration(t *testing.T) {
 		}
 	} else {
 		t.Fatalf("sub-millisecond stable duration = %g, want a non-positive floored span", slider.EndTime-slider.StartTime)
-	}
-	if got := len(slider.GetAsDummyCircles()); got != 1 {
-		t.Fatalf("zero-span slider dance points = %d, want one", got)
 	}
 }
 
@@ -198,35 +191,5 @@ func TestSliderParserRejectsNonFiniteFieldsWithoutApplyingWorkloadLimits(t *test
 				t.Fatal("malformed slider was accepted")
 			}
 		})
-	}
-}
-
-func TestSliderDanceRetainsEveryStableScorePointForNormalSlider(t *testing.T) {
-	timings := NewTimings()
-	timings.SliderMult = 2.06
-	timings.TickRate = 0.5
-	timings.AddPoint(0, 600, 1, 1, 1, 4, false, false, false)
-	timings.FinalizePoints()
-
-	slider := NewSlider([]string{
-		"256", "192", "1000", "2", "0",
-		"B|320:240|380:192", "1", "160", "0", "0:0",
-	})
-	if slider == nil {
-		t.Fatal("slider was rejected")
-	}
-	slider.SetTiming(timings, 14, false)
-
-	previousKnockout := settings.KNOCKOUT
-	settings.KNOCKOUT = false
-	t.Cleanup(func() { settings.KNOCKOUT = previousKnockout })
-
-	dummyCircles := slider.GetAsDummyCircles()
-	want := len(slider.ScorePoints) + 1
-	if len(dummyCircles) != want {
-		t.Fatalf("slider dance points = %d, want %d", len(dummyCircles), want)
-	}
-	if len(dummyCircles) < 2 {
-		t.Fatalf("slider dance generated %d points, want the authored score-point sequence", len(dummyCircles))
 	}
 }

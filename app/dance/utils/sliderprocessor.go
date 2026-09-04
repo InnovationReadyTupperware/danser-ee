@@ -1,16 +1,25 @@
 package utils
 
 import (
-	"sort"
-
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/dance/sliders"
 )
 
 func objectPreProcess(hitobject objects.IHitObject, sliderDance bool, diff *difficulty.Difficulty) ([]objects.IHitObject, bool) {
-	if s1, ok1 := hitobject.(*objects.Slider); ok1 &&
-		(sliderDance || s1.IsSingular() || s1.NeedsGeneratedMovementFallback()) {
-		return s1.GetAsDummyCirclesForDiff(diff), true
+	slider, ok := hitobject.(*objects.Slider)
+	if !ok {
+		return nil, false
+	}
+
+	if slider.IsSingular() ||
+		(sliderDance && slider.IsPathological()) ||
+		(!sliderDance && slider.NeedsGeneratedMovementFallback()) {
+		return []objects.IHitObject{sliders.NewHeadTarget(slider, diff)}, true
+	}
+
+	if sliderDance {
+		return []objects.IHitObject{sliders.NewTarget(slider, diff)}, true
 	}
 
 	return nil, false
@@ -20,8 +29,7 @@ func PreprocessQueue(index int, queue []objects.IHitObject, sliderDance bool) []
 	return PreprocessQueueForDiff(index, queue, sliderDance, nil)
 }
 
-// PreprocessQueueForDiff replaces a slider with cursor-dance points using the
-// gameplay provenance of the participant consuming the queue.
+// PreprocessQueueForDiff resolves one slider for generated movement.
 func PreprocessQueueForDiff(index int, queue []objects.IHitObject, sliderDance bool, diff *difficulty.Difficulty) []objects.IHitObject {
 	if index < 0 || index >= len(queue) {
 		return queue
@@ -33,61 +41,30 @@ func PreprocessQueueForDiff(index int, queue []objects.IHitObject, sliderDance b
 		queue1 = append(queue1, arr...)
 		queue1 = append(queue1, queue[index+1:]...)
 
-		sort.SliceStable(queue1, func(i, j int) bool { return queue1[i].GetStartTime() < queue1[j].GetStartTime() })
-
 		return queue1
 	}
 
 	return queue
 }
 
-// ExpandSliderDanceQueue replaces every slider with its cursor-dance point
-// sequence in one pass. Pathological and singular sliders intentionally
-// contribute only their head point; ordinary sliders retain every generated
-// score point. The old repeated splice-and-sort loop made the cost quadratic
-// when a dense slider section was expanded.
-func ExpandSliderDanceQueue(queue []objects.IHitObject) []objects.IHitObject {
-	return ExpandSliderDanceQueueForDiff(queue, nil)
+// ApplySliderDance replaces sliders with semantic movement targets.
+func ApplySliderDance(queue []objects.IHitObject) []objects.IHitObject {
+	return ApplySliderDanceForDiff(queue, nil)
 }
 
-// ExpandSliderDanceQueueForDiff expands sliders using the Stable or Lazer
-// score-point timeline selected by diff.
-func ExpandSliderDanceQueueForDiff(queue []objects.IHitObject, diff *difficulty.Difficulty) []objects.IHitObject {
+// ApplySliderDanceForDiff uses the participant's gameplay traversal.
+func ApplySliderDanceForDiff(queue []objects.IHitObject, diff *difficulty.Difficulty) []objects.IHitObject {
 	if len(queue) == 0 {
 		return queue
 	}
 
-	capacity := len(queue)
-	for _, hitObject := range queue {
-		slider, ok := hitObject.(*objects.Slider)
-		if !ok {
-			continue
-		}
-
-		points := 1
-		if !slider.IsPathological() && !slider.IsSingular() {
-			scorePoints := slider.ScorePoints
-			if diff != nil && diff.IsLazer() && len(slider.ScorePointsLazer) > 0 {
-				scorePoints = slider.ScorePointsLazer
-			}
-			points += len(scorePoints)
-		}
-		if points > int(^uint(0)>>1)-capacity {
-			capacity = len(queue)
-			break
-		}
-		capacity += points - 1
-	}
-
-	expanded := make([]objects.IHitObject, 0, capacity)
-	for _, hitObject := range queue {
-		if slider, ok := hitObject.(*objects.Slider); ok {
-			expanded = append(expanded, slider.GetAsDummyCirclesForDiff(diff)...)
-		} else {
-			expanded = append(expanded, hitObject)
+	processed := make([]objects.IHitObject, len(queue))
+	for i, hitObject := range queue {
+		processed[i] = hitObject
+		if replacement, ok := objectPreProcess(hitObject, true, diff); ok {
+			processed[i] = replacement[0]
 		}
 	}
 
-	sort.SliceStable(expanded, func(i, j int) bool { return expanded[i].GetStartTime() < expanded[j].GetStartTime() })
-	return expanded
+	return processed
 }

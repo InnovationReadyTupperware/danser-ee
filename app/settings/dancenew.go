@@ -99,7 +99,7 @@ type cursorDance struct {
 	ComboTag           bool             `liveedit:"false" tooltip:"Splits objects by combo, like osu!stable TAG multiplayer"`
 	Battle             bool             `liveedit:"false" tooltip:"All cursors together, like a knockout"`
 	DoSpinnersTogether bool             `liveedit:"false"`
-	TAGSliderDance     bool             `label:"TAG slider dance" liveedit:"false" tooltip:"Splits all sliders to \"circles\" if TAG is enabled"`
+	TAGSliderDance     bool             `label:"TAG slider dance" liveedit:"false" tooltip:"Uses slider-dance trajectories for the cursor that owns each slider"`
 	Resolve2BAfterTAG  bool             `label:"Resolve 2B conflicts per TAG cursor" liveedit:"false" tooltip:"Delays 2B evaluation until after objects are assigned to cursors"`
 	MoverSettings      *moverSettings
 }
