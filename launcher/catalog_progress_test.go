@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/database"
@@ -211,6 +212,65 @@ func TestRatingsRefreshWanted(t *testing.T) {
 	}
 	if ratingsRefreshWanted(true) {
 		t.Fatal("ratingsRefreshWanted(true) = true, want no refresh after a skipped pass")
+	}
+}
+
+func TestRemoveGhostCatalogEntryPublishesRemoval(t *testing.T) {
+	var removed [][2]string
+	l := launcher{
+		catalog: database.NewCatalogSnapshot([]*database.BeatmapEntry{{Dir: "gone", File: "map.osu", Name: "Ghost"}}),
+		removeCatalogEntry: func(dir, file string) error {
+			removed = append(removed, [2]string{dir, file})
+			return nil
+		},
+	}
+	t.Cleanup(func() {
+		if l.songSelectCatalogWorker != nil {
+			l.songSelectCatalogWorker.shutdown()
+		}
+	})
+
+	l.removeGhostCatalogEntry(&database.BeatmapEntry{Dir: "gone", File: "map.osu"})
+
+	if len(removed) != 1 || removed[0][0] != "gone" || removed[0][1] != "map.osu" {
+		t.Fatalf("removed rows = %#v, want one removal of gone/map.osu", removed)
+	}
+	if l.catalog == nil || l.catalog.Len() != 0 {
+		t.Fatalf("catalog still holds the ghost row: %#v", l.catalog)
+	}
+}
+
+func TestRemoveGhostCatalogEntryFallsBackOnRemovalError(t *testing.T) {
+	l := launcher{
+		catalog: database.NewCatalogSnapshot([]*database.BeatmapEntry{{Dir: "gone", File: "map.osu", Name: "Ghost"}}),
+		removeCatalogEntry: func(string, string) error {
+			return errors.New("database is locked")
+		},
+	}
+
+	l.removeGhostCatalogEntry(&database.BeatmapEntry{Dir: "gone", File: "map.osu"})
+
+	if l.catalog == nil || l.catalog.Len() != 1 {
+		t.Fatalf("catalog length changed after a failed removal: %#v", l.catalog)
+	}
+}
+
+func TestMaterializeCatalogEntryRemovesMissingSources(t *testing.T) {
+	var removed [][2]string
+	l := launcher{
+		catalog: database.NewCatalogSnapshot(nil),
+		removeCatalogEntry: func(dir, file string) error {
+			removed = append(removed, [2]string{dir, file})
+			return nil
+		},
+	}
+
+	_, err := l.materializeCatalogEntry(&database.BeatmapEntry{Dir: "no-such-set-xyz", File: "map.osu"})
+	if !errors.Is(err, database.ErrBeatmapSourceMissing) {
+		t.Fatalf("materialize error = %v, want ErrBeatmapSourceMissing", err)
+	}
+	if len(removed) != 1 || removed[0][0] != "no-such-set-xyz" || removed[0][1] != "map.osu" {
+		t.Fatalf("removed rows = %#v, want one removal of the missing source", removed)
 	}
 }
 

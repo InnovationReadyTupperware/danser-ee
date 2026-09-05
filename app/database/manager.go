@@ -31,6 +31,12 @@ import (
 
 var dbFile *sql.DB
 
+// ErrBeatmapSourceMissing marks a catalog row whose source file is gone from
+// the Songs directory. Callers use errors.Is to distinguish a deleted map,
+// whose row can be dropped, from a corrupt map, whose last-good row must be
+// kept until the source is repaired.
+var ErrBeatmapSourceMissing = errors.New("beatmap source is missing")
+
 const databaseVersion = 20260828
 
 var currentPreVersion = databaseVersion
@@ -306,6 +312,9 @@ func loadRuntimeBeatMap(entry *BeatmapEntry, verifyContent bool) (*beatmap.BeatM
 
 	file, err := os.Open(mapPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w %q: %w", ErrBeatmapSourceMissing, mapPath, err)
+		}
 		return nil, err
 	}
 	defer file.Close()
@@ -1586,6 +1595,21 @@ func tombstoneCorruptCatalogEntries(candidates []modMap) int {
 
 	log.Printf("DatabaseManager: Recorded %d unparseable files; they will be skipped until changed.", len(entries))
 	return len(entries)
+}
+
+// RemoveCatalogLocation deletes the committed catalog row for one
+// source-relative location. It is the targeted counterpart to full-pass
+// cleanup: a selected map whose source file is gone can drop its ghost row
+// without waiting for a reconciliation that a skipped pass would never run.
+func RemoveCatalogLocation(dir, file string) error {
+	if dbFile == nil {
+		return errors.New("database is not initialized")
+	}
+	if strings.TrimSpace(file) == "" {
+		return fmt.Errorf("invalid beatmap filename %q", file)
+	}
+
+	return removeBeatmaps([]mapLocation{{dir: dir, file: file}})
 }
 
 func removeBeatmaps(toRemove []mapLocation) error {

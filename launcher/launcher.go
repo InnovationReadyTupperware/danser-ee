@@ -159,6 +159,9 @@ type launcher struct {
 	catalogSnapshotGeneration atomic.Uint64
 	beatmapEventPending       atomic.Bool
 	catalogCoordinator        *catalogCoordinator
+	// removeCatalogEntry deletes one committed catalog row. It defaults to
+	// the database removal and is a field so tests can stub the boundary.
+	removeCatalogEntry        func(dir, file string) error
 	songSelectCatalogWorker   *songSelectCatalogWorker
 	songSelectView            songSelectCatalogView
 	songSelectViewReady       bool
@@ -586,10 +589,16 @@ func (l *launcher) catalogStarRatingListenerFor(generation uint64) func(processe
 func (l *launcher) materializeCatalogEntry(entry *database.BeatmapEntry) (*beatmap.BeatMap, error) {
 	bMap, err := database.LoadRuntimeBeatMap(entry)
 	if err != nil {
-		// A cached row can outlive its source file on an external or actively
-		// edited Songs drive. Keep the cached selector usable, but ask the
-		// background coordinator to reconcile the stale row instead of mutating
-		// the database from this UI callback.
+		if entry != nil && errors.Is(err, database.ErrBeatmapSourceMissing) {
+			// The source file is gone. Drop just this row so the selector
+			// updates without a full refresh, which a skipped
+			// reconciliation would never perform.
+			l.removeGhostCatalogEntry(entry)
+			return nil, err
+		}
+		// A cached row can disagree with its source file on an external or
+		// actively edited Songs drive. Keep the cached selector usable, but
+		// ask the background coordinator to reconcile the stale row instead.
 		l.reloadMaps(nil)
 		return nil, err
 	}
@@ -606,6 +615,30 @@ func (l *launcher) materializeCatalogEntry(entry *database.BeatmapEntry) (*beatm
 	}
 
 	return bMap, nil
+}
+
+// removeGhostCatalogEntry deletes one committed row whose source file is
+// gone and publishes the removal to the selector. A failed removal keeps the
+// existing fallback: the row stays until a later reconciliation removes it.
+func (l *launcher) removeGhostCatalogEntry(entry *database.BeatmapEntry) {
+	if l == nil || entry == nil {
+		return
+	}
+
+	remove := l.removeCatalogEntry
+	if remove == nil {
+		remove = database.RemoveCatalogLocation
+	}
+	if err := remove(entry.Dir, entry.File); err != nil {
+		log.Printf("Launcher: Failed to remove missing map %q/%q: %v", entry.Dir, entry.File, err)
+		l.reloadMaps(nil)
+		return
+	}
+
+	if l.catalog == nil {
+		l.catalog = database.NewCatalogSnapshot(nil)
+	}
+	l.updateSongSelectCatalog(l.catalog.ApplyDelta(database.CatalogDelta{Removals: []string{entry.MapKey()}}))
 }
 
 func (l *launcher) findCatalogEntryByMD5(md5 string) *database.BeatmapEntry {

@@ -235,6 +235,85 @@ func TestInvalidCatalogEntriesStayHidden(t *testing.T) {
 	}
 }
 
+func setupRemoveCatalogLocationDatabase(t *testing.T) {
+	t.Helper()
+
+	database, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	previousDatabase := dbFile
+	dbFile = database
+	t.Cleanup(func() { dbFile = previousDatabase })
+
+	_, err = database.Exec(`CREATE TABLE beatmaps (
+		dir TEXT, file TEXT, lastModified INTEGER, title TEXT, titleUnicode TEXT,
+		artist TEXT, artistUnicode TEXT, creator TEXT, version TEXT, source TEXT,
+		tags TEXT, cs REAL, ar REAL, sliderMultiplier REAL, sliderTickRate REAL,
+		audioFile TEXT, previewTime INTEGER, sampleSet INTEGER, stackLeniency REAL,
+		mode INTEGER, bg TEXT, md5 TEXT, dateAdded INTEGER, playCount INTEGER,
+		lastPlayed INTEGER, hpdrain REAL, od REAL, stars REAL DEFAULT -1,
+		bpmMin REAL, bpmMax REAL, circles INTEGER, sliders INTEGER, spinners INTEGER,
+		endTime INTEGER, setID INTEGER, mapID INTEGER, starsVersion INTEGER DEFAULT 0,
+		localOffset INTEGER DEFAULT 0, fileSize INTEGER DEFAULT 0,
+		metadataState INTEGER DEFAULT 0,
+		UNIQUE(dir COLLATE NOCASE, file COLLATE NOCASE)
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seed := []*BeatmapEntry{
+		{Dir: "gone", File: "map.osu", Name: "Ghost", Mode: 0},
+		{Dir: "kept", File: "map.osu", Name: "Kept", Mode: 0},
+	}
+	if err := upsertCatalogEntries(seed); err != nil {
+		t.Fatalf("seed removal fixtures: %v", err)
+	}
+}
+
+func TestRemoveCatalogLocationDeletesOneRow(t *testing.T) {
+	setupRemoveCatalogLocationDatabase(t)
+
+	if err := RemoveCatalogLocation("GONE", "MAP.OSU"); err != nil {
+		t.Fatalf("RemoveCatalogLocation() error = %v", err)
+	}
+
+	entries := loadCatalogEntries()
+	if len(entries) != 1 || entries[0].Name != "Kept" {
+		t.Fatalf("catalog entries = %#v, want only the kept map", entries)
+	}
+}
+
+func TestRemoveCatalogLocationMissesWithoutFailing(t *testing.T) {
+	setupRemoveCatalogLocationDatabase(t)
+
+	if err := RemoveCatalogLocation("gone", "absent.osu"); err != nil {
+		t.Fatalf("RemoveCatalogLocation() error = %v, want nil for a missing row", err)
+	}
+	if entries := loadCatalogEntries(); len(entries) != 2 {
+		t.Fatalf("catalog entries = %d, want both rows after a miss", len(entries))
+	}
+}
+
+func TestRemoveCatalogLocationRejectsBadInput(t *testing.T) {
+	setupRemoveCatalogLocationDatabase(t)
+
+	if err := RemoveCatalogLocation("gone", ""); err == nil {
+		t.Fatal("RemoveCatalogLocation() succeeded with an empty filename, want an error")
+	}
+
+	previousDatabase := dbFile
+	dbFile = nil
+	t.Cleanup(func() { dbFile = previousDatabase })
+
+	if err := RemoveCatalogLocation("gone", "map.osu"); err == nil {
+		t.Fatal("RemoveCatalogLocation() succeeded without a database, want an error")
+	}
+}
+
 func TestNotifyCatalogDeltaPublishesOnlyChanges(t *testing.T) {
 	entry := &BeatmapEntry{Dir: "set", File: "map.osu"}
 	var received []CatalogDelta

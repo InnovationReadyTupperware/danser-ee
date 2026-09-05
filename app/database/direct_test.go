@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -111,6 +112,32 @@ func TestLoadDirectBeatmapRejectsUnsupportedModes(t *testing.T) {
 
 	if _, err := LoadDirectBeatmap(relativePath); err == nil {
 		t.Fatalf("LoadDirectBeatmap(%q) succeeded for a non-standard mode, want an error", relativePath)
+	}
+}
+
+func TestLoadRuntimeBeatMapMarksMissingSources(t *testing.T) {
+	setupDirectSongsDir(t, "")
+
+	_, err := LoadRuntimeBeatMap(&BeatmapEntry{Dir: "12345 Artist - Title", File: "absent.osu"})
+	if !errors.Is(err, ErrBeatmapSourceMissing) {
+		t.Fatalf("LoadRuntimeBeatMap() error = %v, want ErrBeatmapSourceMissing", err)
+	}
+}
+
+func TestLoadRuntimeBeatMapKeepsCorruptErrorsUnmarked(t *testing.T) {
+	setupDirectSongsDir(t, "")
+
+	corruptPath := filepath.Join(songsDir, "12345 Artist - Title", "corrupt.osu")
+	if err := os.WriteFile(corruptPath, []byte("not a beatmap"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadRuntimeBeatMap(&BeatmapEntry{Dir: "12345 Artist - Title", File: "corrupt.osu"})
+	if err == nil {
+		t.Fatal("LoadRuntimeBeatMap() succeeded for a corrupt file, want an error")
+	}
+	if errors.Is(err, ErrBeatmapSourceMissing) {
+		t.Fatalf("LoadRuntimeBeatMap() error = %v, want a parse error that keeps the last-good row", err)
 	}
 }
 
