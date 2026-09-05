@@ -88,7 +88,7 @@ func sendActivity(state string) {
 			State:      state,
 			Details:    mapString,
 			LargeImage: "danser-logo",
-			LargeText:  "danser-ee " + build.VERSION,
+			LargeText:  "danser-ee " + build.Version,
 			Timestamps: &client.Timestamps{
 				Start: &startTime,
 				End:   &endTime,

@@ -375,7 +375,7 @@ func (l *launcher) startDanser() {
 	l.startTimer = nil
 
 	executable := os.Args[0]
-	if build.Stream == "Release" {
+	if build.IsRelease() {
 		executable = filepath.Join(env.LibDir(), build.DanserExec)
 	}
 	if executable == "" {

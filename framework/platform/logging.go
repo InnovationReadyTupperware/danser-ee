@@ -18,7 +18,7 @@ import (
 )
 
 func StartLogging(logName string) {
-	log.Println(build.ProgramName, "version:", build.VERSION)
+	log.Println(build.ProgramName, "version:", build.Version)
 
 	file, err := os.Create(filepath.Join(env.DataDir(), logName+".log"))
 	if err != nil {
@@ -48,8 +48,11 @@ func PrintPlatformInfo() {
 	}
 
 	log.Println("-------------------------------------------------------------------")
-	log.Println(build.ProgramName, "version:", build.VERSION)
+	log.Println(build.ProgramName, "version:", build.Version)
 	log.Println("Build commit hash:", build.CommitHash)
+	if build.Branch != "" {
+		log.Println("Build branch:", build.Branch)
+	}
 	log.Println("Ran using:", os.Args)
 	log.Println("OS: ", osName)
 	log.Println("CPU:", cpuName)

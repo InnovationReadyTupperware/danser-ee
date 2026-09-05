@@ -263,7 +263,7 @@ func StartLauncher() {
 	settings.Playfield.Background.Parallax.Enabled = true
 	settings.Playfield.Background.Parallax.Amount = 0.02
 
-	assets.Init(build.Stream == "Dev")
+	assets.Init(build.IsDev())
 
 	goroutines.RunMain(func() {
 		defer func() {
@@ -361,7 +361,7 @@ func (l *launcher) startContext(ctx context.Context) {
 		iconName += "-s"
 	}
 
-	if err := gcontext.SDLCreateWindow(800, 534, "Danser Enterprise Edition "+build.VERSION+" launcher", gcontext.OptionalProps{
+	if err := gcontext.SDLCreateWindow(800, 534, "Danser Enterprise Edition "+build.Version, gcontext.OptionalProps{
 		IconName:       iconName,
 		ScaleToMonitor: true,
 		BuiltinMSAA:    true,

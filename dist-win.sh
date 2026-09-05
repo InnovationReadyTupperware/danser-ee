@@ -23,6 +23,7 @@ bash "$script_dir/scripts/validate-semver.sh" "$version"
 
 exec=$version
 build=$version
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 version_core=${version%%[-+]*}
 IFS=. read -r major minor patch <<< "$version_core"
 
@@ -82,7 +83,7 @@ go run tools/assets/assets.go ./ $BUILD_DIR/
 
 cp $BUILD_DIR/danser.syso danser.syso
 
-go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.VERSION=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release'" -buildmode=c-shared -o $BUILD_DIR/danser-core.dll -v -x -tags "exclude_cimgui_glfw exclude_cimgui_sdli"
+go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.Version=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release' -X 'github.com/innovationreadytupperware/danser-ee/build.Branch=$branch'" -buildmode=c-shared -o $BUILD_DIR/danser-core.dll -v -x -tags "exclude_cimgui_glfw exclude_cimgui_sdli"
 
 rm -f danser.syso
 

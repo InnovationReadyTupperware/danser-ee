@@ -1,6 +1,78 @@
 package utils
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestGetLatestVersion(t *testing.T) {
+	t.Run("latest release is parsed", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"html_url":"https://example.invalid/releases/v1.2.3","tag_name":"v1.2.3"}`))
+		}))
+		defer server.Close()
+
+		url, tag, err := getLatestVersion(context.Background(), server.URL)
+		if err != nil {
+			t.Fatalf("getLatestVersion() error = %v", err)
+		}
+		if url != "https://example.invalid/releases/v1.2.3" {
+			t.Fatalf("getLatestVersion() url = %q", url)
+		}
+		if tag != "v1.2.3" {
+			t.Fatalf("getLatestVersion() tag = %q", tag)
+		}
+	})
+
+	t.Run("missing releases report ErrNoReleases", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		}))
+		defer server.Close()
+
+		_, _, err := getLatestVersion(context.Background(), server.URL)
+		if !errors.Is(err, ErrNoReleases) {
+			t.Fatalf("getLatestVersion() error = %v, want errors.Is(err, ErrNoReleases)", err)
+		}
+	})
+
+	t.Run("server errors are not ErrNoReleases", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		_, _, err := getLatestVersion(context.Background(), server.URL)
+		if err == nil {
+			t.Fatalf("getLatestVersion() error = nil, want an error")
+		}
+		if errors.Is(err, ErrNoReleases) {
+			t.Fatalf("getLatestVersion() error = %v, must not match ErrNoReleases", err)
+		}
+	})
+
+	t.Run("invalid payload is an error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`not json`))
+		}))
+		defer server.Close()
+
+		if _, _, err := getLatestVersion(context.Background(), server.URL); err == nil {
+			t.Fatalf("getLatestVersion() error = nil, want an error")
+		}
+	})
+
+	t.Run("nil context is an error", func(t *testing.T) {
+		if _, _, err := getLatestVersion(nil, "https://example.invalid"); err == nil {
+			t.Fatalf("getLatestVersion() error = nil, want an error")
+		}
+	})
+}
 
 func TestNormalizeSemVer(t *testing.T) {
 	tests := []struct {

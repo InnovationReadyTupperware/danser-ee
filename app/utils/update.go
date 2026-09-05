@@ -3,10 +3,10 @@ package utils
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,19 +14,36 @@ import (
 	"golang.org/x/mod/semver"
 )
 
+// githubLatestReleaseURL is the endpoint consulted for packaged release
+// builds. It is a variable so tests can point the check at a local server.
+var githubLatestReleaseURL = "https://api.github.com/repos/innovationreadytupperware/danser-ee/releases/latest"
+
+// ErrNoReleases reports that GitHub has no release information for the
+// repository. The repository may be private, unreachable without
+// credentials, or simply not publishing releases yet. Callers detect it
+// with errors.Is to degrade gracefully instead of treating it as a
+// transport failure.
+var ErrNoReleases = errors.New("no releases published for this repository")
+
 // GetLatestVersionFromGitHub makes a request to GitHub and returns url and tag of the latest version found
 func GetLatestVersionFromGitHub() (url string, tag string, err error) {
-	return GetLatestVersionFromGitHubContext(context.Background())
+	return getLatestVersion(context.Background(), githubLatestReleaseURL)
 }
 
 // GetLatestVersionFromGitHubContext makes a cancellable request to GitHub and
 // returns the latest release URL and tag. The timeout protects launcher
 // shutdown from a network stack that never completes a request.
 func GetLatestVersionFromGitHubContext(ctx context.Context) (url string, tag string, err error) {
+	return getLatestVersion(ctx, githubLatestReleaseURL)
+}
+
+// getLatestVersion queries a GitHub releases/latest endpoint and returns the
+// latest release URL and tag.
+func getLatestVersion(ctx context.Context, endpoint string) (url string, tag string, err error) {
 	if ctx == nil {
 		return "", "", fmt.Errorf("nil context")
 	}
-	request, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/innovationreadytupperware/danser-ee/releases/latest", nil)
+	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", "", err
 	}
@@ -36,6 +53,10 @@ func GetLatestVersionFromGitHubContext(ctx context.Context) (url string, tag str
 	response, err := client.Do(request)
 	if err != nil {
 		return "", "", err
+	}
+	if response.StatusCode == http.StatusNotFound {
+		_ = response.Body.Close()
+		return "", "", fmt.Errorf("get latest release from %s: %w", endpoint, ErrNoReleases)
 	}
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
@@ -60,34 +81,6 @@ func GetLatestVersionFromGitHubContext(ctx context.Context) (url string, tag str
 	}
 
 	return data.URL, data.Tag, nil
-}
-
-// TransformVersion transfers legacy danser version strings to a comparable format.
-//   - 0.6.7 becomes 600079999
-//   - 0.6.7-s(napshot)12 becomes 600070012
-//   - 1.0.0 becomes 1000000009999
-//
-// Deprecated: release update checks use SemVer 2.0.0 comparison instead. This
-// function remains for compatibility with callers of the existing API.
-func TransformVersion(version string) uint64 {
-	currentSplit := strings.Split(version, "-")
-	splitDots := strings.Split(strings.TrimSuffix(currentSplit[0], "b"), ".")
-
-	for i, s := range splitDots {
-		splitDots[i] = fmt.Sprintf("%04s", s)
-	}
-
-	snapshot := "9999"
-	if len(currentSplit) > 1 && !strings.HasPrefix(currentSplit[1], "dev") {
-		snapshot = fmt.Sprintf("%04s", strings.TrimPrefix(strings.TrimPrefix(currentSplit[1], "s"), "napshot"))
-	}
-
-	versionInt, err := strconv.ParseUint(strings.Join(splitDots, "")+snapshot, 10, 64)
-	if err != nil {
-		panic(err)
-	}
-
-	return versionInt
 }
 
 func normalizeSemVer(version string) (string, error) {
@@ -129,7 +122,6 @@ const (
 	Failed = UpdateStatus(iota)
 	Ignored
 	UpToDate
-	Snapshot
 	UpdateAvailable
 )
 
@@ -144,21 +136,21 @@ func CheckForUpdateContext(ctx context.Context) (UpdateStatus, string, error) {
 	if ctx == nil {
 		return Failed, "", fmt.Errorf("nil context")
 	}
-	if build.Stream != "Release" {
+	if !build.IsRelease() {
 		return Ignored, "", nil
 	}
-	if _, err := normalizeSemVer(build.VERSION); err != nil {
+	if _, err := normalizeSemVer(build.Version); err != nil {
 		return Failed, "", fmt.Errorf("invalid local release version: %w", err)
 	}
 
 	log.Println("Checking GitHub for a new version of danser-ee...")
 
-	url, tag, err := GetLatestVersionFromGitHubContext(ctx)
+	url, tag, err := getLatestVersion(ctx, githubLatestReleaseURL)
 	if err != nil {
 		return Failed, "", err
 	}
 
-	comparison, err := compareSemVerVersions(build.VERSION, tag)
+	comparison, err := compareSemVerVersions(build.Version, tag)
 	if err != nil {
 		return Failed, "", err
 	}

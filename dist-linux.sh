@@ -21,12 +21,13 @@ bash "$script_dir/scripts/validate-semver.sh" "$version"
 
 exec=$version
 build=$version
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
 mkdir -p $BUILD_DIR
 
 go run tools/assets/assets.go ./ $BUILD_DIR/
 
-go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.VERSION=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release'" -buildmode=c-shared -o $BUILD_DIR/danser-core.so -v -x -tags "exclude_cimgui_glfw exclude_cimgui_sdli"
+go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.Version=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release' -X 'github.com/innovationreadytupperware/danser-ee/build.Branch=$branch'" -buildmode=c-shared -o $BUILD_DIR/danser-core.so -v -x -tags "exclude_cimgui_glfw exclude_cimgui_sdli"
 
 mv $BUILD_DIR/danser-core.so $BUILD_DIR/libdanser-core.so
 cp {libbass.so,libbass_fx.so,libbassmix.so,libyuv.so,libSDL3.so} $BUILD_DIR/
