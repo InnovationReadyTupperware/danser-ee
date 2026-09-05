@@ -263,7 +263,7 @@ Settings and knockout usage are detailed in the upstream [danser-go wiki](https:
 
 ### Requirements
 
-* [Go 1.27.0](https://go.dev/dl/)
+* [Go 1.27.1](https://go.dev/dl/)
 * A compatible C/C++ toolchain for CGO
   * Windows: [WinLibs](https://winlibs.com/) MSVCRT+POSIX or another compatible MinGW-family toolchain. TDM-GCC is not supported.
   * Linux: gcc/g++.

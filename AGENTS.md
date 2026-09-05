@@ -164,7 +164,7 @@ than one part of the product.
   clear names, small cohesive types and functions, and local patterns; avoid
   broad reorganizations or abstractions unless the task calls for them.
 - Use standard Go naming and idioms. The module is
-  `github.com/innovationreadytupperware/danser-ee` and the toolchain target is Go 1.27.0.
+  `github.com/innovationreadytupperware/danser-ee` and the toolchain target is Go 1.27.1.
 - Preserve public API names and serialized configuration keys unless a
   compatibility-preserving migration is part of the task.
 - Document exported identifiers and non-obvious behavior. Comments should
