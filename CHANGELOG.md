@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 - 2026-09-03
+## 1.0.0 - 2026-09-05
 
 danser-ee 1.0.0 is the project's first standalone release. It builds on all
 danser-go development after 0.11.0 through commit `3eb75a34`, including the
@@ -14,7 +14,7 @@ danser-go development after 0.11.0 through commit `3eb75a34`, including the
   - The old `LZ` workaround is no longer needed
 - Hitsounds and storyboard audio now occur at their intended times, and video
   recordings stay synchronized through speed changes and audio stalls
-- Song catalog updates no longer hold up launcher startup or browsing
+- Song catalog updates no longer hold up launcher startup
 - High-refresh gameplay is smoother, especially with custom FPS caps on
   Windows
 - Solo knockout can now run with generated participants instead of replay
@@ -28,44 +28,33 @@ danser-go development after 0.11.0 through commit `3eb75a34`, including the
 
 ### Added
 
-- Added replay-free solo knockout
-  - Generates fully scored participants without replay files
-  - Enable it with `-solo-knockout`
-  - `-tag` sets the participant count
-  - `-cursors` sets mirrored cursor views
-  - Replay-driven knockout remains separate
+- Added replay-free solo knockout with fully scored participants
+  - New `-solo-knockout` flag to enable it, with `-tag` setting the
+    participant count and `-cursors` the mirrored cursor views
 - Added Lazer-compatible osu!standard judgments for slider parts
-  - Heads, ticks, repeats, and tails are evaluated independently
-  - Dropped non-Classic tails retain osu!lazer's ignored-tail behavior
-  - `Objects.Sliders.ShowSliderJudgmentMarkers` displays supported misses with
+  - New `Objects.Sliders.ShowSliderJudgmentMarkers` displays supported misses with
     the `slidertickmiss` and `sliderendmiss` skin components
-  - The marker setting is enabled by default
 - Added Lazer-compatible hit-error statistics and detailed feedback controls
   - Includes timing lines, customizable bars, and median hit error on the
     results screen
   - Added `Gameplay.HitErrorMeter.ShowColorBar`, `ShowMovingAverage`,
     `JudgmentLineThickness`, and `PointFadeOutTime` controls
-  - Positional miss diagnostics can be enabled when needed
 - Added separate hit-animation controls for objects and sliders
-  - Configure them with `Objects.HitAnimations` and
-    `Objects.Sliders.HitAnimations`
-  - Both settings are enabled by default
+  - New `Objects.HitAnimations` and `Objects.Sliders.HitAnimations` settings,
+    both enabled by default
   - Disabling object hit animations makes successful hit circles disappear
     almost immediately
 - Added osu!lazer-compatible spinner movement for cursor dance
   - Generated Lazer-compatible participants use the OD 11
     spinner-completion rate by default
-  - `CursorDance.SpinnerBehavior.SpinAtLowestRPM` instead uses the completion
-    rate for the map's OD
-  - The setting is disabled by default; osu!stable replays retain their
-    historical spinner rate
+  - New `CursorDance.SpinnerBehavior.SpinAtLowestRPM` instead uses the
+    completion rate for the map's OD, and is disabled by default
+  - osu!stable replays retain their historical spinner rate
   - Spinner targets scale with the map and movement accounts for spinner
     duration
-- Added `Objects.Colors.ComboColorNormalization`
-  - Ported from osu!lazer and enabled at 20% by default
+- Added combo color normalization ported from osu!lazer
+  (`Objects.Colors.ComboColorNormalization`)
 - Added F grades for failed plays
-  - An F grade remains visible through the results screen while score and
-    performance statistics continue updating
   - The grade is drawn as text when a skin has no F texture
 
 ### Changed
@@ -97,7 +86,6 @@ danser-go development after 0.11.0 through commit `3eb75a34`, including the
   - Color conversion and encoded metadata use BT.709 limited range
   - Motion-blur samples stay centered on rendered frames
 - Discord Rich Presence is disabled by default
-  - Re-enable it in settings if you want presence updates
 - New gameplay profiles use 4x MSAA by default, and the launcher visualizer
   also uses 4x MSAA
   - Change `Graphics.MSAA` to use a different gameplay sample count; changes
@@ -111,6 +99,12 @@ danser-go development after 0.11.0 through commit `3eb75a34`, including the
 - File and folder selection now uses platform-integrated dialogs
   - Windows uses native dialogs
   - Linux uses `zenity` or `kdialog` when available
+- Renamed `Speed up startup on slow HDDs` to `Skip library rescan`
+  (disabled by default)
+- `Skip library rescan` now actually skips the library work
+  - While skipping, star ratings are left untouched and new maps stay unrated
+    until a full check runs
+  - Selecting a deleted map removes it from song select without a full refresh
 
 ### Performance
 
@@ -118,16 +112,14 @@ danser-go development after 0.11.0 through commit `3eb75a34`, including the
   - Frame pacing follows deadlines instead of repeated polling
   - High-refresh and high-FPS Windows playback uses dedicated render pacing
   - Set `DANSER_FRAME_PROBE=1` to capture slow frame samples for diagnosis
-- Reduced audio stalls during dense gameplay
-  - Audio controls interrupt gameplay less often
-- The launcher remains usable while the song catalog is updated
-  - Cached map metadata is available before filesystem reconciliation finishes
-  - Added, changed, and removed maps appear while song select remains open
-  - Search and scrolling avoid rebuilding the full library for every
-    interaction
-  - Map backgrounds, selected beatmaps, and related skin assets load as needed
-  - An adjacent `osu!.db` can provisionally populate an empty catalog; missing
-    or invalid data falls back to the normal Songs scan
+- Reduced gameplay stutter during object-dense sections, which was caused by
+  audio state and rate changes crossing to the audio thread once per call
+  instead of once per update
+- The launcher now populates and maintains your library in the background
+  instead of on a blocking screen
+- Song select search and scrolling no longer stutter on large libraries
+- New `-beatmap-path` flag starts the selected map directly for a faster
+  start
 
 ### Fixed
 
@@ -167,12 +159,7 @@ danser-go development after 0.11.0 through commit `3eb75a34`, including the
 
 ### Removed
 
-- Removed the old `LZ` mod and `Gameplay.Mods.ShowLazerMod` setting
-  - Replay-free playback now uses Lazer-compatible osu!standard behavior
-    without a mod
-- Removed `Gameplay.LazerClassicScore`
-  - Classic's individual compatibility settings now control scoring during
-    Lazer-compatible playback
+- Removed the old `LZ` mod and the `Gameplay.Mods.ShowLazerMod` and `Gameplay.LazerClassicScore` settings in favor of the Classic mod
 
 ---
 
