@@ -182,7 +182,7 @@ func drawLauncherConfig() {
 
 	checkboxOption("Load latest replay on startup", &launcherConfig.LoadLatestReplay)
 
-	checkboxOption("Light library checks for slow drives.\nFinds new sets only, won't detect\ndeleted/updated maps!", &launcherConfig.SkipMapUpdate)
+	checkboxOption("Skip library rescan.\nFinds new sets only, won't detect\ndeleted/updated maps!", &launcherConfig.SkipMapUpdate)
 
 	checkboxOption("Load changes in Songs folder automatically", &launcherConfig.AutoRefreshDB)
 
