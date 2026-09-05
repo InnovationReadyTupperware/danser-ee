@@ -124,7 +124,7 @@ func scanBeatmapFilesContext(
 
 			result.candidates = append(result.candidates, modMap{
 				location: mapLocation{
-					dir:  normalizeRelativePath(filepath.Dir(relativePath)),
+					dir:  normalizeRelativeDirPreserveCase(filepath.Dir(relativePath)),
 					file: entry.Name(),
 				},
 				fingerprint: fileFingerprint{
@@ -177,4 +177,19 @@ func normalizeRelativePath(value string) string {
 	}
 
 	return strings.ToLower(value)
+}
+
+// normalizeRelativeDirPreserveCase normalizes separators for a catalog
+// location without changing its spelling. The case-insensitive catalog key
+// remains the identity; the stored directory must keep the source
+// filesystem's casing so case-sensitive platforms can still open the file
+// and a later scan does not mistake every mixed-case set for a rename.
+func normalizeRelativeDirPreserveCase(value string) string {
+	value = strings.ReplaceAll(value, "\\", "/")
+	value = filepath.ToSlash(filepath.Clean(value))
+	if value == "." {
+		return ""
+	}
+
+	return value
 }

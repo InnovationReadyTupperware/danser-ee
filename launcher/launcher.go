@@ -533,6 +533,12 @@ func (l *launcher) catalogImportListenerFor(generation uint64) database.ImportLi
 				active:     true,
 				prominent:  prominent,
 			})
+		case database.Finished:
+			// The import pass reports every candidate now, so reaching
+			// Finished means the bar is complete. Clear it right away so a
+			// long star-rating pass does not leave a stale full bar on
+			// screen; the rating listener publishes its own state next.
+			l.clearCatalogProgressFor(generation)
 		}
 	}
 }

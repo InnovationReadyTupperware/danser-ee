@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 )
@@ -161,6 +162,76 @@ func TestEnsureCatalogColumnsCanBeRetried(t *testing.T) {
 	}
 	if !columns["fileSize"] || !columns["metadataState"] {
 		t.Fatalf("catalog columns = %#v, want fileSize and metadataState", columns)
+	}
+}
+
+func TestInvalidCatalogEntriesStayHidden(t *testing.T) {
+	database, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	previousDatabase := dbFile
+	dbFile = database
+	defer func() { dbFile = previousDatabase }()
+
+	_, err = database.Exec(`CREATE TABLE beatmaps (
+		dir TEXT, file TEXT, lastModified INTEGER, title TEXT, titleUnicode TEXT,
+		artist TEXT, artistUnicode TEXT, creator TEXT, version TEXT, source TEXT,
+		tags TEXT, cs REAL, ar REAL, sliderMultiplier REAL, sliderTickRate REAL,
+		audioFile TEXT, previewTime INTEGER, sampleSet INTEGER, stackLeniency REAL,
+		mode INTEGER, bg TEXT, md5 TEXT, dateAdded INTEGER, playCount INTEGER,
+		lastPlayed INTEGER, hpdrain REAL, od REAL, stars REAL DEFAULT -1,
+		bpmMin REAL, bpmMax REAL, circles INTEGER, sliders INTEGER, spinners INTEGER,
+		endTime INTEGER, setID INTEGER, mapID INTEGER, starsVersion INTEGER DEFAULT 0,
+		localOffset INTEGER DEFAULT 0, fileSize INTEGER DEFAULT 0,
+		metadataState INTEGER DEFAULT 0,
+		UNIQUE(dir COLLATE NOCASE, file COLLATE NOCASE)
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	valid := &BeatmapEntry{
+		Dir:           "set",
+		File:          "map.osu",
+		Name:          "playable",
+		Mode:          0,
+		Stars:         5,
+		MetadataState: MetadataComplete,
+	}
+	tombstone := &BeatmapEntry{
+		Dir:           "broken",
+		File:          "broken.osu",
+		Mode:          0,
+		Stars:         -1,
+		LastModified:  123,
+		FileSize:      456,
+		MetadataState: MetadataInvalid,
+	}
+	if err := upsertCatalogEntries([]*BeatmapEntry{valid, tombstone}); err != nil {
+		t.Fatalf("upsert tombstone fixtures: %v", err)
+	}
+
+	// Tombstones for unparseable files must never surface in song select.
+	if entries := loadCatalogEntries(); len(entries) != 1 || entries[0].File != "map.osu" {
+		t.Fatalf("catalog entries = %#v, want only the playable map", entries)
+	}
+
+	// The fingerprint must still be visible so the next scan skips the file
+	// without reparsing it.
+	_, fingerprints, complete := getLastModifiedContext(context.Background())
+	if !complete {
+		t.Fatal("fingerprint load was marked incomplete")
+	}
+	cached, ok := fingerprints[catalogPathKey("broken", "broken.osu")]
+	if !ok {
+		t.Fatal("tombstone fingerprint is missing")
+	}
+	if cached.fingerprint.modified != 123 || cached.fingerprint.size != 456 ||
+		cached.fingerprint.metadataState != MetadataInvalid {
+		t.Fatalf("tombstone fingerprint = %+v, want recorded values", cached.fingerprint)
 	}
 }
 

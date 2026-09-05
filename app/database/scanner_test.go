@@ -54,10 +54,42 @@ func TestScanBeatmapFilesCanSkipCachedSets(t *testing.T) {
 	}
 }
 
+func TestScanBeatmapFilesPreservesDirectoryCase(t *testing.T) {
+	root := t.TempDir()
+	writeScanFixture(t, filepath.Join(root, "12345 Artist - Title", "Map.osu"))
+
+	result, err := scanBeatmapFiles(root, false, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.candidates) != 1 {
+		t.Fatalf("scan found %d files, want 1", len(result.candidates))
+	}
+
+	// The catalog key stays case-insensitive, but the stored location must
+	// keep the filesystem spelling. Lowercasing here once forced every
+	// mixed-case set through a full reparse on the next launch.
+	if got := result.candidates[0].location.dir; got != "12345 Artist - Title" {
+		t.Fatalf("candidate dir = %q, want original case", got)
+	}
+	if got, want := result.candidates[0].location.key(), "12345 artist - title/map.osu"; got != want {
+		t.Fatalf("candidate key = %q, want %q", got, want)
+	}
+}
+
+func TestSameCatalogSourceIgnoresCaseAndSeparators(t *testing.T) {
+	if !sameCatalogSource(`D:\Libraries\Music\Songs`, `d:/libraries/music/songs/`) {
+		t.Fatal("same directory with different case and separators was treated as changed")
+	}
+	if sameCatalogSource(`D:\Libraries\Music\Songs`, `D:\Libraries\Music\Other`) {
+		t.Fatal("different directories were treated as the same source")
+	}
+}
+
 func BenchmarkScanBeatmapFiles(b *testing.B) {
 	root := b.TempDir()
-	for set := 0; set < 512; set++ {
-		for mapIndex := 0; mapIndex < 4; mapIndex++ {
+	for set := range 512 {
+		for mapIndex := range 4 {
 			path := filepath.Join(root, "Set"+strconv.Itoa(set), "map"+strconv.Itoa(mapIndex)+".osu")
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				b.Fatal(err)
@@ -69,7 +101,7 @@ func BenchmarkScanBeatmapFiles(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		result, err := scanBeatmapFiles(root, false, nil, nil, nil)
 		if err != nil {
 			b.Fatal(err)

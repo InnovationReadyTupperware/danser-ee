@@ -39,50 +39,28 @@ type general struct {
 
 	// Whether import details should be shown. If false, only failures will be logged.
 	VerboseImportLogs bool
-
-	songsDir   *string
-	skinsDir   *string
-	replaysDir *string
 }
 
 func (g *general) GetSongsDir() string {
-	if g.songsDir == nil {
-		dir := filepath.Join(env.DataDir(), g.OsuSongsDir)
-
-		if filepath.IsAbs(g.OsuSongsDir) {
-			dir = g.OsuSongsDir
-		}
-
-		g.songsDir = &dir
+	if filepath.IsAbs(g.OsuSongsDir) {
+		return g.OsuSongsDir
 	}
 
-	return *g.songsDir
+	return filepath.Join(env.DataDir(), g.OsuSongsDir)
 }
 
 func (g *general) GetSkinsDir() string {
-	if g.skinsDir == nil {
-		dir := filepath.Join(env.DataDir(), g.OsuSkinsDir)
-
-		if filepath.IsAbs(g.OsuSkinsDir) {
-			dir = g.OsuSkinsDir
-		}
-
-		g.skinsDir = &dir
+	if filepath.IsAbs(g.OsuSkinsDir) {
+		return g.OsuSkinsDir
 	}
 
-	return *g.skinsDir
+	return filepath.Join(env.DataDir(), g.OsuSkinsDir)
 }
 
 func (g *general) GetReplaysDir() string {
-	if g.replaysDir == nil {
-		dir := filepath.Join(env.DataDir(), g.OsuReplaysDir)
-
-		if filepath.IsAbs(g.OsuReplaysDir) {
-			dir = g.OsuReplaysDir
-		}
-
-		g.replaysDir = &dir
+	if filepath.IsAbs(g.OsuReplaysDir) {
+		return g.OsuReplaysDir
 	}
 
-	return *g.replaysDir
+	return filepath.Join(env.DataDir(), g.OsuReplaysDir)
 }

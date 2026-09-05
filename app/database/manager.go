@@ -69,6 +69,10 @@ type modMap struct {
 	location    mapLocation
 	fingerprint fileFingerprint
 	localState  catalogLocalState
+	// hadPrevious reports whether the candidate replaced a cached catalog
+	// row. A corrupt file keeps its last good row instead of replacing it,
+	// while a corrupt file with no previous row may become a tombstone.
+	hadPrevious bool
 }
 
 var migrations []Migration
@@ -202,7 +206,7 @@ func Init() (err error) {
 	if storedSongsDir != "" {
 		catalogSourceMatches = sameCatalogSource(storedSongsDir, songsDir)
 		if !catalogSourceMatches {
-			log.Println("DatabaseManager: Songs directory changed; cached catalog will remain hidden until reconciliation completes.")
+			log.Printf("DatabaseManager: Songs directory changed; cached catalog will remain hidden until reconciliation completes. Stored=%q current=%q.", storedSongsDir, songsDir)
 		}
 	}
 
@@ -457,7 +461,7 @@ func LoadCachedCatalogContext(ctx context.Context) (*CatalogSnapshot, error) {
 		return NewCatalogSnapshot(nil), nil
 	}
 
-	entries, err := queryCatalogEntriesContext(ctx, "WHERE mode = 0")
+	entries, err := queryCatalogEntriesContext(ctx, "WHERE mode = 0 AND metadataState <> ?", int(MetadataInvalid))
 	if err != nil {
 		return nil, err
 	}
@@ -495,7 +499,7 @@ func SeedCatalogFromStableDatabaseContext(ctx context.Context) (CatalogDelta, er
 	}
 
 	var hasEntries bool
-	if err := dbFile.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM beatmaps WHERE mode = 0)").Scan(&hasEntries); err != nil {
+	if err := dbFile.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM beatmaps WHERE mode = 0 AND metadataState <> ?)", int(MetadataInvalid)).Scan(&hasEntries); err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return CatalogDelta{}, contextErr
 		}
@@ -737,13 +741,16 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 			// lag behind the filesystem and it does not provide a reliable content
 			// fingerprint for danser's catalog, so every seeded row must be parsed
 			// once by the authoritative filesystem reconciliation.
-			unchanged := previous.fingerprint.metadataState != MetadataFromStableDatabase && catalogSourceMatches && previous.fingerprint.modified == candidate.fingerprint.modified && previous.fingerprint.size == candidate.fingerprint.size
-			// Preserve the spelling used by the source filesystem. The catalog
-			// identity is case-insensitive for Stable/Windows compatibility, but
-			// a case-sensitive filesystem still needs the current path to open the
-			// file after a rename.
-			unchanged = unchanged && previous.location.dir == candidate.location.dir && previous.location.file == candidate.location.file
-			if unchanged {
+			fingerprintMatches := previous.fingerprint.metadataState != MetadataFromStableDatabase && previous.fingerprint.modified == candidate.fingerprint.modified && previous.fingerprint.size == candidate.fingerprint.size
+			// A cache from another Songs directory is not trusted even when the
+			// fingerprint collides; the new source gets one authoritative pass.
+			// The catalog identity is case-insensitive for Stable/Windows
+			// compatibility, so compare the stored spelling case-insensitively:
+			// an exact-case check would mistake every mixed-case set for a
+			// rename after a scanner change and force a full library reimport.
+			// Case-sensitive opens still use the candidate spelling below when
+			// a real rename is detected via fingerprint change.
+			if fingerprintMatches && catalogSourceMatches && strings.EqualFold(previous.location.dir, candidate.location.dir) && strings.EqualFold(previous.location.file, candidate.location.file) {
 				continue
 			}
 
@@ -752,6 +759,7 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 			}
 
 			candidate.localState = previous.localState
+			candidate.hadPrevious = true
 		} else if settings.General.VerboseImportLogs {
 			log.Println("DatabaseManager: New beatmap found:", candidate.location.file)
 		}
@@ -805,25 +813,36 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 
 	receive := importBeatmapsContext(ctx, mapsToImport, workers)
 
-	var numImported int
+	var numImported, numProcessed int
 	var imported []*beatmap.BeatMap
+	var corruptNew []modMap
 	persistenceFailed := false
 
-	for bMap := range receive {
-		numImported++
-		trySendStatus(importListener, Import, numImported, len(mapsToImport))
+	for outcome := range receive {
+		numProcessed++
+		trySendStatus(importListener, Import, numProcessed, len(mapsToImport))
 
-		imported = append(imported, bMap)
+		if outcome.bMap != nil {
+			numImported++
+			imported = append(imported, outcome.bMap)
 
-		if len(imported) >= 1000 { // Commit periodically so a crash or close loses only a bounded batch.
-			entries := insertBeatmaps(imported)
-			if len(entries) != len(imported) {
-				persistenceFailed = true
+			if len(imported) >= 1000 { // Commit periodically so a crash or close loses only a bounded batch.
+				entries := insertBeatmaps(imported)
+				if len(entries) != len(imported) {
+					persistenceFailed = true
+				}
+				appendImportedDelta(&delta, entries)
+				notifyCatalogDelta(deltaListener, CatalogDelta{Upserts: entries})
+
+				imported = imported[:0]
 			}
-			appendImportedDelta(&delta, entries)
-			notifyCatalogDelta(deltaListener, CatalogDelta{Upserts: entries})
-
-			imported = imported[:0]
+		} else if outcome.corrupt && !outcome.candidate.hadPrevious {
+			// A new file that cannot be parsed would otherwise be retried on
+			// every launch. It becomes a tombstone below so the next scan
+			// skips it by fingerprint; a previously cached row is kept
+			// instead so a transient corruption cannot destroy last-good
+			// metadata.
+			corruptNew = append(corruptNew, outcome.candidate)
 		}
 
 		if err := ctx.Err(); err != nil {
@@ -840,6 +859,12 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 		notifyCatalogDelta(deltaListener, CatalogDelta{Upserts: entries})
 	}
 
+	if err := ctx.Err(); err != nil {
+		return delta, err
+	}
+
+	numTombstoned := tombstoneCorruptCatalogEntries(corruptNew)
+
 	trySendStatus(importListener, Finished, 100, 100)
 
 	if numImported > 0 {
@@ -847,12 +872,15 @@ func importMapsContext(ctx context.Context, skipDatabaseCheck bool, mustCheckDir
 	} else {
 		log.Println("DatabaseManager: No new/updated beatmaps imported.")
 	}
+	if skipped := len(mapsToImport) - numImported - numTombstoned; skipped > 0 {
+		log.Printf("DatabaseManager: Skipped %d files that could not be read; they will be retried on the next scan.", skipped)
+	}
 
-	// A changed source directory must not become trusted merely because its
-	// directory walk completed. Keep the old source identity hidden until all
-	// observed replacements were parsed and durably written; otherwise an
-	// unreadable file could make an old row appear to belong to the new drive.
-	if scan.complete && !cleanupFailed && !persistenceFailed && numImported == len(mapsToImport) {
+	// Persist the new source identity once the walk and all durable writes
+	// succeeded. Tombstoned and skipped files must not keep the whole library
+	// mistrusted forever; otherwise a single broken .osu forces a full
+	// reimport on every launch.
+	if scan.complete && !cleanupFailed && !persistenceFailed && ctx.Err() == nil {
 		persistCatalogSource()
 	}
 
@@ -867,16 +895,27 @@ func notifyCatalogDelta(listener CatalogDeltaListener, delta CatalogDelta) {
 	listener(delta)
 }
 
+// importOutcome is one worker result for a scan candidate. Failures are
+// reported explicitly so the caller advances progress for every candidate;
+// counting only successes leaves the launcher bar frozen below its target
+// whenever a file cannot be parsed.
+type importOutcome struct {
+	bMap      *beatmap.BeatMap
+	candidate modMap
+	// corrupt is true when the source file was read but rejected as a
+	// beatmap. Unreadable files report corrupt=false so the next scan
+	// retries them, while corrupt files may become tombstones instead.
+	corrupt bool
+}
+
 // importBeatmapsContext feeds map candidates through a bounded worker pool.
 // The coordinator goroutine owns both channel closure and worker joining, so
 // callers can simply range over the result channel without racing a producer
 // that is still trying to send after cancellation.
-func importBeatmapsContext(ctx context.Context, candidates []modMap, workers int) <-chan *beatmap.BeatMap {
-	if workers < 1 {
-		workers = 1
-	}
+func importBeatmapsContext(ctx context.Context, candidates []modMap, workers int) <-chan importOutcome {
+	workers = max(workers, 1)
 
-	receive := make(chan *beatmap.BeatMap, workers)
+	receive := make(chan importOutcome, workers)
 
 	go func() {
 		defer close(receive)
@@ -885,10 +924,7 @@ func importBeatmapsContext(ctx context.Context, candidates []modMap, workers int
 		var importWorkers sync.WaitGroup
 
 		for range workers {
-			importWorkers.Add(1)
-			go func() {
-				defer importWorkers.Done()
-
+			importWorkers.Go(func() {
 				for {
 					select {
 					case <-ctx.Done():
@@ -899,19 +935,16 @@ func importBeatmapsContext(ctx context.Context, candidates []modMap, workers int
 						}
 
 						partialPath := filepath.Join(candidate.location.dir, candidate.location.file)
-						bMap, ok := importBeatmap(candidate, partialPath)
-						if !ok {
-							continue
-						}
+						bMap, corrupt := importBeatmap(candidate, partialPath)
 
 						select {
-						case receive <- bMap:
+						case receive <- importOutcome{bMap: bMap, candidate: candidate, corrupt: corrupt}:
 						case <-ctx.Done():
 							return
 						}
 					}
 				}
-			}()
+			})
 		}
 
 		for _, candidate := range candidates {
@@ -934,12 +967,15 @@ func importBeatmapsContext(ctx context.Context, candidates []modMap, workers int
 // importBeatmap parses one candidate from the current Songs directory. The
 // parser accepts third-party and partially malformed files, so an isolated
 // failure must be logged and skipped without taking down the catalog worker.
-func importBeatmap(candidate modMap, partialPath string) (bMap *beatmap.BeatMap, ok bool) {
+// It reports whether a nil map means the file was read but rejected
+// (corrupt=true, eligible for a tombstone) or could not be read at all
+// (corrupt=false, retried on the next scan).
+func importBeatmap(candidate modMap, partialPath string) (bMap *beatmap.BeatMap, corrupt bool) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			log.Printf("DatabaseManager: Failed to load %q: %v", partialPath, recovered)
 			bMap = nil
-			ok = false
+			corrupt = true
 		}
 	}()
 
@@ -959,7 +995,7 @@ func importBeatmap(candidate modMap, partialPath string) (bMap *beatmap.BeatMap,
 	bMap, parseErr := beatmap.ParseBeatMapFileWithError(file)
 	if parseErr != nil {
 		log.Println("DatabaseManager: Failed to import:", partialPath, parseErr)
-		return nil, false
+		return nil, true
 	}
 
 	fileInfo, statErr := file.Stat()
@@ -1007,7 +1043,24 @@ func sameCatalogSource(left, right string) bool {
 		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 	}
 
-	return strings.EqualFold(filepath.Clean(leftAbs), filepath.Clean(rightAbs))
+	leftAbs = filepath.Clean(leftAbs)
+	rightAbs = filepath.Clean(rightAbs)
+	if strings.EqualFold(leftAbs, rightAbs) {
+		return true
+	}
+
+	// Resolve junctions, subst drives, or symlink spellings of the same
+	// directory. A failure keeps the plain comparison above; an
+	// unavailable drive must not be treated as a source change by itself.
+	if leftResolved, err := filepath.EvalSymlinks(leftAbs); err == nil {
+		if rightResolved, err := filepath.EvalSymlinks(rightAbs); err == nil {
+			if strings.EqualFold(filepath.Clean(leftResolved), filepath.Clean(rightResolved)) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func inferCatalogVersion() (int, error) {
@@ -1501,6 +1554,40 @@ func UpdateLocalOffset(beatmap *beatmap.BeatMap) {
 	}
 }
 
+// tombstoneCorruptCatalogEntries records newly seen files that were read but
+// rejected as beatmaps. The tombstone carries the observed fingerprint with
+// MetadataInvalid so later scans skip it without reparsing; catalog reads
+// hide invalid rows, so the tombstone is written silently without a delta.
+// It returns how many tombstones were stored.
+func tombstoneCorruptCatalogEntries(candidates []modMap) int {
+	if len(candidates) == 0 || dbFile == nil {
+		return 0
+	}
+
+	entries := make([]*BeatmapEntry, 0, len(candidates))
+	for _, candidate := range candidates {
+		entry := &BeatmapEntry{
+			Dir:           candidate.location.dir,
+			File:          candidate.location.file,
+			LastModified:  candidate.fingerprint.modified,
+			FileSize:      candidate.fingerprint.size,
+			Mode:          0,
+			Stars:         -1,
+			MetadataState: MetadataInvalid,
+		}
+		entry.prepare()
+		entries = append(entries, entry)
+	}
+
+	if err := upsertCatalogEntries(entries); err != nil {
+		log.Println("DatabaseManager: Failed to record unparseable catalog entries:", err)
+		return 0
+	}
+
+	log.Printf("DatabaseManager: Recorded %d unparseable files; they will be skipped until changed.", len(entries))
+	return len(entries)
+}
+
 func removeBeatmaps(toRemove []mapLocation) error {
 	if len(toRemove) == 0 {
 		return nil
@@ -1560,6 +1647,12 @@ func migrateBeatmaps() error {
 
 			for _, cached := range lastModified {
 				location := cached.location
+				if cached.fingerprint.metadataState == MetadataInvalid {
+					// Tombstones for unparseable files carry no metadata to
+					// migrate; reparsing them here would only repeat a known
+					// failure and drop the tombstone.
+					continue
+				}
 				file, err := os.Open(filepath.Join(songsDir, location.dir, location.file))
 				if err != nil {
 					log.Println("Failed to open file, removing from database:", location.file)
@@ -1805,7 +1898,7 @@ func upsertCatalogEntries(entries []*BeatmapEntry) error {
 }
 
 func loadCatalogEntries() []*BeatmapEntry {
-	return queryCatalogEntries("WHERE mode = 0")
+	return queryCatalogEntries("WHERE mode = 0 AND metadataState <> ?", int(MetadataInvalid))
 }
 
 func loadStaleCatalogEntries(starsVersion int) []*BeatmapEntry {
@@ -1818,7 +1911,7 @@ func loadStaleCatalogEntries(starsVersion int) []*BeatmapEntry {
 }
 
 func loadStaleCatalogEntriesContext(ctx context.Context, starsVersion int) ([]*BeatmapEntry, error) {
-	return queryCatalogEntriesContext(ctx, "WHERE mode = 0 AND (stars < 0 OR starsVersion < ?)", starsVersion)
+	return queryCatalogEntriesContext(ctx, "WHERE mode = 0 AND metadataState <> ? AND (stars < 0 OR starsVersion < ?)", int(MetadataInvalid), starsVersion)
 }
 
 func queryCatalogEntries(filter string, args ...any) []*BeatmapEntry {

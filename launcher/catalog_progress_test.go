@@ -110,6 +110,20 @@ func TestCatalogImportListenerThresholdAndStages(t *testing.T) {
 	}
 }
 
+func TestCatalogImportListenerFinishedClearsProgress(t *testing.T) {
+	var l launcher
+	listener := l.catalogImportListener()
+	listener(database.Import, 12, catalogProgressVisibilityThreshold)
+	if progress := loadCatalogProgress(&l); !progress.active {
+		t.Fatalf("import progress = %#v, want active import", progress)
+	}
+
+	listener(database.Finished, 100, 100)
+	if progress := loadCatalogProgress(&l); progress.active {
+		t.Fatalf("finished progress = %#v, want idle state", progress)
+	}
+}
+
 func TestClearCatalogProgressPublishesIdleState(t *testing.T) {
 	var l launcher
 	l.catalogProgress.Store(catalogProgressState{
