@@ -240,13 +240,15 @@ func (c *catalogCoordinator) run(ctx context.Context) {
 				// that request callbacks run only after the full pass succeeds.
 				c.publishCatalogUpdate(operationCtx, request, database.CatalogDelta{})
 
-				starDelta, starErr := database.UpdateCatalogStarRatingContext(operationCtx, c.owner.catalogStarRatingListenerFor(request.generation))
-				if starErr != nil && !errors.Is(starErr, context.Canceled) && !errors.Is(starErr, context.DeadlineExceeded) {
-					log.Println("DatabaseManager: Star-rating refresh failed:", starErr)
-				} else if starErr == nil {
-					c.publishCatalogUpdate(operationCtx, catalogRequest{
-						generation: request.generation,
-					}, starDelta)
+				if ratingsRefreshWanted(request.skipMapUpdate) {
+					starDelta, starErr := database.UpdateCatalogStarRatingContext(operationCtx, c.owner.catalogStarRatingListenerFor(request.generation))
+					if starErr != nil && !errors.Is(starErr, context.Canceled) && !errors.Is(starErr, context.DeadlineExceeded) {
+						log.Println("DatabaseManager: Star-rating refresh failed:", starErr)
+					} else if starErr == nil {
+						c.publishCatalogUpdate(operationCtx, catalogRequest{
+							generation: request.generation,
+						}, starDelta)
+					}
 				}
 			} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				c.owner.postEventContext(ctx, launcherEvent{
@@ -305,6 +307,14 @@ func (c *catalogCoordinator) publishCachedCatalog(ctx context.Context, generatio
 		generation: generation,
 		catalog:    catalog,
 	})
+}
+
+// ratingsRefreshWanted reports whether a completed reconciliation should
+// refresh star ratings. A skipped pass leaves ratings alone: recalculating
+// them would walk the library the user asked not to walk for display-only
+// metadata. New maps keep unrated stars until a full pass runs.
+func ratingsRefreshWanted(skipMapUpdate bool) bool {
+	return !skipMapUpdate
 }
 
 func (c *catalogCoordinator) takePending() (catalogRequest, bool) {

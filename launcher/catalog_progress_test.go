@@ -205,6 +205,15 @@ func TestMapSelectionAvailability(t *testing.T) {
 	}
 }
 
+func TestRatingsRefreshWanted(t *testing.T) {
+	if !ratingsRefreshWanted(false) {
+		t.Fatal("ratingsRefreshWanted(false) = false, want a refresh after a full pass")
+	}
+	if ratingsRefreshWanted(true) {
+		t.Fatal("ratingsRefreshWanted(true) = true, want no refresh after a skipped pass")
+	}
+}
+
 func loadCatalogProgress(l *launcher) catalogProgressState {
 	value := l.catalogProgress.Load()
 	if value == nil {
