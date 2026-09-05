@@ -914,7 +914,12 @@ func (l *launcher) drawMain() {
 		l.recordProgress = 0
 	}
 
-	if !l.danserRunning && l.beatmapDirUpdated && qpc.GetMilliTimeF() >= l.showBeatmapAlert {
+	// Automatic refreshes run on the catalog worker, which is independent of
+	// the game child, so library changes detected during gameplay are still
+	// reconciled instead of waiting for the game to exit. The manual prompt
+	// stays deferred: a modal dialog is unsafe while the launcher is minimized
+	// for gameplay.
+	if l.beatmapDirUpdated && qpc.GetMilliTimeF() >= l.showBeatmapAlert && (!l.danserRunning || launcherConfig.AutoRefreshDB) {
 		reload := launcherConfig.AutoRefreshDB
 
 		if !reload {

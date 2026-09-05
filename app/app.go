@@ -119,6 +119,8 @@ func run() {
 
 		md5 := flag.String("md5", "", "Specify the beatmap md5 hash. Overrides other beatmap search flags")
 
+		beatmapPath := flag.String("beatmap-path", "", "Source-relative beatmap path (Dir/File under the Songs directory) for a direct load without a catalog scan. The launcher passes this alongside -md5 or -replay so starting a selected map never waits for reconciliation.")
+
 		artist := flag.String("artist", "", artistDesc)
 		flag.StringVar(artist, "a", "", artistDesc+shorthand)
 
@@ -310,7 +312,7 @@ func run() {
 
 		closeAfterSettingsLoad := false
 
-		if (*md5+*artist+*title+*difficulty+*creator) == "" && *id < 0 {
+		if (*md5+*artist+*title+*difficulty+*creator+*beatmapPath) == "" && *id < 0 {
 			log.Println("No beatmap specified; provide beatmap details or use the launcher.")
 			closeAfterSettingsLoad = true
 		}
@@ -346,76 +348,84 @@ func run() {
 		var beatMap *beatmap.BeatMap = nil
 
 		if !closeAfterSettingsLoad {
-			err := database.Init()
-			if err != nil {
-				log.Println("Failed to initialize database:", err)
-			} else {
-				if *rebuildDB {
-					database.RebuildCatalog(nil)
-				}
+			// A launcher-spawned game knows the exact source file. Loading it
+			// directly avoids repeating the library scan the launcher may
+			// still be running, so the window appears immediately and the
+			// launcher's reconciliation continues undisturbed.
+			beatMap = loadBeatmapDirect(*beatmapPath, *md5, *replay != "", *rebuildDB)
 
-				var entries []*database.BeatmapEntry
-				if *rebuildDB {
-					database.LoadCachedCatalog().ForEach(func(entry *database.BeatmapEntry) bool {
-						entries = append(entries, entry)
-						return true
-					})
+			if beatMap == nil {
+				err := database.Init()
+				if err != nil {
+					log.Println("Failed to initialize database:", err)
 				} else {
-					entries = database.LoadCatalog(*noDbCheck, nil)
-				}
-				var selectedEntry *database.BeatmapEntry
-
-				if *id > -1 {
-					for _, entry := range entries {
-						if entry.ID == *id {
-							selectedEntry = entry
-
-							break
-						}
-					}
-				} else if *md5 != "" {
-					for _, entry := range entries {
-						if strings.EqualFold(entry.MD5, *md5) {
-							selectedEntry = entry
-
-							break
-						}
-					}
-				} else {
-					for _, entry := range entries {
-						if (*artist == "" || strings.EqualFold(*artist, entry.Artist)) &&
-							(*title == "" || strings.EqualFold(*title, entry.Name)) &&
-							(*difficulty == "" || strings.EqualFold(*difficulty, entry.Difficulty)) &&
-							(*creator == "" || strings.EqualFold(*creator, entry.Creator)) {
-							selectedEntry = entry
-
-							break
-						}
+					if *rebuildDB {
+						database.RebuildCatalog(nil)
 					}
 
-					if selectedEntry == nil {
-						log.Println("Beatmap with exact parameters not found, searching partially...")
-						artistQuery := strings.ToLower(*artist)
-						titleQuery := strings.ToLower(*title)
-						difficultyQuery := strings.ToLower(*difficulty)
-						creatorQuery := strings.ToLower(*creator)
+					var entries []*database.BeatmapEntry
+					if *rebuildDB {
+						database.LoadCachedCatalog().ForEach(func(entry *database.BeatmapEntry) bool {
+							entries = append(entries, entry)
+							return true
+						})
+					} else {
+						entries = database.LoadCatalog(*noDbCheck, nil)
+					}
+					var selectedEntry *database.BeatmapEntry
+
+					if *id > -1 {
 						for _, entry := range entries {
-							if (*artist == "" || strings.Contains(strings.ToLower(entry.Artist), artistQuery)) &&
-								(*title == "" || strings.Contains(strings.ToLower(entry.Name), titleQuery)) &&
-								(*difficulty == "" || strings.Contains(strings.ToLower(entry.Difficulty), difficultyQuery)) &&
-								(*creator == "" || strings.Contains(strings.ToLower(entry.Creator), creatorQuery)) {
+							if entry.ID == *id {
 								selectedEntry = entry
 
 								break
 							}
 						}
-					}
-				}
+					} else if *md5 != "" {
+						for _, entry := range entries {
+							if strings.EqualFold(entry.MD5, *md5) {
+								selectedEntry = entry
 
-				if selectedEntry != nil {
-					beatMap, err = database.LoadRuntimeBeatMap(selectedEntry)
-					if err != nil {
-						log.Println("Failed to load selected beatmap:", err)
+								break
+							}
+						}
+					} else {
+						for _, entry := range entries {
+							if (*artist == "" || strings.EqualFold(*artist, entry.Artist)) &&
+								(*title == "" || strings.EqualFold(*title, entry.Name)) &&
+								(*difficulty == "" || strings.EqualFold(*difficulty, entry.Difficulty)) &&
+								(*creator == "" || strings.EqualFold(*creator, entry.Creator)) {
+								selectedEntry = entry
+
+								break
+							}
+						}
+
+						if selectedEntry == nil {
+							log.Println("Beatmap with exact parameters not found, searching partially...")
+							artistQuery := strings.ToLower(*artist)
+							titleQuery := strings.ToLower(*title)
+							difficultyQuery := strings.ToLower(*difficulty)
+							creatorQuery := strings.ToLower(*creator)
+							for _, entry := range entries {
+								if (*artist == "" || strings.Contains(strings.ToLower(entry.Artist), artistQuery)) &&
+									(*title == "" || strings.Contains(strings.ToLower(entry.Name), titleQuery)) &&
+									(*difficulty == "" || strings.Contains(strings.ToLower(entry.Difficulty), difficultyQuery)) &&
+									(*creator == "" || strings.Contains(strings.ToLower(entry.Creator), creatorQuery)) {
+									selectedEntry = entry
+
+									break
+								}
+							}
+						}
+					}
+
+					if selectedEntry != nil {
+						beatMap, err = database.LoadRuntimeBeatMap(selectedEntry)
+						if err != nil {
+							log.Println("Failed to load selected beatmap:", err)
+						}
 					}
 				}
 			}
@@ -707,6 +717,74 @@ func run() {
 		}
 	} else {
 		mainLoopNormal()
+	}
+}
+
+// loadBeatmapDirect loads one map by its source-relative path without scanning
+// the Songs directory. It returns nil when no direct path was requested or the
+// direct load cannot satisfy the request, in which case the caller falls back
+// to the catalog flow. On success the database remains open for the caller's
+// play-stats update; on failure it is closed.
+func loadBeatmapDirect(relativePath, expectedMD5 string, replayMode, rebuild bool) *beatmap.BeatMap {
+	if strings.TrimSpace(relativePath) == "" || rebuild {
+		return nil
+	}
+
+	if err := database.Init(); err != nil {
+		log.Println("Direct beatmap load: failed to initialize database:", err)
+		return nil
+	}
+
+	bMap, err := database.LoadDirectBeatmap(relativePath)
+	if err != nil {
+		log.Println("Direct beatmap load: falling back to catalog scan:", err)
+		database.Close()
+		return nil
+	}
+
+	if replayMode {
+		// A replay identifies its map by content hash. A changed file is a
+		// different map version, so only an exact match may satisfy the replay.
+		if expectedMD5 == "" || !strings.EqualFold(bMap.MD5, expectedMD5) {
+			log.Println("Direct beatmap load: file does not match the replay map, falling back to catalog scan.")
+			database.Close()
+			return nil
+		}
+	} else if expectedMD5 != "" && !strings.EqualFold(bMap.MD5, expectedMD5) {
+		log.Println("Direct beatmap load: file changed since selection, playing its current content.")
+	}
+
+	preserveDirectPlayState(bMap)
+
+	log.Printf("Loaded beatmap %q directly, skipping the catalog scan.", relativePath)
+
+	return bMap
+}
+
+// preserveDirectPlayState restores local play state from the committed catalog
+// row when its fingerprint still matches the directly loaded file. A missing
+// or changed row is a best-effort miss: the map remains playable and the
+// background reconciliation repairs the row.
+func preserveDirectPlayState(bMap *beatmap.BeatMap) {
+	entry := database.LookupBeatmapEntry(bMap.Dir, bMap.File)
+	if entry == nil {
+		return
+	}
+
+	bMap.TimeAdded = entry.TimeAdded
+	bMap.PlayCount = entry.PlayCount
+	bMap.LastPlayed = entry.LastPlayed
+	bMap.LocalOffset = entry.LocalOffset
+
+	fingerprintKnown := entry.LastModified > 0 && entry.FileSize > 0
+	changed := fingerprintKnown && (entry.LastModified != bMap.LastModified || entry.FileSize != bMap.FileSize)
+	if entry.MD5 != "" && !strings.EqualFold(entry.MD5, bMap.MD5) {
+		changed = true
+	}
+
+	if !changed {
+		bMap.Stars = entry.Stars
+		bMap.StarsVersion = entry.StarsVersion
 	}
 }
 

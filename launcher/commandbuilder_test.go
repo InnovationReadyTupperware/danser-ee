@@ -1,7 +1,10 @@
 package launcher
 
 import (
+	"path/filepath"
 	"testing"
+
+	"github.com/wieku/rplpa"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 )
@@ -158,6 +161,84 @@ func TestRecordingArgumentsRejectSurroundingWhitespace(t *testing.T) {
 
 	if _, err := builder.getArgumentsChecked(); err == nil {
 		t.Fatal("recording arguments accepted surrounding whitespace")
+	}
+}
+
+func TestBeatmapPathArgumentsUseSelectedMapLocation(t *testing.T) {
+	oldMode := launcherConfig.CurrentMode
+	oldPMode := launcherConfig.CurrentPMode
+	t.Cleanup(func() {
+		launcherConfig.CurrentMode = oldMode
+		launcherConfig.CurrentPMode = oldPMode
+	})
+
+	launcherConfig.CurrentMode = CursorDance
+	launcherConfig.CurrentPMode = Watch
+
+	builder := newBuilder()
+	builder.currentMap = &beatmap.BeatMap{MD5: "map-md5", Dir: "12345 Artist - Title", File: "artist - title [hard].osu"}
+
+	args := builder.getArguments()
+	if !containsArgumentPair(args, "-md5", "map-md5") {
+		t.Fatal("map arguments did not include the map hash")
+	}
+	wantPath := filepath.Join("12345 Artist - Title", "artist - title [hard].osu")
+	if !containsArgumentPair(args, "-beatmap-path", wantPath) {
+		t.Fatalf("map arguments did not include the direct map path: %q", args)
+	}
+}
+
+func TestBeatmapPathArgumentsCoverReplayMode(t *testing.T) {
+	oldMode := launcherConfig.CurrentMode
+	oldPMode := launcherConfig.CurrentPMode
+	t.Cleanup(func() {
+		launcherConfig.CurrentMode = oldMode
+		launcherConfig.CurrentPMode = oldPMode
+	})
+
+	launcherConfig.CurrentMode = Replay
+	launcherConfig.CurrentPMode = Watch
+
+	builder := newBuilder()
+	builder.currentMap = &beatmap.BeatMap{MD5: "map-md5", Dir: "set", File: "map.osu"}
+	builder.replayPath = "replay.osr"
+	builder.currentReplay = new(rplpa.Replay)
+
+	args := builder.getArguments()
+	if !containsArgumentPair(args, "-replay", "replay.osr") {
+		t.Fatal("replay arguments did not include the replay path")
+	}
+	if !containsArgumentPair(args, "-beatmap-path", filepath.Join("set", "map.osu")) {
+		t.Fatalf("replay arguments did not include the direct map path: %q", args)
+	}
+}
+
+func TestBeatmapPathArgumentsRejectUnsafeLocations(t *testing.T) {
+	oldMode := launcherConfig.CurrentMode
+	oldPMode := launcherConfig.CurrentPMode
+	t.Cleanup(func() {
+		launcherConfig.CurrentMode = oldMode
+		launcherConfig.CurrentPMode = oldPMode
+	})
+
+	launcherConfig.CurrentMode = CursorDance
+	launcherConfig.CurrentPMode = Watch
+
+	unsafe := []beatmap.BeatMap{
+		{MD5: "map-md5"},
+		{MD5: "map-md5", Dir: "set", File: "../outside.osu"},
+		{MD5: "map-md5", Dir: "../outside", File: "map.osu"},
+		{MD5: "map-md5", Dir: "C:/songs", File: "map.osu"},
+		{MD5: "map-md5", Dir: "set", File: "nested/map.osu"},
+	}
+
+	for i, currentMap := range unsafe {
+		builder := newBuilder()
+		builder.currentMap = &currentMap
+
+		if args := builder.getArguments(); containsArgument(args, "-beatmap-path") {
+			t.Fatalf("unsafe map %d produced a direct map path: %q", i, args)
+		}
 	}
 }
 

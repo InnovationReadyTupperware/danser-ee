@@ -97,6 +97,7 @@ The comparison below is a high-level snapshot of meaningful differences since th
 | Library artwork loading            |            ✅ Deferred background loading outside active scrolling             |        ❌ Synchronous tooltip asset work        |
 | Optional osu!.db acceleration      |                     ✅ Read-only Stable metadata bootstrap                     |                        -                        |
 | Lazy beatmap and skin assets       |                       ✅ Demand-driven asset resolution                        |             ❌ Eager asset indexing             |
+| Selected-map startup               |           ✅ Direct selected-map load while reconciliation continues           |     Full library load before map selection      |
 
 ### Gameplay compatibility and slider visuals
 
@@ -202,6 +203,7 @@ The `ee` stands for **Enterprise Edition** - intentionally grandiose naming for 
 * `-difficulty="Overdrive"` or `-d="Overdrive"`
 * `-creator="Skystar"` or `-c="Skystar"`
 * `-md5=hash` - overrides all map selection arguments and attempts to find `.osu` file matching the specified MD5 hash
+* `-beatmap-path="12345 Artist - Title/artist - title [hard].osu"` - starts the given map directly for a faster start
 * `-id=433005` - overrides all map selection arguments and attempts to find `.osu` file with matching BeatmapID (not BeatmapSetID!)
 * `-cursors=2` - number of cursors used in mirror collage
 * `-tag=2` - number of generated cursors in TAG mode, or generated Danser participants in solo knockout

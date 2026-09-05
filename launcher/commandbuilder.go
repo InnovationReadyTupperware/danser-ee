@@ -3,6 +3,8 @@ package launcher
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -179,6 +181,49 @@ func (b *builder) numKnockoutReplays() (ret int) {
 	return
 }
 
+// relativeMapPath returns the selected map's source-relative location for a
+// direct gameplay load. The child validates the same traversal rules as
+// catalog rows and falls back to its catalog scan when the path is empty or
+// rejected, so an empty result only means a slower start, never a failure.
+func (b *builder) relativeMapPath() string {
+	if b == nil || b.currentMap == nil {
+		return ""
+	}
+
+	dir, file := b.currentMap.Dir, b.currentMap.File
+	if strings.TrimSpace(file) == "" || filepath.Base(file) != file || strings.ContainsAny(file, `/\`) {
+		return ""
+	}
+
+	// Mirror the catalog's traversal rules: no absolute directories and no
+	// parent escapes. The child enforces the same rules again.
+	slashed := filepath.ToSlash(filepath.Join(dir, file))
+	if filepath.IsAbs(slashed) || strings.HasPrefix(slashed, "/") || (len(slashed) >= 2 && slashed[1] == ':') {
+		return ""
+	}
+	if slashed == "." || slashed == ".." || strings.HasPrefix(slashed, "../") || strings.Contains(slashed, "/../") || strings.HasSuffix(slashed, "/..") {
+		return ""
+	}
+
+	relative := filepath.Clean(filepath.Join(dir, file))
+	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return ""
+	}
+
+	return relative
+}
+
+// appendDirectMapPath adds the direct-load hint when the selected map has a
+// safe source-relative location. The hint lets the child start the selected
+// map without repeating the library scan the launcher may still be running.
+func (b *builder) appendDirectMapPath(args []string) []string {
+	if path := b.relativeMapPath(); path != "" {
+		args = append(args, "-beatmap-path", path)
+	}
+
+	return args
+}
+
 func (b *builder) launchDisabled() bool {
 	switch launcherConfig.CurrentMode {
 	case Replay:
@@ -215,6 +260,7 @@ func (b *builder) getArgumentsChecked() (args []string, err error) {
 		}
 
 		args = append(args, "-replay", b.replayPath)
+		args = b.appendDirectMapPath(args)
 
 		if !b.sourceDiff.Equals(b.diff) {
 			bt, marshalErr := json.Marshal(b.diff.ExportMods2())
@@ -230,6 +276,7 @@ func (b *builder) getArgumentsChecked() (args []string, err error) {
 		}
 
 		args = append(args, "-md5", b.currentMap.MD5)
+		args = b.appendDirectMapPath(args)
 
 		diffClone := b.diff.Clone()
 
