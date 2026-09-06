@@ -25,7 +25,7 @@ body:
       options:
         - Launcher
         - Gameplay window
-        - Replay playback or judgement
+        - Replay playback or judgment
         - Playing osu!standard maps
         - Cursor dance, TAG, or knockout
         - Audio or recording
