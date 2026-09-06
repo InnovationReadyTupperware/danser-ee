@@ -86,6 +86,27 @@ func TestSameCatalogSourceIgnoresCaseAndSeparators(t *testing.T) {
 	}
 }
 
+func TestScanBeatmapFilesMissingRoot(t *testing.T) {
+	// A missing Songs root is a fresh install, not a failure: the scan
+	// warns and reports nothing without creating directories. It stays
+	// incomplete so absent maps are never mistaken for deleted ones.
+	root := filepath.Join(t.TempDir(), "Songs")
+
+	result, err := scanBeatmapFiles(root, false, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.complete {
+		t.Fatal("scan was marked complete")
+	}
+	if len(result.candidates) != 0 {
+		t.Fatalf("scan found %d files, want 0", len(result.candidates))
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("scan created Songs root %q", root)
+	}
+}
+
 func BenchmarkScanBeatmapFiles(b *testing.B) {
 	root := b.TempDir()
 	for set := range 512 {

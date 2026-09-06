@@ -71,6 +71,10 @@ func scanBeatmapFilesContext(
 		if err != nil {
 			result.complete = false
 			if level == 0 {
+				if os.IsNotExist(err) {
+					log.Printf("DatabaseManager: Warning: Songs directory %q is missing, continuing with an empty library", directory)
+					return nil
+				}
 				return fmt.Errorf("read Songs directory: %w", err)
 			}
 
