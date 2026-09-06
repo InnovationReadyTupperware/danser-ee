@@ -2,11 +2,20 @@
 
 package gcontext
 
-import "github.com/Zyko0/go-sdl3/sdl"
+import (
+	"log"
+	"sync"
+
+	"github.com/Zyko0/go-sdl3/sdl"
+)
+
+var swapWarnOnce sync.Once
 
 func SetSwapInterval(interval int) {
 	if err := sdl.GL_SetSwapInterval(int32(interval)); err != nil {
-		panic(err)
+		swapWarnOnce.Do(func() {
+			log.Printf("OpenGL: failed to set swap interval %d: %v", interval, err)
+		})
 	}
 }
 
