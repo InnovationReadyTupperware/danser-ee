@@ -1,15 +1,16 @@
 <p align="center">
-  <img width="500px" src="assets/textures/coinbig.png"/>
+  <img src="assets/textures/coinbig.png" width="200" height="200" style="max-width:100%; height:auto;" alt="danser coin logo"/>
 </p>
 
-# Danser Enterprise Edition (danser-ee)
+<p align="center">
+  <a href="https://github.com/InnovationReadyTupperware/danser-ee/releases/latest"><img src="https://img.shields.io/github/v/release/InnovationReadyTupperware/danser-ee?label=release" alt="Latest release"/></a>
+  <a href="https://github.com/InnovationReadyTupperware/danser-ee/releases"><img src="https://img.shields.io/github/downloads/InnovationReadyTupperware/danser-ee/total?label=downloads" alt="Total downloads"/></a>
+  <a href="https://discord.gg/UTPvbe8"><img src="https://img.shields.io/discord/713705871758065685.svg?label=danser-go&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2" alt="danser-go Discord"/></a>
+</p>
 
-[![GitHub release](https://img.shields.io/github/v/release/InnovationReadyTupperware/danser-ee?label=release)](https://github.com/InnovationReadyTupperware/danser-ee/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/InnovationReadyTupperware/danser-ee/total?label=downloads)](https://github.com/InnovationReadyTupperware/danser-ee/releases)
-[![Upstream danser-go](https://img.shields.io/badge/upstream-danser--go-555)](https://github.com/Wieku/danser-go)
-[![danser-go Discord](https://img.shields.io/discord/713705871758065685.svg?label=danser-go&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/UTPvbe8)
-
-Danser Enterprise Edition (danser-ee) is a GUI/CLI visualization tool for osu!standard maps. It can render osu!stable and osu!lazer replays and record output to MP4.
+<p align="center">
+  <strong>Danser Enterprise Edition (danser-ee)</strong> is a maintained fork of <a href="https://github.com/Wieku/danser-go">danser-go</a>, a GUI/CLI visualization tool for osu!standard maps. It can also render osu!stable and osu!lazer replays and record output to MP4.
+</p>
 
 ## Examples
 
