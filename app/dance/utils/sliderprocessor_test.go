@@ -7,12 +7,11 @@ import (
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
-	dancesliders "github.com/innovationreadytupperware/danser-ee/app/dance/sliders"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
-func TestApplySliderDanceKeepsOneSemanticTargetPerSlider(t *testing.T) {
+func TestExpandSliderDanceQueueRetainsCompleteSliderSequenceAndTimeOrder(t *testing.T) {
 	previousKnockout := settings.KNOCKOUT
 	settings.KNOCKOUT = false
 	t.Cleanup(func() { settings.KNOCKOUT = previousKnockout })
@@ -24,21 +23,25 @@ func TestApplySliderDanceKeepsOneSemanticTargetPerSlider(t *testing.T) {
 		objects.DummyCircle(vector.NewVec2f(20, 20), 100000),
 	}
 
-	processed := ApplySliderDance(queue)
-	if len(processed) != len(queue) {
-		t.Fatalf("processed queue length = %d, want %d", len(processed), len(queue))
+	expanded := ExpandSliderDanceQueue(queue)
+	if len(expanded) != len(queue)-1+len(slider.ScorePoints)+1 {
+		t.Fatalf("expanded queue length = %d, want %d", len(expanded), len(queue)-1+len(slider.ScorePoints)+1)
 	}
 
-	target, ok := processed[1].(*dancesliders.Target)
-	if !ok {
-		t.Fatalf("processed slider has type %T, want *sliders.Target", processed[1])
+	for i := 1; i < len(expanded); i++ {
+		if expanded[i].GetStartTime() < expanded[i-1].GetStartTime() {
+			t.Fatalf("expanded queue is not sorted at %d: %g before %g", i, expanded[i-1].GetStartTime(), expanded[i].GetStartTime())
+		}
 	}
-	if target.GetDuration() <= 0 {
-		t.Fatalf("ordinary slider target duration = %g, want positive", target.GetDuration())
+
+	for _, hitObject := range expanded {
+		if _, isSlider := hitObject.(*objects.Slider); isSlider {
+			t.Fatal("expanded queue still contains the original slider")
+		}
 	}
 }
 
-func TestApplySliderDanceUsesLazerDuration(t *testing.T) {
+func TestExpandSliderDanceQueueUsesLazerScorePointsForLazerDifficulty(t *testing.T) {
 	previousKnockout := settings.KNOCKOUT
 	settings.KNOCKOUT = false
 	t.Cleanup(func() { settings.KNOCKOUT = previousKnockout })
@@ -46,13 +49,22 @@ func TestApplySliderDanceUsesLazerDuration(t *testing.T) {
 	slider := newNormalTestSlider(t, 1000)
 	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
 
-	processed := ApplySliderDanceForDiff([]objects.IHitObject{slider}, lazer)
-	target, ok := processed[0].(*dancesliders.Target)
-	if !ok {
-		t.Fatalf("processed slider has type %T, want *sliders.Target", processed[0])
+	expanded := ExpandSliderDanceQueueForDiff([]objects.IHitObject{slider}, lazer)
+	if got, want := len(expanded), len(slider.ScorePointsLazer)+1; got != want {
+		t.Fatalf("Lazer expanded queue length = %d, want %d", got, want)
 	}
-	if got := target.GetEndTime(); got != slider.EndTimeLazer {
-		t.Fatalf("Lazer target end time = %g, want %g", got, slider.EndTimeLazer)
+
+	for i, point := range slider.ScorePointsLazer {
+		circle, ok := expanded[i+1].(*objects.Circle)
+		if !ok {
+			t.Fatalf("expanded Lazer point %d has type %T, want *objects.Circle", i, expanded[i+1])
+		}
+		if circle.GetStartTime() != point.Time {
+			t.Fatalf("expanded Lazer point %d time = %g, want %g", i, circle.GetStartTime(), point.Time)
+		}
+		if circle.GetStartPosition() != slider.PositionAtLazer(point.Time) {
+			t.Fatalf("expanded Lazer point %d position = %v, want %v", i, circle.GetStartPosition(), slider.PositionAtLazer(point.Time))
+		}
 	}
 }
 
@@ -64,26 +76,19 @@ func TestPathologicalSliderDanceQueueUsesOnlyHeadPoint(t *testing.T) {
 		objects.DummyCircle(vector.NewVec2f(20, 20), 100000),
 	}
 
-	processed := ApplySliderDance(queue)
-	if len(processed) != len(queue) {
-		t.Fatalf("pathological queue length = %d, want %d", len(processed), len(queue))
+	expanded := ExpandSliderDanceQueue(queue)
+	if len(expanded) != len(queue) {
+		t.Fatalf("pathological expansion length = %d, want %d", len(expanded), len(queue))
 	}
-	target, ok := processed[1].(*objects.Circle)
-	if !ok {
-		t.Fatalf("pathological slider has type %T, want *objects.Circle", processed[1])
+	if _, ok := expanded[1].(*objects.Slider); ok {
+		t.Fatal("pathological slider remained in cursor-dance queue")
 	}
-	if target.GetDuration() != 0 {
-		t.Fatalf("pathological target duration = %g, want zero", target.GetDuration())
-	}
-	if target.SliderPoint {
-		t.Fatal("pathological slider target retained slider-point behavior")
-	}
-	if _, ok := processed[1].(objects.ILongObject); ok {
-		t.Fatal("pathological slider target retained long-object behavior")
+	if got := expanded[1].GetStartPosition(); got != slider.StartPosRaw {
+		t.Fatalf("pathological cursor point = %v, want slider head %v", got, slider.StartPosRaw)
 	}
 
-	withoutSliderDance := PreprocessQueue(1, queue, false)
-	if _, ok := withoutSliderDance[1].(*objects.Slider); !ok {
+	processed := PreprocessQueue(1, queue, false)
+	if _, ok := processed[1].(*objects.Slider); !ok {
 		t.Fatal("pathological slider was collapsed when slider dance was disabled")
 	}
 
@@ -120,12 +125,9 @@ func TestSingularSliderPreprocessingDoesNotRequireSliderDance(t *testing.T) {
 	if _, ok := processed[0].(*objects.Slider); ok {
 		t.Fatal("singular slider remained when slider dance was disabled")
 	}
-	if _, ok := processed[0].(objects.ILongObject); ok {
-		t.Fatal("singular slider target retained long-object behavior")
-	}
 }
 
-func BenchmarkApplySliderDancePathological(b *testing.B) {
+func BenchmarkExpandSliderDanceQueuePathological(b *testing.B) {
 	previousKnockout := settings.KNOCKOUT
 	settings.KNOCKOUT = false
 	b.Cleanup(func() { settings.KNOCKOUT = previousKnockout })
@@ -137,10 +139,10 @@ func BenchmarkApplySliderDancePathological(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for b.Loop() {
-		processed := ApplySliderDance(queue)
-		if len(processed) == 0 {
-			b.Fatal("dense processing returned an empty queue")
+	for range b.N {
+		expanded := ExpandSliderDanceQueue(queue)
+		if len(expanded) == 0 {
+			b.Fatal("dense expansion returned an empty queue")
 		}
 	}
 }

@@ -139,7 +139,10 @@ func (controller *GenericController) InitCursors() {
 
 	queue := controller.bMap.GetObjectsCopy()
 
-	// Collapse non-traversed sliders before cursor assignment.
+	// Singular sliders have no usable path to track. Scored generated
+	// participants also retain the pathological-slider fallback expected by
+	// their health model; ordinary cursor dance can track bounded pathological
+	// sliders directly when slider dance is disabled.
 	for i := range queue {
 		if s, ok := queue[i].(*objects.Slider); ok &&
 			(s.IsSingular() || (controller.knockout && s.IsPathological())) {
@@ -147,10 +150,10 @@ func (controller *GenericController) InitCursors() {
 		}
 	}
 
-	// Apply slider trajectories before TAG assigns each slider to one cursor.
+	// Convert sliders to pseudo-circles for tag cursors
 	if !settings.CursorDance.ComboTag && !settings.CursorDance.Battle &&
 		settings.CursorDance.TAGSliderDance && participantCount > 1 {
-		queue = utils.ApplySliderDanceForDiff(queue, controller.bMap.Diff)
+		queue = utils.ExpandSliderDanceQueueForDiff(queue, controller.bMap.Diff)
 	}
 
 	if !settings.CursorDance.Resolve2BAfterTAG {

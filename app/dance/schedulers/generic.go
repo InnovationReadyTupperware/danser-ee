@@ -51,9 +51,12 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 		scheduler.queue = utils.Solve2BForDiff(scheduler.queue, diff)
 	}
 
-	// Resolve slider dance before movers build their active window.
+	// Slider dance / random slider dance resolving. The deterministic path can
+	// expand all sliders in one pass. Keep the legacy random loop untouched so
+	// Random Slider Dance retains its existing random draw and selection
+	// behavior.
 	if config.SliderDance && !config.RandomSliderDance {
-		scheduler.queue = utils.ApplySliderDanceForDiff(scheduler.queue, diff)
+		scheduler.queue = utils.ExpandSliderDanceQueueForDiff(scheduler.queue, diff)
 	} else {
 		for i := range len(scheduler.queue) {
 			scheduler.queue = utils.PreprocessQueueForDiff(i, scheduler.queue, config.RandomSliderDance && rand.Intn(2) == 0, diff)

@@ -11,8 +11,10 @@ type SliderWorkloadClass uint8
 const (
 	// SliderWorkloadNormal uses the ordinary per-slider presentation paths.
 	SliderWorkloadNormal SliderWorkloadClass = 0
-	// SliderWorkloadPathological routes expensive presentation work through
-	// bounded fallbacks.
+	// SliderWorkloadPathological routes slider-dance expansion and slider-detail
+	// audio through the normal hit-note policy. The authored slider remains
+	// available to gameplay and rendering, and to direct cursor tracking when
+	// its traversal stays within the bounded movement regime.
 	SliderWorkloadPathological SliderWorkloadClass = 1 << 0
 	// SliderWorkloadSingular describes a slider whose effective traversal has
 	// no usable path or no positive time span. It is handled as one effective
@@ -69,7 +71,9 @@ func (class SliderWorkloadClass) String() string {
 	}
 }
 
-// IsPathological reports whether the slider exceeds the bounded presentation workload.
+// IsPathological reports whether slider-dance expansion and slider-detail
+// audio should use the normal hit-note policy for this slider. It must not be
+// used to reject the map or discard the authored gameplay geometry.
 func (slider *Slider) IsPathological() bool {
 	return slider.WorkloadClass().Has(SliderWorkloadPathological)
 }
@@ -86,7 +90,10 @@ func (slider *Slider) NeedsGeneratedMovementFallback() bool {
 	return slider.movementFallback
 }
 
-// IsSingular reports whether the slider has no usable stable traversal.
+// IsSingular reports whether the slider's effective traversal has no usable
+// stable path or no positive stable time span. Cursor-dance expansion treats a
+// singular slider as one effective point, while gameplay keeps the authored
+// slider object and its head timing.
 func (slider *Slider) IsSingular() bool {
 	return slider.WorkloadClass().Has(SliderWorkloadSingular)
 }
