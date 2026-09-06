@@ -91,32 +91,6 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) error
 		return fmt.Errorf("sdl: couldn't reinitialize video subsystem: %w", err)
 	}
 
-	if err := setGLAttribute("sRGB-capable framebuffer", sdl.GL_FRAMEBUFFER_SRGB_CAPABLE, 1); err != nil {
-		return err
-	}
-
-	if err := setGLAttribute("context major version", sdl.GL_CONTEXT_MAJOR_VERSION, 4); err != nil {
-		return err
-	}
-
-	if err := setGLAttribute("context minor version", sdl.GL_CONTEXT_MINOR_VERSION, 5); err != nil {
-		return err
-	}
-
-	if err := setGLAttribute("core profile", sdl.GL_CONTEXT_PROFILE_MASK, sdl.GL_CONTEXT_PROFILE_CORE); err != nil {
-		return err
-	}
-
-	if props.BuiltinMSAA {
-		if err := setGLAttribute("multisample buffers", sdl.GL_MULTISAMPLEBUFFERS, 1); err != nil {
-			return err
-		}
-
-		if err := setGLAttribute("multisample samples", sdl.GL_MULTISAMPLESAMPLES, 4); err != nil {
-			return err
-		}
-	}
-
 	flags := sdl.WINDOW_OPENGL
 
 	if props.Resizable {
@@ -127,26 +101,34 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) error
 		flags |= sdl.WINDOW_HIDDEN
 	}
 
+	// Weak drivers can refuse the requested framebuffer (GLXBadFBConfig).
+	// Step down through degraded configurations instead of failing outright.
 	var err error
-	sdlWindow, err = sdl.CreateWindow(title, width, height, flags)
+	usedMSAA := props.BuiltinMSAA
+	for i, config := range glConfigs(props.BuiltinMSAA) {
+		if i > 0 {
+			log.Printf("OpenGL: Warning: %v; retrying with multisampling=%t sRGB=%t", err, config.msaa, config.srgb)
+		}
+		if createErr := createGLWindow(width, height, title, flags, config); createErr != nil {
+			err = createErr
+			continue
+		}
+		err = nil
+		usedMSAA = config.msaa
+		break
+	}
 	if err != nil {
-		return fmt.Errorf("sdl: couldn't create window: %w", err)
+		return fmt.Errorf("sdl: couldn't create OpenGL context in any framebuffer configuration (%v)\ndanser needs OpenGL 4.5 core: update the graphics driver or use a supported GPU", err)
 	}
 
-	// Create the GL context before changing fullscreen state. SDL creates visible
-	// windows mapped by default, while WINDOW_HIDDEN is reserved for recording.
-	// Keeping the normal path visible from creation avoids relying on a later
-	// Show call to map a window whose fullscreen transition is still pending.
-	sdlContext, err = sdl.GL_CreateContext(sdlWindow)
-	if err != nil {
-		return fmt.Errorf("sdl: couldn't create OpenGL context: %w", err)
-	}
-
-	if err = validateGLContext(props.BuiltinMSAA); err != nil {
+	if err = validateGLContext(usedMSAA); err != nil {
 		return err
 	}
 
 	if props.Fullscreen {
+		// The context already exists here. SDL maps visible windows at
+		// creation, so enter fullscreen from a mapped window rather than
+		// showing a window whose transition is still pending.
 		display := sdl.GetPrimaryDisplay()
 		currentMode, err := display.CurrentDisplayMode()
 		if err != nil {
@@ -192,6 +174,74 @@ func SDLCreateWindow(width, height int, title string, props OptionalProps) error
 		loadIconsSDL(props.IconName)
 	}
 
+	return nil
+}
+
+// glConfig is one framebuffer configuration to attempt, most demanding first.
+type glConfig struct {
+	msaa bool
+	srgb bool
+}
+
+// glConfigs orders the framebuffer configurations for a window request:
+// the requested one first, then degraded ones weaker drivers may accept.
+func glConfigs(requestMSAA bool) []glConfig {
+	configs := []glConfig{{msaa: requestMSAA, srgb: true}}
+	if requestMSAA {
+		configs = append(configs, glConfig{srgb: true})
+	}
+	return append(configs, glConfig{})
+}
+
+// createGLWindow requests the framebuffer in config, creates the window
+// and its OpenGL context, and publishes both on success. A window left
+// behind by a failed context creation is destroyed before returning.
+func createGLWindow(width, height int, title string, flags sdl.WindowFlags, config glConfig) error {
+	var srgb, buffers, samples int32
+	if config.srgb {
+		srgb = 1
+	}
+	if config.msaa {
+		buffers, samples = 1, 4
+	}
+
+	if err := setGLAttribute("sRGB-capable framebuffer", sdl.GL_FRAMEBUFFER_SRGB_CAPABLE, srgb); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("context major version", sdl.GL_CONTEXT_MAJOR_VERSION, 4); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("context minor version", sdl.GL_CONTEXT_MINOR_VERSION, 5); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("core profile", sdl.GL_CONTEXT_PROFILE_MASK, sdl.GL_CONTEXT_PROFILE_CORE); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("multisample buffers", sdl.GL_MULTISAMPLEBUFFERS, buffers); err != nil {
+		return err
+	}
+
+	if err := setGLAttribute("multisample samples", sdl.GL_MULTISAMPLESAMPLES, samples); err != nil {
+		return err
+	}
+
+	window, err := sdl.CreateWindow(title, width, height, flags)
+	if err != nil {
+		return fmt.Errorf("sdl: couldn't create window: %w", err)
+	}
+
+	context, err := sdl.GL_CreateContext(window)
+	if err != nil {
+		window.Destroy()
+		return fmt.Errorf("sdl: couldn't create OpenGL context: %w", err)
+	}
+
+	sdlWindow = window
+	sdlContext = context
 	return nil
 }
 
