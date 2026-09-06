@@ -40,6 +40,10 @@ rm $BUILD_DIR/danser-core.h
 
 go run tools/ffmpeg/ffmpeg.go $BUILD_DIR/
 
+# Staged files inherit the build host's modes. We need to normalize what the archive records
+chmod 755 "$BUILD_DIR/danser" "$BUILD_DIR/danser-cli" "$BUILD_DIR"/ffmpeg/bin/*
+chmod 644 "$BUILD_DIR"/assets.dpak "$BUILD_DIR"/*.so "$BUILD_DIR"/ffmpeg/lib/*
+
 mkdir -p $TARGET_DIR
 
 go run tools/pack2/pack.go $TARGET_DIR/danser-$exec-linux.zip $BUILD_DIR/
