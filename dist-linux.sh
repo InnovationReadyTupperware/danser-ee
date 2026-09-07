@@ -30,7 +30,15 @@ go run tools/assets/assets.go ./ $BUILD_DIR/
 # Upstream cimgui-go ships a non-PIC Linux archive, but danser-core.so is a
 # shared library. Rebuild the archive with position-independent code before
 # cgo links it into the shared core.
-cimgui_module=$(go list -m -f '{{.Dir}}' github.com/AllenDang/cimgui-go)
+cimgui_module=$(go mod download -json github.com/AllenDang/cimgui-go |
+  sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$/\1/p')
+
+if [[ -z "$cimgui_module" || ! -f "$cimgui_module/lib/CMakeLists.txt" ]]
+then
+  echo "Could not locate the cimgui-go module source" >&2
+  exit 1
+fi
+
 cimgui_build_dir=$BUILD_DIR/cimgui
 
 cmake -S "$cimgui_module/lib" -B "$cimgui_build_dir" \
