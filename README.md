@@ -287,8 +287,8 @@ For local development, keep the repository root as the executable's working dire
 On Windows:
 
 ```powershell
-go build -o .\danser.exe .
-.\danser.exe <arguments>
+go build .
+.\danser-ee.exe <arguments>
 ```
 
 On Linux:
@@ -322,7 +322,7 @@ On PowerShell:
 
 ```powershell
 $env:DANSER_FRAME_PROBE = '1'
-.\danser.exe <arguments>
+.\danser-ee.exe <arguments>
 ```
 
 ## Credits and license
