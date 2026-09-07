@@ -135,7 +135,10 @@ jobs:
 
   build_linux:
     name: Building linux version
-    runs-on: ubuntu-24.04
+    # The bundled Linux BASS libraries are not accepted by Ubuntu 24's newer
+    # linker yet. Keep this job on the last compatible runner until they are
+    # rebuilt for the newer toolchain.
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout main branch
         uses: actions/checkout@v7
@@ -171,8 +174,7 @@ jobs:
           set -euo pipefail
           version="$RELEASE_VERSION"
 
-          chmod +x dist-linux.sh
-          ./dist-linux.sh "$version"
+          bash dist-linux.sh "$version"
 
           if [[ ! -f "dist/artifacts/danser-${version}-linux.zip" ]]; then
             echo "Danser failed to build"

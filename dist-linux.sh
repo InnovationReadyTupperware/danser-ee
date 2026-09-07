@@ -27,6 +27,20 @@ mkdir -p $BUILD_DIR
 
 go run tools/assets/assets.go ./ $BUILD_DIR/
 
+# Upstream cimgui-go ships a non-PIC Linux archive, but danser-core.so is a
+# shared library. Rebuild the archive with position-independent code before
+# cgo links it into the shared core.
+cimgui_module=$(go list -m -f '{{.Dir}}' github.com/AllenDang/cimgui-go)
+cimgui_build_dir=$BUILD_DIR/cimgui
+
+cmake -S "$cimgui_module/lib" -B "$cimgui_build_dir" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+cmake --build "$cimgui_build_dir" --parallel
+
+chmod u+w "$cimgui_module/lib/linux/x64" "$cimgui_module/lib/linux/x64/cimgui.a"
+cp "$cimgui_build_dir/cimgui.a" "$cimgui_module/lib/linux/x64/cimgui.a"
+
 go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.Version=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release' -X 'github.com/innovationreadytupperware/danser-ee/build.Branch=$branch'" -buildmode=c-shared -o $BUILD_DIR/danser-core.so -v -x -tags "exclude_cimgui_glfw exclude_cimgui_sdli"
 
 mv $BUILD_DIR/danser-core.so $BUILD_DIR/libdanser-core.so
