@@ -36,6 +36,23 @@ const (
 	lazerSpinnerRPMCounterY  = 448.0
 )
 
+type spinnerSampleState struct {
+	active bool
+}
+
+func (state *spinnerSampleState) SetActive(active bool) bool {
+	if state.active == active {
+		return false
+	}
+
+	state.active = active
+	return true
+}
+
+func (state *spinnerSampleState) Reset() {
+	state.active = false
+}
+
 type Spinner struct {
 	*HitObject
 
@@ -53,6 +70,7 @@ type Spinner struct {
 	rpmRamp     difficulty.SpinnerRPMRamp
 
 	loopSample *audio.SampleChannel
+	spinSample spinnerSampleState
 	completion float64
 
 	newStyle     bool
@@ -194,9 +212,10 @@ func (spinner *Spinner) SetDifficulty(diff *difficulty.Difficulty) {
 
 func (spinner *Spinner) Update(time float64) bool {
 	spinner.fade.Update(time)
+	automaticPresentation := automaticObjectPresentationEnabled()
 
 	if time >= spinner.StartTime && time <= spinner.EndTime {
-		if (!settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT)) || settings.PLAYERS > 1 {
+		if automaticPresentation {
 			elapsed := time - spinner.StartTime
 			if elapsed < 0 || math.IsNaN(elapsed) || math.IsInf(elapsed, 0) {
 				elapsed = 0
@@ -236,7 +255,7 @@ func (spinner *Spinner) Update(time float64) bool {
 	spinner.pos = spinner.StartPosRaw
 
 	if spinner.lastTime < spinner.EndTime && time >= spinner.EndTime {
-		if (!settings.PLAY && (!settings.KNOCKOUT || settings.SOLOKNOCKOUT)) || settings.PLAYERS > 1 {
+		if automaticPresentation {
 			spinner.StopSpinSample()
 			spinner.Clear()
 			spinner.Hit(time, true)
@@ -438,7 +457,12 @@ func (spinner *Spinner) StartSpinSample(eventTime float64) {
 
 	if spinner.loopSample == nil {
 		spinner.loopSample = audio.PlayNamedLoopAt("spinnerspin", eventTime, 1)
-	} else {
+		if spinner.loopSample != nil {
+			spinner.spinSample.SetActive(true)
+		} else {
+			spinner.spinSample.Reset()
+		}
+	} else if spinner.spinSample.SetActive(true) {
 		audio.ResumeLoop(spinner.loopSample)
 	}
 
@@ -448,7 +472,7 @@ func (spinner *Spinner) StartSpinSample(eventTime float64) {
 }
 
 func (spinner *Spinner) PauseSpinSample() {
-	if spinner.loopSample != nil {
+	if spinner.spinSample.SetActive(false) && spinner.loopSample != nil {
 		audio.PauseLoop(spinner.loopSample)
 	}
 }
@@ -458,6 +482,8 @@ func (spinner *Spinner) StopSpinSample() {
 		audio.StopLoop(spinner.loopSample)
 		spinner.loopSample = nil
 	}
+
+	spinner.spinSample.Reset()
 }
 
 // Finalize releases spinner-owned audio state when the beatmap drops the

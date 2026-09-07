@@ -1215,11 +1215,18 @@ func (slider *Slider) Update(time float64) bool {
 	return true
 }
 
-// automaticSliderEdgesEnabled reports whether the beatmap object owns shared
-// slider edge presentation. A one-player ruleset submits its own head and
-// tail events so the object must not submit those edges a second time.
-func automaticSliderEdgesEnabled() bool {
+// automaticObjectPresentationEnabled reports whether beatmap objects own
+// presentation events that would otherwise be submitted by a one-player
+// ruleset. Multi-participant playback has one shared object, so it remains
+// object-owned; one-player ruleset paths must not submit the same event twice.
+func automaticObjectPresentationEnabled() bool {
 	return settings.PLAYERS > 1 || (!settings.PLAY && !settings.KNOCKOUT)
+}
+
+// automaticSliderEdgesEnabled reports whether the beatmap object owns shared
+// slider edge presentation.
+func automaticSliderEdgesEnabled() bool {
+	return automaticObjectPresentationEnabled()
 }
 
 func (slider *Slider) ArmStart(clicked bool, time float64) {

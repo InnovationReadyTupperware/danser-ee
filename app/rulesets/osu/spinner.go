@@ -286,7 +286,10 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 	state.lastTime = time
 	state.hasLastTime = true
 
-	if time >= int64(spinner.hitSpinner.GetStartTime()) && time <= int64(spinner.hitSpinner.GetEndTime()) {
+	startTime := spinner.hitSpinner.GetStartTime()
+	endTime := spinner.hitSpinner.GetEndTime()
+
+	if lazerSpinnerActiveAt(float64(time), startTime, endTime) {
 		var delta float32 = 0.0
 
 		thisAngle := player.cursor.RawPosition.Sub(spinnerPosition).Angle()
@@ -306,6 +309,8 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 		}
 
 		if player.diff.CheckModActive(difficulty.SpunOut) {
+			// The local Lazer reference does not synthesize spinner rotation for
+			// Autopilot yet; keep that omission instead of borrowing Stable behavior.
 			rotationSpeed := float32(0)
 			duration := spinner.hitSpinner.GetEndTime() - spinner.hitSpinner.GetStartTime()
 			if duration > 0 && state.requirement > 0 {
@@ -324,31 +329,7 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 		state.updatedBefore = true
 
 		spinning := mutils.Abs(state.rotationCountF-state.rotationCountFPrev) > 10
-
-		state.rotationCountFPrev = mutils.Lerp(state.rotationCountFPrev, state.rotationCountF, 1-math32.Pow(0.99, float32(player.diff.GetModifiedTime(timeDiff))))
-
-		if len(spinner.players) == 1 {
-			if spinning {
-				spinner.hitSpinner.StartSpinSample(float64(time))
-			} else {
-				spinner.hitSpinner.PauseSpinSample()
-			}
-		}
-
-		if len(spinner.players) == 1 {
-			state.displayRPM = state.lazerRPMMeter.Update(float64(time), float64(state.totalRotation()))
-
-			if player.cursor.IsCursorDance {
-				targetRPM := spinner.hitSpinner.GetAutoplayRPM()
-				if targetRPM > 0 && !math.IsNaN(targetRPM) && !math.IsInf(targetRPM, 0) {
-					state.displayRPM = state.cursorDanceRPMRamp.Update(float64(time), targetRPM)
-				}
-			}
-
-			spinner.hitSpinner.SetRotation(float64(state.rotationCountFPrev * math32.Pi / 180))
-			spinner.hitSpinner.SetRPM(state.displayRPM)
-			spinner.hitSpinner.UpdateCompletion(float64(state.getCompletion()))
-		}
+		spinner.updateLazerPresentation(player, state, time, timeDiff, spinning)
 
 		totalSpins := state.maximumBonusSpins + state.requirement + difficulty.LazerSpinBonusGap
 
@@ -375,7 +356,51 @@ func (spinner *Spinner) processLazer(player *difficultyPlayer, time int64) {
 		}
 
 		state.lastRotationCount = state.rotationCount
+	} else if float64(time) >= startTime && float64(time) <= endTime && len(spinner.players) == 1 {
+		// Keep the terminal presentation sample at EndTime without accepting
+		// another input delta. Lazer updates its display through the end to avoid
+		// a trailing-meter dip during the spinner fade-out.
+		spinner.updateLazerPresentation(player, state, time, timeDiff, false)
 	}
+}
+
+func (spinner *Spinner) updateLazerPresentation(player *difficultyPlayer, state *spinnerState, time int64, timeDiff float64, spinning bool) {
+	state.rotationCountFPrev = mutils.Lerp(state.rotationCountFPrev, state.rotationCountF, 1-math32.Pow(0.99, float32(player.diff.GetModifiedTime(timeDiff))))
+
+	if len(spinner.players) != 1 {
+		return
+	}
+
+	if spinning {
+		spinner.hitSpinner.StartSpinSample(float64(time))
+	} else {
+		spinner.hitSpinner.PauseSpinSample()
+	}
+
+	state.displayRPM = state.lazerRPMMeter.Update(float64(time), float64(state.totalRotation()))
+
+	if player.cursor.IsCursorDance {
+		targetRPM := spinner.hitSpinner.GetAutoplayRPM()
+		if targetRPM > 0 && !math.IsNaN(targetRPM) && !math.IsInf(targetRPM, 0) {
+			state.displayRPM = state.cursorDanceRPMRamp.Update(float64(time), targetRPM)
+		}
+	}
+
+	spinner.hitSpinner.SetRotation(float64(state.rotationCountFPrev * math32.Pi / 180))
+	spinner.hitSpinner.SetRPM(state.displayRPM)
+	spinner.hitSpinner.UpdateCompletion(float64(state.getCompletion()))
+}
+
+func lazerSpinnerActiveAt(time, startTime, endTime float64) bool {
+	return time >= startTime && time < endTime
+}
+
+func spinnerEndReached(time int64, endTime float64, lazer bool) bool {
+	if lazer {
+		return float64(time) >= endTime
+	}
+
+	return time >= int64(endTime)
 }
 
 // reportLazerRotationDelta mirrors osu!lazer's direction-aware spin history:
@@ -415,7 +440,10 @@ func reportLazerRotationDelta(state *spinnerState, delta float32) {
 func (spinner *Spinner) UpdatePostFor(player *difficultyPlayer, time int64, _ bool) bool {
 	state := spinner.state[player]
 
-	if time >= int64(spinner.hitSpinner.GetEndTime()) && !state.finished {
+	endTime := spinner.hitSpinner.GetEndTime()
+	endReached := spinnerEndReached(time, endTime, player.diff.IsLazer())
+
+	if endReached && !state.finished {
 		hit := Miss
 		combo := Reset
 
