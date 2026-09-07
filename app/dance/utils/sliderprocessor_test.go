@@ -111,6 +111,45 @@ func TestExtremeTraversalPreprocessingDoesNotRequireSliderDance(t *testing.T) {
 	}
 }
 
+func TestLongBoundedSliderPreprocessingFollowsBody(t *testing.T) {
+	// Zigzag slider
+	slider := objects.NewSlider([]string{
+		"56", "49", "61388", "6", "0",
+		"B|455:49|455:49|56:74|56:74|455:74|455:74|56:99|56:99|455:99|455:99|56:124|56:124|455:121|455:121|56:149|56:149|455:149|455:149|56:174|56:174|455:174|455:174|56:199|56:199|455:202|455:202|56:224|56:224|455:224|455:224|56:249|56:249|455:249|455:249|56:274|56:274|455:274|455:274|56:299|56:299|455:299|455:299|56:324",
+		"1", "8800", "0", "0:0",
+	})
+	if slider == nil {
+		t.Fatal("long bounded zigzag slider was rejected")
+	}
+
+	timings := objects.NewTimings()
+	timings.SliderMult = 2
+	timings.TickRate = 1
+	timings.AddPoint(0, 600, 1, 1, 1, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+
+	if slider.WorkloadClass() != objects.SliderWorkloadNormal {
+		t.Fatalf("long bounded slider workload class = %v, want normal", slider.WorkloadClass())
+	}
+	if slider.NeedsGeneratedMovementFallback() {
+		t.Fatal("long bounded slider requested movement fallback, want direct body tracking when slider dance is off")
+	}
+
+	queue := []objects.IHitObject{slider}
+	if processed := PreprocessQueue(0, queue, false); len(processed) != 1 {
+		t.Fatalf("dance-off queue length = %d, want the retained slider", len(processed))
+	} else if _, ok := processed[0].(*objects.Slider); !ok {
+		t.Fatalf("dance-off queue holds %T, want the retained *objects.Slider", processed[0])
+	}
+
+	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
+	expanded := ExpandSliderDanceQueueForDiff(queue, lazer)
+	if got, want := len(expanded), len(slider.ScorePointsLazer)+1; got != want || got <= 1 {
+		t.Fatalf("dance-on expansion holds %d points, want the %d-point Lazer slider sequence", got, want)
+	}
+}
+
 func TestSingularSliderPreprocessingDoesNotRequireSliderDance(t *testing.T) {
 	slider := objects.NewSlider([]string{
 		"256", "192", "1000", "2", "0",

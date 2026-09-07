@@ -1,8 +1,6 @@
 package objects
 
 import (
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/audio"
@@ -20,6 +18,18 @@ func TestPathologicalSliderClassificationUsesOptimizationMetadata(t *testing.T) 
 	}
 	if normal.WorkloadClass() != SliderWorkloadNormal {
 		t.Fatalf("normal slider workload class = %v, want normal", normal.WorkloadClass())
+	}
+
+	aesthetic := NewSlider([]string{
+		"256", "192", "1000", "2", "0",
+		"L|256:1768", "1", "1576", "0", "0:0",
+	})
+	if aesthetic == nil {
+		t.Fatal("out-of-playfield slider was rejected")
+	}
+	if aesthetic.WorkloadClass() != SliderWorkloadNormal || aesthetic.NeedsGeneratedMovementFallback() {
+		t.Fatalf("out-of-playfield slider workload = %v, fallback = %t; want normal trackable movement",
+			aesthetic.WorkloadClass(), aesthetic.NeedsGeneratedMovementFallback())
 	}
 
 	pathological := NewSlider([]string{
@@ -69,27 +79,12 @@ func TestPathologicalSliderSuppressesSliderDetailAudio(t *testing.T) {
 	}
 }
 
-func TestPathologicalLongSliderKeepsTickVisuals(t *testing.T) {
-	// A zigzag single-span slider past the 4096px path-length trigger: the
-	// workload class fires, but lazer still generates ticks for the whole
-	// path (SliderEventGenerator allows 100000px with no length
-	// suppression), so the dots must survive classification on both
-	// timelines.
-	var curve strings.Builder
-	curve.WriteString("B|56:49")
-	x := 455
-	for y := 74; y <= 349; y += 25 {
-		if x == 455 {
-			x = 56
-		} else {
-			x = 455
-		}
-		curve.WriteString("|" + strconv.Itoa(x) + ":" + strconv.Itoa(y))
-	}
-
+func TestLongBoundedSliderKeepsNormalPresentation(t *testing.T) {
+	// Zigzag slider
 	slider := NewSlider([]string{
 		"56", "49", "61388", "6", "0",
-		curve.String(), "1", "4800", "0", "0:0",
+		"B|455:49|455:49|56:74|56:74|455:74|455:74|56:99|56:99|455:99|455:99|56:124|56:124|455:121|455:121|56:149|56:149|455:149|455:149|56:174|56:174|455:174|455:174|56:199|56:199|455:202|455:202|56:224|56:224|455:224|455:224|56:249|56:249|455:249|455:249|56:274|56:274|455:274|455:274|56:299|56:299|455:299|455:299|56:324",
+		"1", "8800", "0", "0:0",
 	})
 	if slider == nil {
 		t.Fatal("long zigzag slider was rejected")
@@ -102,8 +97,11 @@ func TestPathologicalLongSliderKeepsTickVisuals(t *testing.T) {
 	timings.FinalizePoints()
 	slider.SetTiming(timings, 14, false)
 
-	if !slider.IsPathological() {
-		t.Fatalf("long slider workload class = %v, want the length trigger to fire", slider.WorkloadClass())
+	if slider.WorkloadClass() != SliderWorkloadNormal {
+		t.Fatalf("long bounded slider workload class = %v, want normal", slider.WorkloadClass())
+	}
+	if slider.NeedsGeneratedMovementFallback() {
+		t.Fatal("long bounded slider requested generated-movement fallback")
 	}
 
 	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
@@ -113,16 +111,14 @@ func TestPathologicalLongSliderKeepsTickVisuals(t *testing.T) {
 	slider.diff = lazer
 	lazerDots := slider.visualTickPoints()
 	if len(lazerDots) == 0 {
-		t.Fatal("pathological slider has no Lazer tick dots, want the full tick timeline")
+		t.Fatal("long slider has no Lazer tick dots, want the full tick timeline")
 	}
 
 	slider.diff = stable
 	if got := len(slider.visualTickPoints()); got != len(slider.TickPoints) || got == 0 {
-		t.Fatalf("pathological Stable tick dots = %d, want the %d generated ticks", got, len(slider.TickPoints))
+		t.Fatalf("long Stable slider tick dots = %d, want the %d generated ticks", got, len(slider.TickPoints))
 	}
 
-	// Dots gain their fade and scale transforms on first update even though
-	// generation skips glider allocation for bounded workloads.
 	slider.diff = lazer
 	slider.initScorePointAnimations()
 	for i, p := range slider.visualTickPoints() {
@@ -134,6 +130,7 @@ func TestPathologicalLongSliderKeepsTickVisuals(t *testing.T) {
 		}
 	}
 }
+
 func TestSingularSliderUsesOneEffectivePoint(t *testing.T) {
 	slider := NewSlider([]string{
 		"256", "192", "1000", "2", "0",

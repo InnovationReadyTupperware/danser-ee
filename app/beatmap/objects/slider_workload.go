@@ -23,11 +23,10 @@ const (
 )
 
 const (
-	// These thresholds describe when the ordinary per-slider work becomes
-	// disproportionately expensive. They deliberately sit well below the
-	// parser's last-resort safety ceilings and never alter the authored path.
-	pathologicalSliderCoordinateMargin = 512.0
-	pathologicalSliderPathLength       = 4096.0
+	// Keep authored out-of-playfield movement available for Aspire-style
+	// sliders. The coordinate limit is only an emergency guard for trajectories
+	// that would carry a generated cursor several playfields out of view.
+	pathologicalSliderCoordinateMargin = 2048.0
 	pathologicalSliderScorePoints      = 256
 	pathologicalSliderRenderSegments   = 512
 	pathologicalSliderRepeats          = 256
@@ -111,10 +110,6 @@ func (slider *Slider) updateWorkloadClass() {
 	}
 
 	if slider.multiCurve != nil {
-		if slider.multiCurve.GetLengthLazer() > pathologicalSliderPathLength {
-			class |= SliderWorkloadPathological
-			slider.movementFallback = true
-		}
 		if len(slider.multiCurve.GetLines()) > pathologicalSliderRenderSegments {
 			class |= SliderWorkloadPathological
 		}
