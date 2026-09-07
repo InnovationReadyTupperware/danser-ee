@@ -141,6 +141,10 @@ danser-go development after 0.11.0 through commit `3eb75a34`, including the
 - Spinner RPM feedback now responds over osu!lazer's trailing measurement
   window and stays correctly positioned across resolutions and custom skins
   - Seeking resets its measurement history
+- Spinner judgment now follows osu!lazer's end-exclusive timing by default,
+  avoiding an extra rotation at the exact end
+- Spinner audio no longer repeatedly pauses and resumes while its spin state
+  is unchanged
 - Unsupported MSAA, framebuffer, and GPU configurations now fail with an
   actionable error instead of hanging during gameplay startup
 - Recording refuses to replace an existing final output
