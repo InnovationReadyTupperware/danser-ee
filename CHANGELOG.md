@@ -2,7 +2,7 @@
 
 ## 1.0.0 - 2026-09-05
 
-## What's new in Danser Enterprise Edition 1.0.0
+# What's new in Danser Enterprise Edition 1.0.0
 
 ### Highlights
 
@@ -119,7 +119,7 @@
 
 ---
 
-## danser 0.12.0 snapshot changes carried forward
+# danser 0.12.0 snapshot changes carried forward
 
 ### BIGGEST CHANGE: osu!lazer Compatibility, PP Updates, and SDL
 
