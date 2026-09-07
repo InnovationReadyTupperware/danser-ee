@@ -1,9 +1,12 @@
 package objects
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/audio"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
@@ -66,6 +69,71 @@ func TestPathologicalSliderSuppressesSliderDetailAudio(t *testing.T) {
 	}
 }
 
+func TestPathologicalLongSliderKeepsTickVisuals(t *testing.T) {
+	// A zigzag single-span slider past the 4096px path-length trigger: the
+	// workload class fires, but lazer still generates ticks for the whole
+	// path (SliderEventGenerator allows 100000px with no length
+	// suppression), so the dots must survive classification on both
+	// timelines.
+	var curve strings.Builder
+	curve.WriteString("B|56:49")
+	x := 455
+	for y := 74; y <= 349; y += 25 {
+		if x == 455 {
+			x = 56
+		} else {
+			x = 455
+		}
+		curve.WriteString("|" + strconv.Itoa(x) + ":" + strconv.Itoa(y))
+	}
+
+	slider := NewSlider([]string{
+		"56", "49", "61388", "6", "0",
+		curve.String(), "1", "4800", "0", "0:0",
+	})
+	if slider == nil {
+		t.Fatal("long zigzag slider was rejected")
+	}
+
+	timings := NewTimings()
+	timings.SliderMult = 2
+	timings.TickRate = 1
+	timings.AddPoint(0, 600, 1, 1, 1, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+
+	if !slider.IsPathological() {
+		t.Fatalf("long slider workload class = %v, want the length trigger to fire", slider.WorkloadClass())
+	}
+
+	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
+	stable := difficulty.NewDifficulty(5, 5, 5, 5)
+	stable.SetGameplayMode(difficulty.GameplayStable)
+
+	slider.diff = lazer
+	lazerDots := slider.visualTickPoints()
+	if len(lazerDots) == 0 {
+		t.Fatal("pathological slider has no Lazer tick dots, want the full tick timeline")
+	}
+
+	slider.diff = stable
+	if got := len(slider.visualTickPoints()); got != len(slider.TickPoints) || got == 0 {
+		t.Fatalf("pathological Stable tick dots = %d, want the %d generated ticks", got, len(slider.TickPoints))
+	}
+
+	// Dots gain their fade and scale transforms on first update even though
+	// generation skips glider allocation for bounded workloads.
+	slider.diff = lazer
+	slider.initScorePointAnimations()
+	for i, p := range slider.visualTickPoints() {
+		if p.fade == nil || p.scale == nil {
+			t.Fatalf("Lazer tick dot %d at %g has no animation transforms", i, p.Time)
+		}
+		if want := slider.PositionAtLazer(p.Time); p.Pos != want {
+			t.Fatalf("Lazer tick dot %d position = %v, want the Lazer path position %v", i, p.Pos, want)
+		}
+	}
+}
 func TestSingularSliderUsesOneEffectivePoint(t *testing.T) {
 	slider := NewSlider([]string{
 		"256", "192", "1000", "2", "0",
@@ -139,13 +207,14 @@ func TestSliderTimingRebuildDoesNotDuplicateWorkloadInputs(t *testing.T) {
 
 	stablePathCount := len(slider.scorePath)
 	stableScorePointCount := len(slider.ScorePoints)
+	lazerTickCount := len(slider.TickPointsLazer)
 	lazerScorePointCount := len(slider.ScorePointsLazer)
 
 	slider.SetTiming(timings, 14, false)
 
-	if len(slider.scorePath) != stablePathCount || len(slider.ScorePoints) != stableScorePointCount || len(slider.ScorePointsLazer) != lazerScorePointCount {
-		t.Fatalf("repeated SetTiming duplicated derived work: path %d/%d, stable points %d/%d, Lazer points %d/%d",
-			len(slider.scorePath), stablePathCount, len(slider.ScorePoints), stableScorePointCount, len(slider.ScorePointsLazer), lazerScorePointCount)
+	if len(slider.scorePath) != stablePathCount || len(slider.ScorePoints) != stableScorePointCount || len(slider.TickPointsLazer) != lazerTickCount || len(slider.ScorePointsLazer) != lazerScorePointCount {
+		t.Fatalf("repeated SetTiming duplicated derived work: path %d/%d, stable points %d/%d, Lazer ticks %d/%d, Lazer points %d/%d",
+			len(slider.scorePath), stablePathCount, len(slider.ScorePoints), stableScorePointCount, len(slider.TickPointsLazer), lazerTickCount, len(slider.ScorePointsLazer), lazerScorePointCount)
 	}
 }
 

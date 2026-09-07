@@ -153,6 +153,60 @@ func TestRepeatedAnchorSliderHasFiniteLazerTraversal(t *testing.T) {
 	}
 }
 
+func TestVisualTickPointsFollowParticipantProvenance(t *testing.T) {
+	slider := newProvenanceTestSlider(t)
+	stable := difficulty.NewDifficulty(5, 5, 5, 5)
+	stable.SetGameplayMode(difficulty.GameplayStable)
+	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
+
+	slider.diff = stable
+	stableDots := slider.visualTickPoints()
+	if len(stableDots) != len(slider.TickPoints) {
+		t.Fatalf("Stable tick dots = %d, want %d", len(stableDots), len(slider.TickPoints))
+	}
+	for i, p := range stableDots {
+		if p.Time != slider.TickPoints[i].Time {
+			t.Fatalf("Stable tick dot %d time = %g, want %g", i, p.Time, slider.TickPoints[i].Time)
+		}
+		if p.Pos != slider.PositionAt(p.Time) {
+			t.Fatalf("Stable tick dot %d position = %v, want the Stable path position", i, p.Pos)
+		}
+	}
+
+	slider.diff = lazer
+	lazerDots := slider.visualTickPoints()
+	if len(lazerDots) != len(slider.TickPointsLazer) {
+		t.Fatalf("Lazer tick dots = %d, want %d", len(lazerDots), len(slider.TickPointsLazer))
+	}
+	if len(lazerDots) == 0 {
+		t.Fatal("Lazer tick dots are empty, want the fractional tick timeline")
+	}
+	for i, p := range lazerDots {
+		if p.Time != slider.TickPointsLazer[i].Time {
+			t.Fatalf("Lazer tick dot %d time = %g, want %g", i, p.Time, slider.TickPointsLazer[i].Time)
+		}
+		if p.Pos != slider.PositionAtLazer(p.Time) {
+			t.Fatalf("Lazer tick dot %d position = %v, want the Lazer path position", i, p.Pos)
+		}
+	}
+
+	// Every drawn Lazer dot must match a tick event on the judged Lazer
+	// timeline; repeats and the tail own separate endpoint visuals.
+	lazerEvents := make(map[float64]bool)
+	for _, point := range slider.ScorePointsLazer {
+		if !point.IsReverse && !point.LastPoint {
+			lazerEvents[point.Time] = true
+		}
+	}
+	for _, p := range lazerDots {
+		if !lazerEvents[p.Time] {
+			t.Fatalf("Lazer tick dot at %g has no matching judged tick event", p.Time)
+		}
+	}
+	if len(lazerDots) != len(lazerEvents) {
+		t.Fatalf("Lazer tick dots = %d, want one per judged tick event (%d)", len(lazerDots), len(lazerEvents))
+	}
+}
 func newProvenanceTestSlider(t *testing.T) *Slider {
 	t.Helper()
 

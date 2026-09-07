@@ -78,6 +78,13 @@ type Slider struct {
 	TickReverse []TickPoint
 	ScorePoints []TickPoint
 
+	// TickPointsLazer holds the drawable Lazer tick dots. Lazer generates
+	// ticks from the same fractional event timeline as ScorePointsLazer
+	// (SliderEventGenerator.Generate) but repeat and tail points keep their
+	// own endpoint visuals, so ticks are tracked separately like the Stable
+	// TickPoints list.
+	TickPointsLazer []TickPoint
+
 	startCircle *Circle
 
 	fade     *animation.Glider
@@ -431,6 +438,19 @@ func (slider *Slider) GetStackedPositionAtModLazer(time float64, diff *difficult
 	return ModifyPosition(slider.HitObject, slider.PositionAtLazer(time), diff)
 }
 
+// visualTickPoints selects the tick dots drawn for the participant's gameplay
+// provenance: the fractional Lazer timeline for Lazer participants, the
+// floored Stable timeline otherwise. Tick placement is identical with and
+// without the Classic mod in the reference client. The workload policy
+// governs movement expansion and detail audio, not tick dots.
+func (slider *Slider) visualTickPoints() []TickPoint {
+	if slider.diff != nil && slider.diff.IsLazer() {
+		return slider.TickPointsLazer
+	}
+
+	return slider.TickPoints
+}
+
 // GetStackedPositionAtModForDiff returns the slider position for the
 // participant's gameplay provenance after applying its stack and mirror
 // modifiers.
@@ -563,6 +583,7 @@ func (slider *Slider) resetTimingData() {
 	slider.TickPoints = slider.TickPoints[:0]
 	slider.TickReverse = slider.TickReverse[:0]
 	slider.ScorePoints = slider.ScorePoints[:0]
+	slider.TickPointsLazer = slider.TickPointsLazer[:0]
 	slider.ScorePointsLazer = slider.ScorePointsLazer[:0]
 	slider.timingComputed = false
 	slider.stablePathComputed = false
@@ -642,8 +663,14 @@ func (slider *Slider) calculateFollowPointsLazer(beatmapVersion int) {
 				timeProgress = 1 - timeProgress
 			}
 
+			tickTime := spanStartTime + timeProgress*slider.spanDuration
+			slider.TickPointsLazer = append(slider.TickPointsLazer, TickPoint{
+				Time:      tickTime,
+				Pos:       slider.PositionAtLazer(tickTime),
+				EdgeIndex: -1,
+			})
 			slider.ScorePointsLazer = append(slider.ScorePointsLazer, TickPoint{
-				Time: spanStartTime + timeProgress*slider.spanDuration,
+				Time: tickTime,
 			})
 			generatedTickPoints++
 		}
@@ -1053,6 +1080,12 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 		slider.TickPoints[i] = p
 	}
 
+	for i, p := range slider.TickPointsLazer {
+		p.Pos = slider.GetStackedPositionAtModLazer(p.Time, slider.diff)
+
+		slider.TickPointsLazer[i] = p
+	}
+
 	for i, p := range slider.TickReverse {
 		p.Pos = slider.GetStackedPositionAtMod(p.Time, slider.diff)
 
@@ -1130,14 +1163,12 @@ func (slider *Slider) Update(time float64) bool {
 
 	slider.updateEndpointPositions(time)
 
-	if !slider.IsPathological() {
-		for _, p := range slider.TickPoints {
-			if p.fade != nil {
-				p.fade.Update(time)
-			}
-			if p.scale != nil {
-				p.scale.Update(time)
-			}
+	for _, p := range slider.visualTickPoints() {
+		if p.fade != nil {
+			p.fade.Update(time)
+		}
+		if p.scale != nil {
+			p.scale.Update(time)
 		}
 	}
 
@@ -1203,12 +1234,9 @@ func (slider *Slider) ArmStart(clicked bool, time float64) {
 
 // initScorePointAnimations prepares the independent score-point visuals. The
 // slider body itself is not initialized here because its snaking range is a
-// function of the current frame and must remain seek-safe.
+// function of the current frame and must remain seek-safe. The reference
+// client draws tick dots on every valid slider regardless of path length.
 func (slider *Slider) initScorePointAnimations() {
-	if slider.IsPathological() {
-		return
-	}
-
 	slSnInS := slider.StartTime - slider.diff.Preempt
 	slSnInE := slider.StartTime - slider.diff.Preempt*2/3*(1.0-clampSnakeMultiplier(settings.Objects.Sliders.Snaking.FadeMultiplier)) +
 		slider.visualSpanDuration()*clampSnakeMultiplier(settings.Objects.Sliders.Snaking.DurationMultiplier)
@@ -1217,10 +1245,13 @@ func (slider *Slider) initScorePointAnimations() {
 		slider.ball.SetAlpha(0)
 	}
 
-	for i, p := range slider.TickPoints {
+	isLazer := slider.diff != nil && slider.diff.IsLazer()
+	points := slider.visualTickPoints()
+
+	for i, p := range points {
 		var startTime, endTime float64
 
-		partDuration := slider.partLen
+		partDuration := slider.partDurationForDiff(slider.diff)
 		if partDuration <= 0 {
 			partDuration = slider.visualSpanDuration()
 		}
@@ -1246,23 +1277,32 @@ func (slider *Slider) initScorePointAnimations() {
 			endTime = startTime
 		}
 
-		if p.scale != nil {
-			p.scale.AddEventS(startTime, endTime, 0.5, 1.2)
-			p.scale.AddEventSEase(endTime, endTime+150, 1.2, 1.0, easing.OutQuad)
+		// Dots that arrive without gliders allocate them here, so every drawn
+		// dot owns its fade and scale transforms.
+		if p.scale == nil {
+			p.scale = animation.NewGlider(0.0)
 		}
-		if p.fade != nil {
-			p.fade.AddEventS(startTime, endTime, 0.0, 1.0)
-
-			if slider.diff.CheckModActive(difficulty.Hidden) {
-				p.fade.AddEventS(max(endTime, p.Time-1000), p.Time, 1.0, 0.0)
-			} else {
-				p.fade.AddEventS(p.Time, p.Time, 1.0, 0.0)
-			}
+		if p.fade == nil {
+			p.fade = animation.NewGlider(0.0)
 		}
 
-		p.Pos = slider.GetStackedPositionAtModLazer(p.Time, slider.diff)
+		p.scale.AddEventS(startTime, endTime, 0.5, 1.2)
+		p.scale.AddEventSEase(endTime, endTime+150, 1.2, 1.0, easing.OutQuad)
+		p.fade.AddEventS(startTime, endTime, 0.0, 1.0)
 
-		slider.TickPoints[i] = p
+		if slider.diff.CheckModActive(difficulty.Hidden) {
+			p.fade.AddEventS(max(endTime, p.Time-1000), p.Time, 1.0, 0.0)
+		} else {
+			p.fade.AddEventS(p.Time, p.Time, 1.0, 0.0)
+		}
+
+		if isLazer {
+			p.Pos = slider.GetStackedPositionAtModLazer(p.Time, slider.diff)
+		} else {
+			p.Pos = slider.GetStackedPositionAtMod(p.Time, slider.diff)
+		}
+
+		points[i] = p
 	}
 }
 
@@ -1571,12 +1611,12 @@ func (slider *Slider) Draw(time float64, color color2.Color, batch *batch.QuadBa
 
 	if settings.DIVIDES < settings.Objects.Colors.MandalaTexturesTrigger {
 		if time < visualEndTime {
-			if !slider.IsPathological() && settings.Objects.Sliders.DrawScorePoints {
+			if settings.Objects.Sliders.DrawScorePoints {
 				shifted := color.Shift(float32(settings.Objects.Colors.Sliders.ScorePointColorOffset), 0, 0)
 
 				scorePoint := skin.GetTexture("sliderscorepoint")
 
-				for _, p := range slider.TickPoints {
+				for _, p := range slider.visualTickPoints() {
 					if scorePoint == nil || p.fade == nil || p.scale == nil {
 						continue
 					}
