@@ -170,6 +170,7 @@ than one part of the product.
 - Document exported identifiers and non-obvious behavior. Comments should
   explain intent, invariants, lifecycle, platform or concurrency assumptions,
   and cross-layer decisions rather than restate syntax.
+- Prefer concise comments without trailing punctuation when they express a single short thought.
 - Before finishing, reread the change as a maintainer returning six months
   later. Resolve unclear naming, ownership, error handling, or intent while the
   surrounding context is still available.
