@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 - 2026-09-08
+
+# What's new in Danser Enterprise Edition 1.0.1
+
+### Fixed
+
+- Combo color normalization no longer renders the wrong color
+  - Saturated blues showed green and saturated reds showed black at any amount above 0%
+- Combo colors no longer shift by one on maps whose first object isn't a new combo
+
 ## 1.0.0 - 2026-09-05
 
 # What's new in Danser Enterprise Edition 1.0.0

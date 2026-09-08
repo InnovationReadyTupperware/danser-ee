@@ -111,6 +111,7 @@ The comparison below is a high-level snapshot of meaningful differences since th
 | Replay-driven knockout lineup     |                         ✅ Explicit replay selection                          |       replay selection required       |
 | Solo knockout mode                | ✅ Map-driven generated Danser participants with shared cursor-dance controls |                   -                   |
 | Lazer's combo color normalization |                     ✅ HSPA perceived-brightness control                      |                   -                   |
+| Opening combo color               |                       palette index 1 (osu!lazer order)                       |    palette index 0 unless flagged     |
 | Lazer's hit animation toggle      |                      ✅ configurable; enabled by default                      |            fixed animation            |
 | Slider judgment granularity       |                per-event head, tick, repeat, and tail results                 | approximate slider tick/tail handling |
 | Slider miss-result presentation   |              `slidertickmiss` / `sliderendmiss` skin components               |                   -                   |
