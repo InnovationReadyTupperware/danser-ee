@@ -418,17 +418,19 @@ func ParseObjects(beatMap *BeatMap, diffCalcOnly, parseColors bool) {
 	comboSet := 0
 	comboSetHax := 0
 	forceNewCombo := false
+	comboStarted := false
 
 	for i, iO := range beatMap.HitObjects {
 		if iO.GetType() == objects.SPINNER {
 			forceNewCombo = true
-		} else if iO.IsNewCombo() || forceNewCombo {
+		} else if iO.IsNewCombo() || forceNewCombo || !comboStarted {
 			iO.SetNewCombo(true)
 			comboNumber = 1
 			comboSet++
 			comboSetHax += int(iO.GetColorOffset()) + 1
 
 			forceNewCombo = false
+			comboStarted = true
 		}
 
 		if iO.IsNewCombo() && i > 0 {
