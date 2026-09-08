@@ -89,10 +89,10 @@ func RGBToHSV(r, g, b float32) (h, s, v float32) {
 }
 
 func PackInt(r, g, b, a float32) uint32 {
-	rI := uint32(r * 255)
-	gI := uint32(g * 255)
-	bI := uint32(b * 255)
-	aI := uint32(a * 255)
+	rI := uint32(mutils.Clamp(r, 0, 1) * 255)
+	gI := uint32(mutils.Clamp(g, 0, 1) * 255)
+	bI := uint32(mutils.Clamp(b, 0, 1) * 255)
+	aI := uint32(mutils.Clamp(a, 0, 1) * 255)
 
 	return aI<<24 | bI<<16 | gI<<8 | rI
 }

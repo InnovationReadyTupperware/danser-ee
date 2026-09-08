@@ -150,5 +150,5 @@ func (c Color) ToArray() []float32 {
 }
 
 func (c Color) ToIntArray() []uint8 {
-	return []uint8{uint8(c.R * 255), uint8(c.G * 255), uint8(c.B * 255), uint8(c.A * 255)}
+	return []uint8{uint8(mutils.Clamp(c.R, 0, 1) * 255), uint8(mutils.Clamp(c.G, 0, 1) * 255), uint8(mutils.Clamp(c.B, 0, 1) * 255), uint8(mutils.Clamp(c.A, 0, 1) * 255)}
 }
