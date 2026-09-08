@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
-	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
@@ -88,11 +87,7 @@ func NewStrainGraph(beatMap *beatmap.BeatMap, peaks api.StrainPeaks, countFromZe
 		graph.endTime = graph.trueEndTime
 	}
 
-	// Those magic numbers are derived from sr formula with all difficulty values being 0 (e.g. at breaks)
-	graph.baseLine = 0.1401973407499798
-	if beatMap.Diff.CheckModActive(difficulty.Flashlight) {
-		graph.baseLine = 0.14386309174146011
-	}
+	graph.baseLine = peaks.Baseline
 
 	graph.leftSprite = sprite.NewSpriteSingle(nil, 0, vector.NewVec2d(graph.screenWidth, 728), vector.TopLeft)
 	graph.leftSprite.SetCutOrigin(vector.CentreLeft)
@@ -124,6 +119,8 @@ func (graph *StrainGraph) generateCurve() curves.Curve {
 		return curves.NewLinear(vector.NewVec2f(0, 0), vector.NewVec2f(1, 0))
 	}
 
+	// Total is a calculator-defined presentation curve, not authoritative timed
+	// CalculateStep SR. The graph may merge those samples further for display.
 	// Number of strain sections to merge
 	// For example for a 5-minute map we will get 10 sections, so 4s because one section is 400ms
 	// It's also scaled with width of the strain graph so wider one shows more detailed graph

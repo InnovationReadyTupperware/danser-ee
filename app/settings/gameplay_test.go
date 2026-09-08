@@ -31,9 +31,9 @@ func TestDefaultHitErrorMeterUsesLegacyBarDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultPPVersionIsOctober2025Model(t *testing.T) {
-	if got := NewConfigFile().Gameplay.PPVersion; got != "251020" {
-		t.Fatalf("PPVersion default = %q, want 251020", got)
+func TestDefaultPPVersionIsJuly2026Model(t *testing.T) {
+	if got := NewConfigFile().Gameplay.PPVersion; got != "260706" {
+		t.Fatalf("PPVersion default = %q, want 260706", got)
 	}
 }
 
@@ -43,7 +43,8 @@ func TestCanonicalPPVersionMapsLegacyAliases(t *testing.T) {
 		want string
 	}{
 		{in: "latest", want: "251020"},
-		{in: "26xxxx", want: "260321"},
+		{in: "26xxxx", want: "260706"},
+		{in: "260321", want: "260706"},
 	}
 
 	for _, test := range tests {
@@ -59,7 +60,8 @@ func TestMigratePPVersionMapsLegacyAliases(t *testing.T) {
 		canonical string
 	}{
 		{legacy: "latest", canonical: "251020"},
-		{legacy: "26xxxx", canonical: "260321"},
+		{legacy: "26xxxx", canonical: "260706"},
+		{legacy: "260321", canonical: "260706"},
 	}
 
 	for _, test := range tests {

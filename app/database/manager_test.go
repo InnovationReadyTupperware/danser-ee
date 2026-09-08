@@ -336,3 +336,50 @@ func TestNotifyCatalogDeltaPublishesOnlyChanges(t *testing.T) {
 		t.Fatalf("removal delta = %#v, want removed map key", received[1])
 	}
 }
+
+func TestCatalogDifficultyCalculatorUsesCurrentModel(t *testing.T) {
+	if got := difficultyCalc.GetVersion(); got != 20260706 {
+		t.Fatalf("catalog difficulty calculator version = %d, want 20260706", got)
+	}
+}
+
+func TestLoadStaleCatalogEntriesUsesCurrentStarRatingVersion(t *testing.T) {
+	setupRemoveCatalogLocationDatabase(t)
+
+	if _, err := dbFile.Exec(`UPDATE beatmaps SET stars = 5, starsVersion = ? WHERE dir = 'gone'`, 20250306); err != nil {
+		t.Fatalf("set old star-rating version: %v", err)
+	}
+	if _, err := dbFile.Exec(`UPDATE beatmaps SET stars = 5, starsVersion = ? WHERE dir = 'kept'`, difficultyCalc.GetVersion()); err != nil {
+		t.Fatalf("set current star-rating version: %v", err)
+	}
+	if err := upsertCatalogEntries([]*BeatmapEntry{{
+		Dir:           "uncalculated",
+		File:          "map.osu",
+		Name:          "Uncalculated",
+		Mode:          0,
+		Stars:         -1,
+		StarsVersion:  difficultyCalc.GetVersion(),
+		MetadataState: MetadataComplete,
+	}}); err != nil {
+		t.Fatalf("seed uncalculated star-rating entry: %v", err)
+	}
+
+	entries := loadStaleCatalogEntries(difficultyCalc.GetVersion())
+	if len(entries) != 2 {
+		t.Fatalf("stale catalog entries = %d, want 2", len(entries))
+	}
+
+	byDir := make(map[string]*BeatmapEntry, len(entries))
+	for _, entry := range entries {
+		byDir[entry.Dir] = entry
+	}
+	if entry := byDir["gone"]; entry == nil || entry.StarsVersion != 20250306 {
+		t.Fatalf("old-version stale entry = %#v, want pre-260706 rating", entry)
+	}
+	if entry := byDir["uncalculated"]; entry == nil || entry.Stars >= 0 {
+		t.Fatalf("uncalculated stale entry = %#v, want stars < 0", entry)
+	}
+	if entry := byDir["kept"]; entry != nil {
+		t.Fatalf("current star-rating entry was marked stale: %#v", entry)
+	}
+}

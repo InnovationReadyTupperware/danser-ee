@@ -1,4 +1,4 @@
-package pp260321
+package pp260706
 
 import (
 	"math"
@@ -6,13 +6,12 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260706/preprocessing"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 type scoreSimulator struct {
-	breaks []*beatmap.Pause
-	diff   *difficulty.Difficulty
+	diff *difficulty.Difficulty
 
 	ScoreMultiplier float64
 
@@ -26,13 +25,11 @@ type scoreSimulator struct {
 	circles    int
 	sliders    int
 	spinners   int
-	oStartTime float64
 }
 
 func newScoreSim(bMap *beatmap.BeatMap, diff *difficulty.Difficulty) *scoreSimulator {
 	sim := &scoreSimulator{
-		breaks: bMap.Pauses,
-		diff:   diff,
+		diff: diff,
 	}
 
 	pauses := int64(0)
@@ -48,20 +45,14 @@ func newScoreSim(bMap *beatmap.BeatMap, diff *difficulty.Difficulty) *scoreSimul
 	return sim
 }
 
-func (s *scoreSimulator) AddFirst(obj *preprocessing.DifficultyObject) {
-	s.oStartTime = obj.LastObject.GetStartTime()
-	s.add(obj.LastObject)
-}
-
-func (s *scoreSimulator) Add(obj *preprocessing.DifficultyObject, first bool) {
-	if first {
-		s.AddFirst(obj)
-	}
-
+func (s *scoreSimulator) Add(obj *preprocessing.DifficultyObject) {
 	s.add(obj.BaseObject)
 }
 
 func (s *scoreSimulator) add(obj objects.IHitObject) {
+	if slider, ok := obj.(*objects.Slider); ok {
+		obj = preprocessing.NewLazySlider(slider, s.diff)
+	}
 	s.hitObjects++
 
 	if slider, ok := obj.(*preprocessing.LazySlider); ok {
@@ -77,7 +68,7 @@ func (s *scoreSimulator) add(obj objects.IHitObject) {
 		s.combo += int64(len(slider.ScorePointsLazer) + 1)
 	} else if obj.GetType() == objects.SPINNER {
 		s.spinners++
-		s.nestedScore += calculateSpinnerScore(obj)
+		s.nestedScore += calculateLegacySpinnerScore(obj)
 	} else {
 		s.circles++
 	}
@@ -91,13 +82,14 @@ func (s *scoreSimulator) add(obj objects.IHitObject) {
 	}
 }
 
-func calculateSpinnerScore(spinner objects.IHitObject) int64 {
+func calculateLegacySpinnerScore(spinner objects.IHitObject) int64 {
 	const spinScore = 100
 	const bonusSpinScore = 1000
 
-	// The spinner object applies a lenience because gameplay mechanics differ from osu-stable.
-	// We'll redo the calculations to match osu-stable here...
-	const maximumRotationsPerSecond = 477.0 / 60
+	// This is a ScoreV1 compatibility estimate, not a gameplay spinner limit
+	// osu!lazer's LegacyScoreUtils uses stable autoplay's 477 RPM when
+	// reconstructing nested spinner score for legacy-score miss estimation
+	const maximumLegacyRotationsPerSecond = 477.0 / 60
 
 	// Normally, this value depends on the final overall difficulty. For simplicity, we'll only consider the worst case that maximises bonus score.
 	// As we're primarily concerned with computing the maximum theoretical final score,
@@ -107,7 +99,7 @@ func calculateSpinnerScore(spinner objects.IHitObject) int64 {
 	secondsDuration := spinner.GetDuration() / 1000
 
 	// The total amount of half spins possible for the entire spinner.
-	totalHalfSpinsPossible := int(secondsDuration * maximumRotationsPerSecond * 2)
+	totalHalfSpinsPossible := int(secondsDuration * maximumLegacyRotationsPerSecond * 2)
 	// The amount of half spins that are required to successfully complete the spinner (i.e. get a 300).
 	halfSpinsRequiredForCompletion := int(secondsDuration * minimumRotationsPerSecond)
 	// To be able to receive bonus points, the spinner must be rotated another 1.5 times.

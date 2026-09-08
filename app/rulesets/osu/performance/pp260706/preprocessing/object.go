@@ -5,6 +5,7 @@ import (
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
@@ -18,7 +19,7 @@ const (
 type DifficultyObject struct {
 	OriginalStartTime float64
 
-	// That's stupid but oh well
+	// Keep the shared slice by pointer so Next can see objects appended after construction.
 	listOfDiffs *[]*DifficultyObject
 	Index       int
 
@@ -63,7 +64,8 @@ type DifficultyObject struct {
 
 	AdjustedDeltaTime float64
 
-	GreatWindow float64
+	GreatWindow       float64
+	OverallDifficulty float64
 
 	SmallCircleBonus float64
 
@@ -90,10 +92,11 @@ func NewDifficultyObject(hitObject, lastLastObject, lastObject objects.IHitObjec
 		DeltaTime:             (hitObject.GetStartTime() - lastObject.GetStartTime()) / d.Speed,
 		StartTime:             hitObject.GetStartTime() / d.Speed,
 		EndTime:               endTime / d.Speed,
-		Preempt:               d.PreemptU / d.Speed,
+		Preempt:               math.Trunc(d.PreemptU) / d.Speed,
 		Angle:                 math.NaN(),
 		NormalisedVectorAngle: math.NaN(),
 		GreatWindow:           2 * d.Hit300U / d.Speed,
+		OverallDifficulty:     (79.5 - d.Hit300U/d.Speed) / 6,
 		SmallCircleBonus:      max(1.0, 1.0+(30-d.CircleRadiusL)/70),
 	}
 
@@ -131,8 +134,9 @@ func (o *DifficultyObject) GetDoubletapness(osuNextObj *DifficultyObject) float6
 		nextDeltaTime := max(1, osuNextObj.DeltaTime)
 		deltaDifference := math.Abs(nextDeltaTime - currDeltaTime)
 		speedRatio := currDeltaTime / max(currDeltaTime, deltaDifference)
-		windowRatio := math.Pow(min(1, currDeltaTime/o.GreatWindow), 5)
-		return 1 - math.Pow(speedRatio, 1-windowRatio)
+		windowRatio := putils.PowInt(min(1, currDeltaTime/o.GreatWindow), 5)
+		distanceFactor := putils.PowInt(mutils.Clamp((o.LazyJumpDistance-NormalizedDiameter)/(NormalizedRadius-NormalizedDiameter), 0, 1), 2)
+		return 1 - math.Pow(speedRatio, distanceFactor*(1-windowRatio))
 	}
 
 	return 0
@@ -143,12 +147,20 @@ func (o *DifficultyObject) OpacityAt(time float64, hidden bool) float64 {
 		return 0
 	}
 
-	fadeInStartTime := o.BaseObject.GetStartTime() - o.Diff.PreemptU
-	fadeInDuration := o.Diff.TimeFadeIn
+	objectPreempt := math.Trunc(o.Diff.PreemptU)
+	fadeInStartTime := o.BaseObject.GetStartTime() - objectPreempt
+	fadeInDuration := 400 * min(1, objectPreempt/450)
 
 	if hidden {
-		fadeOutStartTime := o.BaseObject.GetStartTime() - o.Diff.PreemptU + o.Diff.TimeFadeIn
-		fadeOutDuration := o.Diff.PreemptU * 0.3
+		fadeOutFadeInDuration := fadeInDuration
+		if !o.IsSlider {
+			// osu!lazer's Hidden mod changes TimeFadeIn to 40% of preempt for
+			// non-sliders. Sliders intentionally retain their normal TimeFadeIn.
+			fadeOutFadeInDuration = objectPreempt * 0.4
+		}
+
+		fadeOutStartTime := o.BaseObject.GetStartTime() - objectPreempt + fadeOutFadeInDuration
+		fadeOutDuration := objectPreempt * 0.3
 
 		return min(
 			mutils.Clamp((time-fadeInStartTime)/fadeInDuration, 0.0, 1.0),
@@ -189,6 +201,8 @@ func (o *DifficultyObject) setDistances() {
 		o.TravelTime = max(o.LazyTravelTime/o.Diff.Speed, MinDeltaTime)
 	}
 
+	o.MinimumJumpTime = o.AdjustedDeltaTime
+
 	_, ok1 := o.BaseObject.(*objects.Spinner)
 	_, ok2 := o.LastObject.(*objects.Spinner)
 
@@ -205,7 +219,6 @@ func (o *DifficultyObject) setDistances() {
 
 	o.JumpDistance = float64((o.LastObject.GetStackedStartPositionMod(o.Diff)).Dst(o.BaseObject.GetStackedStartPositionMod(o.Diff)) * scalingFactor)
 	o.LazyJumpDistance = float64(o.BaseObject.GetStackedStartPositionMod(o.Diff).Dst(lastCursorPosition) * scalingFactor)
-	o.MinimumJumpTime = o.AdjustedDeltaTime
 	o.MinimumJumpDistance = o.LazyJumpDistance
 
 	if lastSlider, ok := o.LastObject.(*LazySlider); ok && o.lastDifficultyObject != nil {

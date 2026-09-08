@@ -22,7 +22,7 @@ func TestScoreContinuesAggregatingAfterFailedGrade(t *testing.T) {
 		t.Fatalf("post-failure score counts = (300 %d, miss %d, objects %d), want (1, 1, 2)", score.Count300, score.CountMiss, score.scoredObjects)
 	}
 
-	perfScore := score.ToPerfScore()
+	perfScore := score.ToPerfScore(nil)
 	if perfScore.CountGreat != 1 || perfScore.CountMiss != 1 {
 		t.Fatalf("post-failure performance counts = (great %d, miss %d), want (1, 1)", perfScore.CountGreat, perfScore.CountMiss)
 	}
@@ -123,4 +123,73 @@ func (calculator *recordingPerformanceCalculator) Calculate(_ api.Attributes, sc
 	calculator.calls++
 	calculator.lastScore = score
 	return api.PPv2Results{Total: float64(score.CountGreat)}
+}
+
+func TestScoreTracksPerformanceSliderStatistics(t *testing.T) {
+	score := Score{Accuracy: 1}
+	score.AddResult(JudgementResult{HitResult: LargeTickMiss, MaxResult: LargeTickHit})
+	score.AddResult(JudgementResult{HitResult: SliderTailHit, MaxResult: SliderTailHit})
+
+	diff := difficulty.NewDifficulty(5, 5, 5, 5)
+	diff.SetGameplayMode(difficulty.GameplayLazer)
+	perfScore := score.ToPerfScore(diff)
+
+	if perfScore.SliderTickMisses != 1 || perfScore.SliderTailHits != 1 {
+		t.Fatalf("slider performance counts = (%d tick misses, %d tail hits), want (1, 1)", perfScore.SliderTickMisses, perfScore.SliderTailHits)
+	}
+}
+
+func TestPerfScoreOnlyCarriesGenuineStableScoreV1Total(t *testing.T) {
+	score := Score{Score: 123456, Accuracy: 1}
+
+	stable := difficulty.NewDifficulty(5, 5, 5, 5)
+	stable.SetGameplayMode(difficulty.GameplayStable)
+	stableScore := score.ToPerfScore(stable)
+	if stableScore.LegacyTotalScore == nil || *stableScore.LegacyTotalScore != score.Score {
+		t.Fatalf("Stable ScoreV1 legacy total = %v, want %d", stableScore.LegacyTotalScore, score.Score)
+	}
+
+	stableV2 := stable.Clone()
+	stableV2.SetMods(difficulty.ScoreV2)
+	if got := score.ToPerfScore(stableV2).LegacyTotalScore; got != nil {
+		t.Fatalf("Stable ScoreV2 legacy total = %v, want nil", *got)
+	}
+
+	lazer := difficulty.NewDifficulty(5, 5, 5, 5)
+	lazer.SetGameplayMode(difficulty.GameplayLazer)
+	if got := score.ToPerfScore(lazer).LegacyTotalScore; got != nil {
+		t.Fatalf("Lazer legacy total = %v, want nil", *got)
+	}
+}
+
+func TestPrepareFCPPScoreRepairsComboBreaksButPreservesTailDrops(t *testing.T) {
+	legacyTotal := int64(123456)
+	score := api.PerfScore{
+		Accuracy:         0.9,
+		MaxCombo:         10,
+		CountGreat:       7,
+		CountMiss:        2,
+		SliderBreaks:     3,
+		SliderEnd:        4,
+		SliderTickMisses: 2,
+		SliderTailHits:   1,
+		LegacyTotalScore: &legacyTotal,
+	}
+
+	got := prepareFCPPScore(score, 25)
+	if got.MaxCombo != 25 || got.CountGreat != 9 || got.CountMiss != 0 {
+		t.Fatalf("FC basic score = combo %d great %d miss %d, want 25/9/0", got.MaxCombo, got.CountGreat, got.CountMiss)
+	}
+	if got.SliderBreaks != 0 || got.SliderTickMisses != 0 {
+		t.Fatalf("FC combo-breaking slider mistakes = breaks %d tick misses %d, want 0/0", got.SliderBreaks, got.SliderTickMisses)
+	}
+	if got.SliderTailHits != score.SliderTailHits || got.SliderEnd != score.SliderEnd {
+		t.Fatalf("FC non-combo slider history = tails %d legacy ends %d, want %d/%d", got.SliderTailHits, got.SliderEnd, score.SliderTailHits, score.SliderEnd)
+	}
+	if got.LegacyTotalScore != nil {
+		t.Fatalf("FC legacy total = %v, want nil for a hypothetical score", *got.LegacyTotalScore)
+	}
+	if got.Accuracy != 1 {
+		t.Fatalf("FC initial accuracy = %v, want 1 before ruleset-specific reconstruction", got.Accuracy)
+	}
 }

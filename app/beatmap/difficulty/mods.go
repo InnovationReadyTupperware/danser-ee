@@ -56,9 +56,11 @@ const (
 	difficultyAdjustMaskNew = HardRock | Easy | DoubleTime | HalfTime | Flashlight | Relax | Autopilot | TouchDevice
 )
 
-// GetDiffMaskedMods should be used instead of DifficultyAdjustMask. In 220930 deployment, HDFL is a separate mod difficulty wise
+// GetDiffMaskedMods returns mods that can affect star-rating attributes.
+// Hidden is included because the 20260706 Reading skill changes SR under HD;
+// older calculators may calculate an equivalent NM/HD result separately.
 func GetDiffMaskedMods(mods Modifier) Modifier {
-	//Probably redundant
+	// Normalize standalone NC/DC bits to their underlying speed mods for stable difficulty keys
 	if mods.Active(Nightcore) {
 		mods = (mods & (^Nightcore)) | DoubleTime
 	}
@@ -67,13 +69,7 @@ func GetDiffMaskedMods(mods Modifier) Modifier {
 		mods = (mods & (^Daycore)) | HalfTime
 	}
 
-	base := difficultyAdjustMaskNew & mods
-
-	if mods&(Hidden|Flashlight) == (Hidden | Flashlight) {
-		base |= Hidden
-	}
-
-	return base
+	return (difficultyAdjustMaskNew | Hidden) & mods
 }
 
 var modsString = [...]string{
@@ -154,6 +150,12 @@ var modsStringFull = [...]string{
 	"DifficultyAdjust",
 	"Mirror",
 	"Traceable",
+}
+
+var knownUnsupportedLazerPerformanceMods = map[string]string{
+	"BL": "Blinds",
+	"DF": "Deflate",
+	"MG": "Magnetised",
 }
 
 func (mods Modifier) GetScoreMultiplier() float64 {
@@ -286,7 +288,11 @@ func ParseFromAcronym(mod string) (m Modifier) {
 	}
 
 	if m == None && mod != "" {
-		log.Printf("Ignoring unknown mod acronym %q", mod)
+		if name, ok := knownUnsupportedLazerPerformanceMods[mod]; ok {
+			log.Printf("Ignoring unsupported osu!lazer %s mod %q; star rating/performance may differ", name, mod)
+		} else {
+			log.Printf("Ignoring unknown mod acronym %q", mod)
+		}
 	}
 
 	return

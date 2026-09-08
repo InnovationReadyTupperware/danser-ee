@@ -58,13 +58,14 @@ func NewPPDisplay(mods difficulty.Modifier) *PPDisplay {
 		aimText:          "0pp",
 		tapText:          "0pp",
 		accText:          "0pp",
+		flashlightText:   "0pp",
 		readingText:      "0pp",
 		ppText:           "0pp",
 		mText:            "0pp",
 		decimals:         0,
 		format:           "%.0fpp",
 		mods:             mods,
-		hasReading:       performance.GetDifficultyCalculator().GetVersion() >= 20260101,
+		hasReading:       performance.SelectedModelHasReading(),
 	}
 }
 
@@ -75,7 +76,7 @@ func (ppDisplay *PPDisplay) Add(results api.PPv2Results) {
 	ppDisplay.tapGlider.SetValue(results.Speed, static)
 	ppDisplay.accGlider.SetValue(results.Acc, static)
 	ppDisplay.flashlightGlider.SetValue(results.Flashlight, static)
-	ppDisplay.readingGlider.SetValue(results.Cognition, static)
+	ppDisplay.readingGlider.SetValue(results.Reading, static)
 	ppDisplay.ppGlider.SetValue(results.Total, static)
 }
 
@@ -96,7 +97,8 @@ func (ppDisplay *PPDisplay) Update(time float64) {
 
 		if ppDisplay.hasReading {
 			ppDisplay.updatePP(ppDisplay.readingGlider, &ppDisplay.readingText, time, &mText)
-		} else if ppDisplay.mods.Active(difficulty.Flashlight) {
+		}
+		if ppDisplay.mods.Active(difficulty.Flashlight) {
 			ppDisplay.updatePP(ppDisplay.flashlightGlider, &ppDisplay.flashlightText, time, &mText)
 		}
 	}
@@ -133,34 +135,42 @@ func (ppDisplay *PPDisplay) Draw(batch *batch.QuadBatch, alpha float64) {
 	color := color2.NewHSVA(float32(cS.Hue), float32(cS.Saturation), float32(cS.Value), float32(ppAlpha))
 
 	if settings.Gameplay.PPCounter.ShowPPComponents {
-		var length float64
+		label := "Total: "
 		if ppDisplay.hasReading {
-			length = ppDisplay.ppFont.GetWidthMonospaced(40*ppScale, "Reading: ")
-		} else {
-			length = ppDisplay.ppFont.GetWidthMonospaced(40*ppScale, "Total: ")
+			label = "Reading: "
 		}
-
+		length := ppDisplay.ppFont.GetWidthMonospaced(40*ppScale, label)
 		pLength := ppDisplay.ppFont.GetWidthMonospaced(40*ppScale, ppDisplay.mText)
 
-		position = position.Add(origin.AddS(1, 1).Mult(vector.NewVec2d(-(length+pLength)/2, -(160*ppScale)/2)))
-
-		ppDisplay.drawPP(batch, "Aim:", ppDisplay.aimText, position, length, ppScale, color, vector.TopLeft)
-		ppDisplay.drawPP(batch, "Tap:", ppDisplay.tapText, position.AddS(0, 40*ppScale), length, ppScale, color, vector.TopLeft)
-		ppDisplay.drawPP(batch, "Acc:", ppDisplay.accText, position.AddS(0, 80*ppScale), length, ppScale, color, vector.TopLeft)
-
-		offset := 0.0
-
+		rowCount := 4 // Aim, Tap, Acc, Total.
 		if ppDisplay.hasReading {
-			ppDisplay.drawPP(batch, "Reading:", ppDisplay.readingText, position.AddS(0, 120*ppScale), length, ppScale, color, vector.TopLeft)
-
-			offset = 40
-		} else if ppDisplay.mods.Active(difficulty.Flashlight) {
-			ppDisplay.drawPP(batch, "FL:", ppDisplay.flashlightText, position.AddS(0, 120*ppScale), length, ppScale, color, vector.TopLeft)
-
-			offset = 40
+			rowCount++
+		}
+		if ppDisplay.mods.Active(difficulty.Flashlight) {
+			rowCount++
 		}
 
-		ppDisplay.drawPP(batch, "Total:", ppDisplay.ppText, position.AddS(0, (120+offset)*ppScale), length, ppScale, color, vector.TopLeft)
+		verticalSpan := float64(rowCount-1) * 40 * ppScale
+		position = position.Add(origin.AddS(1, 1).Mult(vector.NewVec2d(-(length+pLength)/2, -verticalSpan/2)))
+
+		row := 0
+		ppDisplay.drawPP(batch, "Aim:", ppDisplay.aimText, position, length, ppScale, color, vector.TopLeft)
+		row++
+		ppDisplay.drawPP(batch, "Tap:", ppDisplay.tapText, position.AddS(0, float64(row)*40*ppScale), length, ppScale, color, vector.TopLeft)
+		row++
+		ppDisplay.drawPP(batch, "Acc:", ppDisplay.accText, position.AddS(0, float64(row)*40*ppScale), length, ppScale, color, vector.TopLeft)
+		row++
+
+		if ppDisplay.hasReading {
+			ppDisplay.drawPP(batch, "Reading:", ppDisplay.readingText, position.AddS(0, float64(row)*40*ppScale), length, ppScale, color, vector.TopLeft)
+			row++
+		}
+		if ppDisplay.mods.Active(difficulty.Flashlight) {
+			ppDisplay.drawPP(batch, "FL:", ppDisplay.flashlightText, position.AddS(0, float64(row)*40*ppScale), length, ppScale, color, vector.TopLeft)
+			row++
+		}
+
+		ppDisplay.drawPP(batch, "Total:", ppDisplay.ppText, position.AddS(0, float64(row)*40*ppScale), length, ppScale, color, vector.TopLeft)
 	} else {
 		ppDisplay.drawPP(batch, "", ppDisplay.ppText, position, 0, ppScale, color, origin)
 	}

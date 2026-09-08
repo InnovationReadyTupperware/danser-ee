@@ -92,6 +92,7 @@ func (h *StatHolder) SetHP(hp float64) {
 func (h *StatHolder) SetStars(attribs api.Attributes) {
 	h.stats["starsAim"] = attribs.Aim
 	h.stats["starsSpeed"] = attribs.Speed
+	h.stats["starsReading"] = attribs.Reading
 	h.stats["starsFL"] = attribs.Flashlight
 	h.stats["stars"] = attribs.Total
 }
@@ -99,6 +100,7 @@ func (h *StatHolder) SetStars(attribs api.Attributes) {
 func (h *StatHolder) SetCurrentStars(attribs api.Attributes) {
 	h.stats["cStarsAim"] = attribs.Aim
 	h.stats["cStarsSpeed"] = attribs.Speed
+	h.stats["cStarsReading"] = attribs.Reading
 	h.stats["cStarsFL"] = attribs.Flashlight
 	h.stats["cStars"] = attribs.Total
 }
@@ -129,6 +131,7 @@ func (h *StatHolder) SetScoreStats(score osu.Score) {
 	h.stats["ppAim"] = score.PP.Aim
 	h.stats["ppSpeed"] = score.PP.Speed
 	h.stats["ppAcc"] = score.PP.Acc
+	h.stats["ppReading"] = score.PP.Reading
 	h.stats["ppFL"] = score.PP.Flashlight
 }
 
@@ -137,6 +140,7 @@ func (h *StatHolder) SetFCPP(pp api.PPv2Results) {
 	h.stats["fcPPAim"] = pp.Aim
 	h.stats["fcPPSpeed"] = pp.Speed
 	h.stats["fcPPAcc"] = pp.Acc
+	h.stats["fcPPReading"] = pp.Reading
 	h.stats["fcPPFL"] = pp.Flashlight
 }
 
@@ -145,6 +149,7 @@ func (h *StatHolder) SetSSPP(pp api.PPv2Results) {
 	h.stats["ssPPAim"] = pp.Aim
 	h.stats["ssPPSpeed"] = pp.Speed
 	h.stats["ssPPAcc"] = pp.Acc
+	h.stats["ssPPReading"] = pp.Reading
 	h.stats["ssPPFL"] = pp.Flashlight
 }
 

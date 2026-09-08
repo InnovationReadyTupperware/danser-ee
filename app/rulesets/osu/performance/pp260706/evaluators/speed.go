@@ -3,7 +3,7 @@ package evaluators
 import (
 	"math"
 
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260706/preprocessing"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
@@ -32,7 +32,7 @@ func EvaluateSpeed(current *preprocessing.DifficultyObject) float64 {
 
 	// Add additional scaling bonus for streams/bursts higher than 200bpm
 	if putils.MillisecondsToBPMD(strainTime) > speedMinSpeedBonus {
-		speedBonus = 0.75 * math.Pow((putils.BPMToMillisecondsD(speedMinSpeedBonus)-strainTime)/speedBalancingFactor, 2.0)
+		speedBonus = 0.75 * putils.PowInt((putils.BPMToMillisecondsD(speedMinSpeedBonus)-strainTime)/speedBalancingFactor, 2)
 	}
 
 	// Base difficulty with all bonuses

@@ -203,6 +203,10 @@ func (diff *Difficulty) AddMod(mods Modifier) {
 		diff.modSettings[rfType[EasySettings]()] = NewEasySettings()
 	}
 
+	if mods.Active(Hidden) {
+		diff.modSettings[rfType[HiddenSettings]()] = NewHiddenSettings()
+	}
+
 	if mods.Active(Flashlight) {
 		diff.modSettings[rfType[FlashlightSettings]()] = NewFlashlightSettings()
 	}
@@ -247,6 +251,10 @@ func (diff *Difficulty) RemoveMod(mods Modifier) {
 		delete(diff.modSettings, rfType[EasySettings]())
 	}
 
+	if mods.Active(Hidden) {
+		delete(diff.modSettings, rfType[HiddenSettings]())
+	}
+
 	if mods.Active(Flashlight) {
 		delete(diff.modSettings, rfType[FlashlightSettings]())
 	}
@@ -285,6 +293,10 @@ func (diff *Difficulty) SetMods2(mods []rplpa.ModInfo) {
 
 			if mod.Active(Easy) {
 				diff.modSettings[rfType[EasySettings]()] = parseConfig(NewEasySettings(), mInfo.Settings)
+			}
+
+			if mod.Active(Hidden) {
+				diff.modSettings[rfType[HiddenSettings]()] = parseConfig(NewHiddenSettings(), mInfo.Settings)
 			}
 
 			if mod.Active(Flashlight) {
@@ -361,6 +373,18 @@ func (diff *Difficulty) ExportMods2() (mods []rplpa.ModInfo) {
 
 func (diff *Difficulty) CheckModActive(mods Modifier) bool {
 	return diff.Mods&mods > 0
+}
+
+// HasHiddenObjectFading reports whether Hidden fades the hitobject body.
+// osu!lazer's OnlyFadeApproachCircles setting still hides approach circles but
+// leaves the main object body at its normal opacity.
+func (diff *Difficulty) HasHiddenObjectFading() bool {
+	if !diff.CheckModActive(Hidden) {
+		return false
+	}
+
+	settings, ok := GetModConfig[HiddenSettings](diff)
+	return !ok || !settings.OnlyFadeApproachCircles
 }
 
 func (diff *Difficulty) GetModifiedTime(time float64) float64 {
@@ -495,7 +519,15 @@ func (diff *Difficulty) GetModString() string {
 }
 
 func (diff *Difficulty) GetModStringMasked() string {
-	return diff.getModStringBase(GetDiffMaskedMods(diff.Mods))
+	masked := GetDiffMaskedMods(diff.Mods)
+	modString := diff.getModStringBase(masked)
+	if masked.Active(Hidden) {
+		if settings, ok := GetModConfig[HiddenSettings](diff); ok && settings.OnlyFadeApproachCircles {
+			modString += "|HDOnlyFadeApproachCircles"
+		}
+	}
+
+	return modString
 }
 
 func (diff *Difficulty) getModStringBase(mod Modifier) string {

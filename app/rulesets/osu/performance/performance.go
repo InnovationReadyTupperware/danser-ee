@@ -1,65 +1,95 @@
 package performance
 
 import (
+	"log"
+
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp211112"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp220930"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp241007"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp250306"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp251020"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260706"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 )
 
-var diffCalcInit func() api.IDifficultyCalculator
-var ppCalcInit func() api.IPerformanceCalculator
+type model struct {
+	id             string
+	hasReading     bool
+	newDifficulty  func() api.IDifficultyCalculator
+	newPerformance func() api.IPerformanceCalculator
+}
 
-func initConstructors() {
-	if diffCalcInit != nil {
-		return
-	}
+var currentModel = model{
+	id:             "260706",
+	hasReading:     true,
+	newDifficulty:  pp260706.NewDifficultyCalculator,
+	newPerformance: pp260706.NewPPCalculator,
+}
 
-	version := settings.CanonicalPPVersion(settings.Gameplay.PPVersion)
-
+func modelForVersion(version string) model {
 	switch version {
 	case "211112":
-		diffCalcInit = pp211112.NewDifficultyCalculator
-		ppCalcInit = pp211112.NewPPCalculator
+		return model{id: version, newDifficulty: pp211112.NewDifficultyCalculator, newPerformance: pp211112.NewPPCalculator}
 	case "220930":
-		diffCalcInit = pp220930.NewDifficultyCalculator
-		ppCalcInit = pp220930.NewPPCalculator
+		return model{id: version, newDifficulty: pp220930.NewDifficultyCalculator, newPerformance: pp220930.NewPPCalculator}
 	case "241007":
-		diffCalcInit = pp241007.NewDifficultyCalculator
-		ppCalcInit = pp241007.NewPPCalculator
+		return model{id: version, newDifficulty: pp241007.NewDifficultyCalculator, newPerformance: pp241007.NewPPCalculator}
 	case "250306":
-		diffCalcInit = pp250306.NewDifficultyCalculator
-		ppCalcInit = pp250306.NewPPCalculator
+		return model{id: version, newDifficulty: pp250306.NewDifficultyCalculator, newPerformance: pp250306.NewPPCalculator}
 	case "251020":
-		diffCalcInit = pp251020.NewDifficultyCalculator
-		ppCalcInit = pp251020.NewPPCalculator
-	case "260321":
-		diffCalcInit = pp260321.NewDifficultyCalculator
-		ppCalcInit = pp260321.NewPPCalculator
+		return model{id: version, newDifficulty: pp251020.NewDifficultyCalculator, newPerformance: pp251020.NewPPCalculator}
+	case "260706":
+		return currentModel
 	default:
-		diffCalcInit = pp251020.NewDifficultyCalculator
-		ppCalcInit = pp251020.NewPPCalculator
+		return currentModel
 	}
 }
 
+var selectedModel model
 var diffCalc api.IDifficultyCalculator
+var selectedVersion string
+
+func initSelectedModel() {
+	version := settings.CanonicalPPVersion(settings.Gameplay.PPVersion)
+	if selectedModel.newDifficulty != nil && selectedVersion == version {
+		return
+	}
+
+	selectedModel = modelForVersion(version)
+	selectedVersion = version
+	diffCalc = nil
+
+	if selectedModel.id != version {
+		log.Printf("Performance: Warning: unknown PP version %q; using %s", version, currentModel.id)
+	}
+}
 
 func GetDifficultyCalculator() api.IDifficultyCalculator {
-	initConstructors()
+	initSelectedModel()
 
 	if diffCalc == nil {
-		diffCalc = diffCalcInit()
+		diffCalc = selectedModel.newDifficulty()
 	}
 
 	return diffCalc
 }
 
 func CreatePPCalculator() api.IPerformanceCalculator {
-	initConstructors()
+	initSelectedModel()
+	return selectedModel.newPerformance()
+}
 
-	return ppCalcInit()
+// CreateCurrentDifficultyCalculator returns the canonical current public osu!
+// difficulty model used for persisted catalog star ratings. It intentionally
+// ignores the user's historical gameplay PP selection.
+func CreateCurrentDifficultyCalculator() api.IDifficultyCalculator {
+	return currentModel.newDifficulty()
+}
+
+// SelectedModelHasReading reports whether the selected gameplay model exposes
+// a Reading difficulty/performance component.
+func SelectedModelHasReading() bool {
+	initSelectedModel()
+	return selectedModel.hasReading
 }

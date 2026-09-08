@@ -4,7 +4,8 @@ import (
 	"math"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
-	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260321/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260706/preprocessing"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 )
 
 const (
@@ -36,7 +37,11 @@ func EvaluateFlashlight(current *preprocessing.DifficultyObject) float64 {
 		cumulativeStrainTime += lastObj.AdjustedDeltaTime
 
 		if !currentObj.IsSpinner {
-			jumpDistance := float64(current.BaseObject.GetStackedStartPositionMod(current.Diff).Dst(currentObj.BaseObject.GetStackedEndPositionMod(currentObj.Diff)))
+			stackedEndPosition := currentObj.BaseObject.GetStackedEndPositionMod(currentObj.Diff)
+			if slider, ok := currentObj.BaseObject.(*preprocessing.LazySlider); ok {
+				stackedEndPosition = slider.GetStackedPositionAtModLazer(slider.EndTimeLazer, currentObj.Diff)
+			}
+			jumpDistance := float64(current.BaseObject.GetStackedStartPositionMod(current.Diff).Dst(stackedEndPosition))
 
 			// We want to nerf objects that can be easily seen within the Flashlight circle radius.
 			if i == 0 {
@@ -46,7 +51,7 @@ func EvaluateFlashlight(current *preprocessing.DifficultyObject) float64 {
 			// We also want to nerf stacks so that only the first object of the stack is accounted for.
 			stackNerf := min(1.0, (currentObj.LazyJumpDistance/scalingFactor)/25.0)
 
-			opacityBonus := 1.0 + flMaxOpacityBonus*(1.0-current.OpacityAt(currentObj.BaseObject.GetStartTime(), current.Diff.CheckModActive(difficulty.Hidden)))
+			opacityBonus := 1.0 + flMaxOpacityBonus*(1.0-current.OpacityAt(currentObj.BaseObject.GetStartTime(), current.Diff.HasHiddenObjectFading()))
 
 			result += stackNerf * opacityBonus * scalingFactor * jumpDistance / cumulativeStrainTime
 
@@ -61,7 +66,7 @@ func EvaluateFlashlight(current *preprocessing.DifficultyObject) float64 {
 		lastObj = currentObj
 	}
 
-	result = math.Pow(smallDistNerf*result, 2.0)
+	result = putils.PowInt(smallDistNerf*result, 2)
 
 	// Additional bonus for Hidden due to there being no approach circles.
 	if current.Diff.CheckModActive(difficulty.Hidden) {

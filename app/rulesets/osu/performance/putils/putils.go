@@ -70,3 +70,25 @@ func Norm(p float64, values ...float64) float64 {
 
 	return math.Pow(sum, 1/p)
 }
+
+// PowInt mirrors osu!lazer's DiffUtils.Pow(double, int) overload. Explicit
+// multiplication for the small integer exponents used by difficulty calculation
+// avoids final-ULP differences from the generic math.Pow implementation.
+func PowInt(x float64, exponent int) float64 {
+	switch exponent {
+	case 0:
+		return 1
+	case 1:
+		return x
+	case 2:
+		return x * x
+	case 3:
+		return x * x * x
+	case 4:
+		return x * x * x * x
+	case 5:
+		return x * x * x * x * x
+	default:
+		return math.Pow(x, float64(exponent))
+	}
+}

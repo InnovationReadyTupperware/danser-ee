@@ -464,14 +464,14 @@ func (config *Config) migratePPVersion() {
 }
 
 // CanonicalPPVersion maps stored PPVersion values to stable identifiers.
-// "latest" and "26xxxx" remain accepted as aliases of the calculators they
-// already selected.
+// "latest" remains pinned to the released model it historically selected.
+// Development-snapshot identifiers migrate to the released July 2026 model.
 func CanonicalPPVersion(version string) string {
 	switch version {
 	case "latest":
 		return "251020"
-	case "26xxxx":
-		return "260321"
+	case "26xxxx", "260321":
+		return "260706"
 	default:
 		return version
 	}

@@ -30,25 +30,39 @@ type Score struct {
 	CountMiss    uint
 	CountSB      uint
 	MaxTicks     uint
-	SliderEnd    uint
-	MaxSliderEnd uint
-	PP           api.PPv2Results
+	// SliderEnd and MaxSliderEnd are historical aggregate counters used by
+	// older PP versions, accuracy reconstruction, and custom statistics. The
+	// exact current-model tail/tick counters below intentionally overlap them.
+	SliderEnd        uint
+	MaxSliderEnd     uint
+	SliderTickMisses uint
+	SliderTailHits   uint
+	PP               api.PPv2Results
 
 	scoredObjects uint
 }
 
-func (s *Score) ToPerfScore() api.PerfScore {
-	return api.PerfScore{
-		Score:        int(s.Score),
-		MaxCombo:     int(s.Combo),
-		CountGreat:   int(s.Count300),
-		CountOk:      int(s.Count100),
-		CountMeh:     int(s.Count50),
-		CountMiss:    int(s.CountMiss),
-		SliderBreaks: int(s.CountSB),
-		SliderEnd:    int(s.SliderEnd),
-		Accuracy:     s.Accuracy,
+func (s *Score) ToPerfScore(diff *difficulty.Difficulty) api.PerfScore {
+	perfScore := api.PerfScore{
+		Score:            int(s.Score),
+		MaxCombo:         int(s.Combo),
+		CountGreat:       int(s.Count300),
+		CountOk:          int(s.Count100),
+		CountMeh:         int(s.Count50),
+		CountMiss:        int(s.CountMiss),
+		SliderBreaks:     int(s.CountSB),
+		SliderEnd:        int(s.SliderEnd),
+		SliderTickMisses: int(s.SliderTickMisses),
+		SliderTailHits:   int(s.SliderTailHits),
+		Accuracy:         s.Accuracy,
 	}
+
+	if diff != nil && !diff.IsLazer() && !diff.Mods.Active(difficulty.ScoreV2) {
+		legacyScore := s.Score
+		perfScore.LegacyTotalScore = &legacyScore
+	}
+
+	return perfScore
 }
 
 func (s *Score) AddResult(result JudgementResult) {
@@ -71,6 +85,14 @@ func (s *Score) AddResult(result JudgementResult) {
 
 	if (result.HitResult & (SliderEnd | LegacySliderEnd | SmallTickHit | SliderTailHit)) > 0 {
 		s.SliderEnd++
+	}
+
+	if result.HitResult&LargeTickMiss != 0 {
+		s.SliderTickMisses++
+	}
+
+	if result.HitResult&SliderTailHit != 0 {
+		s.SliderTailHits++
 	}
 
 	if result.ComboResult == Reset && result.HitResult != Miss { // skips missed slider "ends" as they don't reset combo

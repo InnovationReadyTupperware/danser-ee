@@ -1,14 +1,15 @@
-package pp260321
+package pp260706
 
 import (
 	"math"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/putils"
 )
 
 func CalculateMissCount(score api.PerfScore, attributes api.Attributes, diff *difficulty.Difficulty) float64 {
-	if attributes.MaxCombo == 0 || diff.IsLazer() {
+	if attributes.MaxCombo == 0 || score.LegacyTotalScore == nil {
 		return 0
 	}
 
@@ -20,7 +21,7 @@ func CalculateMissCount(score api.PerfScore, attributes api.Attributes, diff *di
 
 	scoreObtainedDuringMaxCombo := calculateScoreAtCombo(score, attributes, float64(score.MaxCombo), relevantComboPerObject, scoreV1Multiplier)
 
-	remainingScore := float64(score.Score) - scoreObtainedDuringMaxCombo
+	remainingScore := float64(*score.LegacyTotalScore) - scoreObtainedDuringMaxCombo
 
 	if remainingScore <= 0 {
 		return maximumMissCount
@@ -53,7 +54,10 @@ func calculateScoreAtCombo(score api.PerfScore, attributes api.Attributes, combo
 
 	// The combo portion of ScoreV1 follows arithmetic progression
 	// Therefore, we calculate the combo portion of score using the combo per object and our current combo.
-	comboScore := ternary(relevantComboPerObject > 0, (2*(relevantComboPerObject-1)+(estimatedObjects-1)*relevantComboPerObject)*estimatedObjects/2, 0)
+	comboScore := 0.0
+	if relevantComboPerObject > 0 {
+		comboScore = (2*(relevantComboPerObject-1) + (estimatedObjects-1)*relevantComboPerObject) * estimatedObjects / 2
+	}
 
 	// We then apply the accuracy and ScoreV1 multipliers to the resulting score.
 	comboScore *= score.Accuracy * 300 / 25 * scoreV1Multiplier
@@ -104,7 +108,7 @@ func calculateMaximumComboBasedMissCount(score api.PerfScore, attributes api.Att
 
 	// If sliders in the map are hard - it's likely for player to drop sliderends
 	// If map has easy sliders - it's more likely for player to sliderbreak
-	likelyMissedSliderendPortion := 0.04 + 0.06*math.Pow(min(attributes.AimTopWeightedSliderFactor, 1), 2)
+	likelyMissedSliderendPortion := 0.04 + 0.06*putils.PowInt(min(attributes.AimTopWeightedSliderFactor, 1), 2)
 
 	// Consider that full combo is maximum combo minus dropped slider tails since they don't contribute to combo but also don't break it
 	// In classic scores we can't know the amount of dropped sliders so we estimate it
@@ -143,7 +147,9 @@ func getLegacyScoreMultiplier(mods difficulty.Modifier) float64 {
 	multiplier := 1.0
 
 	if mods.Active(difficulty.NoFail) {
-		multiplier *= ternary(scoreV2, 1.0, 0.5)
+		if !scoreV2 {
+			multiplier *= 0.5
+		}
 	}
 
 	if mods.Active(difficulty.Easy) {
@@ -159,11 +165,19 @@ func getLegacyScoreMultiplier(mods difficulty.Modifier) float64 {
 	}
 
 	if mods.Active(difficulty.HardRock) {
-		multiplier *= ternary(scoreV2, 1.10, 1.06)
+		if scoreV2 {
+			multiplier *= 1.10
+		} else {
+			multiplier *= 1.06
+		}
 	}
 
 	if mods.Active(difficulty.DoubleTime | difficulty.Nightcore) {
-		multiplier *= ternary(scoreV2, 1.20, 1.12)
+		if scoreV2 {
+			multiplier *= 1.20
+		} else {
+			multiplier *= 1.12
+		}
 	}
 
 	if mods.Active(difficulty.Flashlight) {

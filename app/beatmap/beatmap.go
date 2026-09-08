@@ -16,6 +16,11 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/framework/files"
 )
 
+type stackCalculationKey struct {
+	threshold float64
+	lazer     bool
+}
+
 type BeatMap struct {
 	Artist        string
 	ArtistUnicode string
@@ -68,7 +73,7 @@ type BeatMap struct {
 
 	pathCache *files.FileMap
 
-	stackCalcCache map[int64]bool
+	stackCalcCache map[stackCalculationKey]bool
 }
 
 func NewBeatMap() *BeatMap {
@@ -79,7 +84,7 @@ func NewBeatMap() *BeatMap {
 		Stars:          -1,
 		MinBPM:         math.Inf(0),
 		MaxBPM:         0,
-		stackCalcCache: make(map[int64]bool),
+		stackCalcCache: make(map[stackCalculationKey]bool),
 	}
 
 	return beatMap
@@ -236,10 +241,19 @@ func (beatMap *BeatMap) GetAudioFile() (string, error) {
 }
 
 func (beatMap *BeatMap) CalculateStackLeniency(diff *difficulty.Difficulty) {
-	stackThreshold := int64(math.Floor(diff.Preempt * beatMap.StackLeniency))
+	beatMap.calculateStackLeniency(diff, false)
+	beatMap.calculateStackLeniency(diff, true)
+}
 
-	if !beatMap.stackCalcCache[stackThreshold] {
-		processStacking(beatMap.HitObjects, beatMap.Version, diff, beatMap.StackLeniency)
-		beatMap.stackCalcCache[stackThreshold] = true
+func (beatMap *BeatMap) calculateStackLeniency(diff *difficulty.Difficulty, lazer bool) {
+	stackThreshold := math.Floor(diff.Preempt * beatMap.StackLeniency)
+	if lazer {
+		stackThreshold = math.Trunc(diff.Preempt) * beatMap.StackLeniency
+	}
+
+	key := stackCalculationKey{threshold: stackThreshold, lazer: lazer}
+	if !beatMap.stackCalcCache[key] {
+		processStacking(beatMap.HitObjects, beatMap.Version, stackThreshold, lazer)
+		beatMap.stackCalcCache[key] = true
 	}
 }

@@ -18,5 +18,7 @@ type IDifficultyCalculator interface {
 }
 
 type IPerformanceCalculator interface {
+	// Calculate requires a non-nil difficulty so calculator versions can apply
+	// the selected mods, rate-adjusted hit windows, and gameplay provenance.
 	Calculate(attribs Attributes, score PerfScore, diff *difficulty.Difficulty) PPv2Results
 }

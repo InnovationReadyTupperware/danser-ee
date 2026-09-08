@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0-alpha.1 - 2026-09-08
+
+# What's new in Danser Enterprise Edition 1.1.0 Alpha 1
+
+### Added
+
+- Added osu!lazer's `Only fade approach circles` customization for the Hidden mod
+
+### Changed
+
+- Updated osu!standard star rating and performance points to the July 2026 SR/PP rework
+  - Existing catalog ratings are recalculated once because the stored star-rating version advances to 20260706
+  - Song-select catalog stars always use the current released model, while the gameplay SR/PP selector can still use supported historical models
+  - Old `260321` and `26xxxx` development selections migrate to `260706`
+- Stable and Lazer gameplay now use their respective object-stacking behavior
+
 ## 1.0.1 - 2026-09-08
 
 # What's new in Danser Enterprise Edition 1.0.1

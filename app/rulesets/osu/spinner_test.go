@@ -24,6 +24,20 @@ func TestCalculateSpinnerRequirementsUsesExactLazerDuration(t *testing.T) {
 	}
 }
 
+func TestClassicModKeepsLazerSpinnerRequirements(t *testing.T) {
+	diff := difficulty.NewDifficulty(5, 5, 5, 5)
+	diff.SetMods(difficulty.Classic)
+
+	if !diff.IsLazer() {
+		t.Fatal("Classic changed the default gameplay mode away from Lazer")
+	}
+
+	requirements := calculateSpinnerRequirements(diff, 1000.9, 1400.8)
+	if requirements.required != 0 {
+		t.Fatalf("Lazer Classic required spins = %d, want 0 for a 399.9 ms spinner", requirements.required)
+	}
+}
+
 func TestCalculateSpinnerRequirementsPreservesStableIntegerDuration(t *testing.T) {
 	diff := difficulty.NewDifficulty(5, 5, 5, 5)
 	diff.SetGameplayMode(difficulty.GameplayStable)

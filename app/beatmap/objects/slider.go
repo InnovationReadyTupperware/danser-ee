@@ -994,13 +994,13 @@ func (slider *Slider) SetDifficulty(diff *difficulty.Difficulty) {
 	slider.bodyFade = animation.NewGlider(0)
 	slider.bodyFade.AddEvent(slider.StartTime-diff.Preempt, slider.StartTime-(diff.Preempt-diff.TimeFadeIn), 1)
 
-	if diff.CheckModActive(difficulty.Hidden) {
+	if diff.HasHiddenObjectFading() {
 		slider.bodyFade.AddEventEase(slider.StartTime-diff.Preempt+diff.TimeFadeIn, visualEndTime, 0, easing.OutQuad)
 	}
 
 	slider.fade.AddEvent(visualEndTime, visualEndTime+difficulty.HitFadeOut, 0)
 
-	if !diff.CheckModActive(difficulty.Hidden) {
+	if !diff.HasHiddenObjectFading() {
 		fadeEnd := visualEndTime + difficulty.HitFadeOut
 		if settings.Objects.Sliders.Snaking.Out {
 			if settings.Objects.Sliders.Snaking.OutFadeInstant {
@@ -1297,7 +1297,7 @@ func (slider *Slider) initScorePointAnimations() {
 		p.scale.AddEventSEase(endTime, endTime+150, 1.2, 1.0, easing.OutQuad)
 		p.fade.AddEventS(startTime, endTime, 0.0, 1.0)
 
-		if slider.diff.CheckModActive(difficulty.Hidden) {
+		if slider.diff.HasHiddenObjectFading() {
 			p.fade.AddEventS(max(endTime, p.Time-1000), p.Time, 1.0, 0.0)
 		} else {
 			p.fade.AddEventS(p.Time, p.Time, 1.0, 0.0)

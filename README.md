@@ -112,7 +112,9 @@ The comparison below is a high-level snapshot of meaningful differences since th
 | Solo knockout mode                | ✅ Map-driven generated Danser participants with shared cursor-dance controls |                   -                   |
 | Lazer's combo color normalization |                     ✅ HSPA perceived-brightness control                      |                   -                   |
 | Opening combo color               |                       palette index 1 (osu!lazer order)                       |    palette index 0 unless flagged     |
+| Hidden mod customization          |               ✅ osu!lazer `Only fade approach circles` setting               |                   -                   |
 | Lazer's hit animation toggle      |                      ✅ configurable; enabled by default                      |            fixed animation            |
+| Stable/Lazer stacking             |                ✅ gameplay-provenance-aware stacking semantics                |    ❌ single legacy stacking path     |
 | Slider judgment granularity       |                per-event head, tick, repeat, and tail results                 | approximate slider tick/tail handling |
 | Slider miss-result presentation   |              `slidertickmiss` / `sliderendmiss` skin components               |                   -                   |
 | Slider visual timing              |                        fractional end-time evaluation                         |            integer timing             |
@@ -120,6 +122,12 @@ The comparison below is a high-level snapshot of meaningful differences since th
 | Slider hit animations             |                          configurable, on by default                          |                   -                   |
 | Slider tail hit animation         |                         skin-native endpoint pipeline                         |      universal endpoint fallback      |
 | Slider body fade policy           |                timed body fade; short post-end fade by default                |     instant body fade by default      |
+
+### Difficulty and performance
+
+| Feature                          |                                danser-ee                                |        danser-go (fork base)         |
+|----------------------------------|:-----------------------------------------------------------------------:|:------------------------------------:|
+| Current osu!standard SR/PP model |                        ✅ July 2026 SR/PP rework                        |   ❌ Old October 2025 SR/PP rework   |
 
 ### Hit-error, spinner, and HUD behavior
 

@@ -234,24 +234,26 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 			log.Println("\tAim:    ", star.Aim)
 			log.Println("\tSpeed:  ", star.Speed)
 
-			if diffCalc.GetVersion() >= 20260101 {
+			if performance.SelectedModelHasReading() {
 				log.Println("\tReading:", star.Reading)
-			} else if diff.CheckModActive(difficulty.Flashlight) {
+			}
+			if diff.CheckModActive(difficulty.Flashlight) {
 				log.Println("\tFlash:  ", star.Flashlight)
 			}
 
 			log.Println("\tTotal:  ", star.Total)
 
 			pp := performance.CreatePPCalculator()
-			ppResults := pp.Calculate(star, api.PerfScore{CountGreat: -1, MaxCombo: -1, Accuracy: 1, SliderEnd: -1}, diff)
+			ppResults := pp.Calculate(star, api.PerfScore{CountGreat: -1, MaxCombo: -1, Accuracy: 1, SliderEnd: -1, SliderTailHits: -1}, diff)
 
 			log.Println("SS PP:")
 			log.Println("\tAim:    ", ppResults.Aim)
 			log.Println("\tTap:    ", ppResults.Speed)
 			log.Println("\tAcc:    ", ppResults.Acc)
-			if diffCalc.GetVersion() >= 20260101 {
-				log.Println("\tReading:", ppResults.Cognition)
-			} else if diff.CheckModActive(difficulty.Flashlight) {
+			if performance.SelectedModelHasReading() {
+				log.Println("\tReading:", ppResults.Reading)
+			}
+			if diff.CheckModActive(difficulty.Flashlight) {
 				log.Println("\tFlash:  ", ppResults.Flashlight)
 			}
 			log.Println("\tTotal:  ", ppResults.Total)
@@ -586,7 +588,7 @@ func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult Judge
 
 	subSet.score.PerfectCombo = uint(diff.MaxCombo) == subSet.score.Combo
 
-	subSet.score.PP = subSet.ppv2.Calculate(diff, subSet.score.ToPerfScore(), subSet.player.diff)
+	subSet.score.PP = subSet.ppv2.Calculate(diff, subSet.score.ToPerfScore(subSet.player.diff), subSet.player.diff)
 
 	set.processGekiKatu(subSet, &judgementResult)
 
@@ -923,12 +925,7 @@ func (set *OsuRuleSet) GetFCPP(cursor *graphics.Cursor) api.PPv2Results {
 
 	diff := set.oppDiffs[subSet.player.difficultyCacheKey][index]
 
-	apiScore := subSet.score.ToPerfScore()
-	apiScore.MaxCombo = subSet.potentialCombo
-	apiScore.CountGreat += apiScore.CountMiss
-	apiScore.CountMiss = 0
-	apiScore.SliderBreaks = 0
-	apiScore.Accuracy = 1
+	apiScore := prepareFCPPScore(subSet.score.ToPerfScore(subSet.player.diff), subSet.potentialCombo)
 
 	rawScore := int64(apiScore.CountGreat*300 + apiScore.CountOk*100 + apiScore.CountMeh*50)
 	maxRawScore := int64(subSet.score.scoredObjects * 300)
@@ -952,6 +949,22 @@ func (set *OsuRuleSet) GetFCPP(cursor *graphics.Cursor) api.PPv2Results {
 	return subSet.ppv2.Calculate(diff, apiScore, subSet.player.diff)
 }
 
+// prepareFCPPScore models the same play as if combo-breaking mistakes had not
+// occurred. Lazer slider-tail drops are preserved because they do not break
+// combo and can occur on an FC, while large-tick misses are repaired because
+// they do break combo. A hypothetical FC has no genuine Stable ScoreV1 total,
+// so legacy score-based miss estimation must not use the original total score.
+func prepareFCPPScore(score api.PerfScore, potentialCombo int) api.PerfScore {
+	score.MaxCombo = potentialCombo
+	score.CountGreat += score.CountMiss
+	score.CountMiss = 0
+	score.SliderBreaks = 0
+	score.SliderTickMisses = 0
+	score.LegacyTotalScore = nil
+	score.Accuracy = 1
+	return score
+}
+
 func (set *OsuRuleSet) GetSSPP(cursor *graphics.Cursor) api.PPv2Results {
 	subSet := set.cursors[cursor]
 
@@ -959,7 +972,7 @@ func (set *OsuRuleSet) GetSSPP(cursor *graphics.Cursor) api.PPv2Results {
 
 	diff := set.oppDiffs[subSet.player.difficultyCacheKey][index]
 
-	return subSet.ppv2.Calculate(diff, api.PerfScore{CountGreat: -1, MaxCombo: -1, Accuracy: 1, SliderEnd: -1}, subSet.player.diff)
+	return subSet.ppv2.Calculate(diff, api.PerfScore{CountGreat: -1, MaxCombo: -1, Accuracy: 1, SliderEnd: -1, SliderTailHits: -1}, subSet.player.diff)
 }
 
 func (set *OsuRuleSet) GetCurrentDiffAttribs(cursor *graphics.Cursor) api.Attributes {

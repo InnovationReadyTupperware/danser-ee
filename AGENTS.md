@@ -128,6 +128,8 @@ than one part of the product.
   generation selects danser's Stable-compatible gameplay behavior.
 - **osu!lazer:** osu!'s newer client and rules implementation. Lazer-versioned
   replays and playback without replay provenance use danser's Lazer behavior.
+- **PP rework / SR/PP rework:** Player-facing shorthand for an osu!standard
+  performance points and star-rating update.
 - **osu! replay (`.osr`):** A file containing recorded play input and metadata.
   Danser loads it alongside the beatmap and renders and judges the play; it is
   not a pre-rendered video.

@@ -1,12 +1,14 @@
 package launcher
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
 	"github.com/wieku/rplpa"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 )
 
 func TestKnockoutArgumentsIncludeSelectedReplays(t *testing.T) {
@@ -210,6 +212,52 @@ func TestBeatmapPathArgumentsCoverReplayMode(t *testing.T) {
 	}
 	if !containsArgumentPair(args, "-beatmap-path", filepath.Join("set", "map.osu")) {
 		t.Fatalf("replay arguments did not include the direct map path: %q", args)
+	}
+}
+
+func TestHiddenCustomizationIsForwardedToGameplay(t *testing.T) {
+	oldMode := launcherConfig.CurrentMode
+	oldPMode := launcherConfig.CurrentPMode
+	t.Cleanup(func() {
+		launcherConfig.CurrentMode = oldMode
+		launcherConfig.CurrentPMode = oldPMode
+	})
+
+	launcherConfig.CurrentMode = CursorDance
+	launcherConfig.CurrentPMode = Watch
+
+	builder := newBuilder()
+	builder.currentMap = &beatmap.BeatMap{MD5: "map-md5"}
+	builder.diff.SetMods(difficulty.Hidden)
+
+	hiddenSettings, ok := difficulty.GetModConfig[difficulty.HiddenSettings](builder.diff)
+	if !ok {
+		t.Fatal("Hidden settings were not initialized")
+	}
+	hiddenSettings.OnlyFadeApproachCircles = true
+	difficulty.SetModConfig(builder.diff, hiddenSettings)
+
+	args := builder.getArguments()
+	var modsJSON string
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-mods2" {
+			modsJSON = args[i+1]
+			break
+		}
+	}
+	if modsJSON == "" {
+		t.Fatalf("launcher arguments did not include -mods2: %q", args)
+	}
+
+	var mods []rplpa.ModInfo
+	if err := json.Unmarshal([]byte(modsJSON), &mods); err != nil {
+		t.Fatalf("decode launcher mods: %v", err)
+	}
+	if len(mods) != 1 || mods[0].Acronym != "HD" {
+		t.Fatalf("forwarded mods = %#v, want one HD mod", mods)
+	}
+	if got, ok := mods[0].Settings["only_fade_approach_circles"].(bool); !ok || !got {
+		t.Fatalf("forwarded Hidden settings = %#v, want only_fade_approach_circles=true", mods[0].Settings)
 	}
 }
 

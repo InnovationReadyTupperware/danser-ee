@@ -1,57 +1,52 @@
 package beatmap
 
 import (
-	"math"
-
-	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
-//Original code by: https://github.com/ppy/osu/blob/master/osu.Game.Rulesets.Osu/Beatmaps/OsuBeatmapProcessor.cs
+// Original code by: https://github.com/ppy/osu/blob/master/osu.Game.Rulesets.Osu/Beatmaps/OsuBeatmapProcessor.cs
 
 const stackDistance = 3.0
 
 func isSpinner(obj objects.IHitObject) bool {
-	_, ok2 := obj.(*objects.Spinner)
-	return ok2
+	_, ok := obj.(*objects.Spinner)
+	return ok
 }
 
 func isSlider(obj objects.IHitObject) bool {
-	_, ok1 := obj.(*objects.Slider)
-	return ok1
+	_, ok := obj.(*objects.Slider)
+	return ok
 }
 
-func processStacking(hitObjects []objects.IHitObject, version int, diff *difficulty.Difficulty, stackLeniency float64) {
-	stackThreshold := int64(math.Floor(diff.Preempt * stackLeniency))
-
-	for _, v := range hitObjects {
-		v.SetStackIndex(stackThreshold, 0)
+func processStacking(hitObjects []objects.IHitObject, version int, stackThreshold float64, lazer bool) {
+	for _, object := range hitObjects {
+		object.SetStackIndexForMode(stackThreshold, lazer, 0)
 	}
 
 	if version >= 6 {
-		applyNewStacking(hitObjects, stackThreshold)
+		applyNewStacking(hitObjects, stackThreshold, lazer)
+	} else if lazer {
+		applyOldStackingLazer(hitObjects, stackThreshold)
 	} else {
-		applyOldStacking(hitObjects, stackThreshold)
+		applyOldStackingStable(hitObjects, stackThreshold)
 	}
 
-	for _, v := range hitObjects {
-		if isSpinner(v) {
-			v.SetStackIndex(stackThreshold, 0)
+	for _, object := range hitObjects {
+		if isSpinner(object) {
+			object.SetStackIndexForMode(stackThreshold, lazer, 0)
 		}
 	}
 }
 
-func applyNewStacking(hitObjects []objects.IHitObject, stackThreshold int64) {
-	stackThresholdF := float64(stackThreshold)
-
+func applyNewStacking(hitObjects []objects.IHitObject, stackThreshold float64, lazer bool) {
 	extendedEndIndex := len(hitObjects) - 1
 	for i := len(hitObjects) - 1; i >= 0; i-- {
 		stackBaseIndex := i
 
 		for n := stackBaseIndex + 1; n < len(hitObjects); n++ {
-
-			stackIHitObject := hitObjects[stackBaseIndex]
-			if isSpinner(stackIHitObject) {
+			stackBaseObject := hitObjects[stackBaseIndex]
+			if isSpinner(stackBaseObject) {
 				break
 			}
 
@@ -60,13 +55,14 @@ func applyNewStacking(hitObjects []objects.IHitObject, stackThreshold int64) {
 				continue
 			}
 
-			if objectN.GetStartTime()-stackIHitObject.GetEndTime() > stackThresholdF {
+			if objectN.GetStartTime()-stackingEndTime(stackBaseObject, lazer) > stackThreshold {
 				break
 			}
 
-			if stackIHitObject.GetStartPosition().Dst(objectN.GetStartPosition()) < stackDistance || isSlider(stackIHitObject) && stackIHitObject.GetEndPosition().Dst(objectN.GetStartPosition()) < stackDistance {
+			if stackBaseObject.GetStartPosition().Dst(objectN.GetStartPosition()) < stackDistance ||
+				isSlider(stackBaseObject) && stackingEndPosition(stackBaseObject, lazer).Dst(objectN.GetStartPosition()) < stackDistance {
 				stackBaseIndex = n
-				objectN.SetStackIndex(stackThreshold, 0)
+				objectN.SetStackIndexForMode(stackThreshold, lazer, 0)
 			}
 		}
 
@@ -76,101 +72,145 @@ func applyNewStacking(hitObjects []objects.IHitObject, stackThreshold int64) {
 				break
 			}
 		}
-
 	}
 
 	extendedStartIndex := 0
 	for i := extendedEndIndex; i > 0; i-- {
 		n := i
-
 		objectI := hitObjects[i]
 
-		if objectI.GetStackIndex(stackThreshold) != 0 || isSpinner(objectI) {
+		if objectI.GetStackIndexForMode(stackThreshold, lazer) != 0 || isSpinner(objectI) {
 			continue
 		}
 
-		if !isSlider(objectI) && !isSpinner(objectI) {
+		if !isSlider(objectI) {
 			for n--; n >= 0; n-- {
 				objectN := hitObjects[n]
-
 				if isSpinner(objectN) {
 					continue
 				}
 
-				if objectI.GetStartTime()-objectN.GetEndTime() > stackThresholdF {
+				if stackRangeExceeded(objectI.GetStartTime(), stackingEndTime(objectN, lazer), stackThreshold, lazer) {
 					break
 				}
 
 				if n < extendedStartIndex {
-					objectN.SetStackIndex(stackThreshold, 0)
+					objectN.SetStackIndexForMode(stackThreshold, lazer, 0)
 					extendedStartIndex = n
 				}
 
-				if isSlider(objectN) && objectN.GetEndPosition().Dst(objectI.GetStartPosition()) < stackDistance {
-					offset := objectI.GetStackIndex(stackThreshold) - objectN.GetStackIndex(stackThreshold) + 1
+				endPosition := stackingEndPosition(objectN, lazer)
+				if isSlider(objectN) && endPosition.Dst(objectI.GetStartPosition()) < stackDistance {
+					offset := objectI.GetStackIndexForMode(stackThreshold, lazer) - objectN.GetStackIndexForMode(stackThreshold, lazer) + 1
 					for j := n + 1; j <= i; j++ {
 						objectJ := hitObjects[j]
-						if objectN.GetEndPosition().Dst(objectJ.GetStartPosition()) < stackDistance {
-							objectJ.SetStackIndex(stackThreshold, objectJ.GetStackIndex(stackThreshold)-offset)
+						if endPosition.Dst(objectJ.GetStartPosition()) < stackDistance {
+							objectJ.SetStackIndexForMode(stackThreshold, lazer, objectJ.GetStackIndexForMode(stackThreshold, lazer)-offset)
 						}
 					}
-
 					break
 				}
 
 				if objectN.GetStartPosition().Dst(objectI.GetStartPosition()) < stackDistance {
-					objectN.SetStackIndex(stackThreshold, objectI.GetStackIndex(stackThreshold)+1)
+					objectN.SetStackIndexForMode(stackThreshold, lazer, objectI.GetStackIndexForMode(stackThreshold, lazer)+1)
 					objectI = objectN
 				}
 			}
-		} else if isSlider(objectI) {
-
+		} else {
 			for n--; n >= 0; n-- {
 				objectN := hitObjects[n]
-
 				if isSpinner(objectN) {
 					continue
 				}
 
-				if objectI.GetStartTime()-objectN.GetStartTime() > stackThresholdF {
+				if objectI.GetStartTime()-objectN.GetStartTime() > stackThreshold {
 					break
 				}
 
-				if objectN.GetEndPosition().Dst(objectI.GetStartPosition()) < stackDistance {
-					objectN.SetStackIndex(stackThreshold, objectI.GetStackIndex(stackThreshold)+1)
+				if stackingEndPosition(objectN, lazer).Dst(objectI.GetStartPosition()) < stackDistance {
+					objectN.SetStackIndexForMode(stackThreshold, lazer, objectI.GetStackIndexForMode(stackThreshold, lazer)+1)
 					objectI = objectN
 				}
-
 			}
 		}
 	}
 }
 
-func applyOldStacking(hitObjects []objects.IHitObject, stackThreshold int64) {
-	stackThresholdF := float64(stackThreshold)
-
+func applyOldStackingStable(hitObjects []objects.IHitObject, stackThreshold float64) {
 	for i, objectI := range hitObjects {
 		startTime := objectI.GetEndTime()
 
-		if objectI.GetStackIndex(stackThreshold) == 0 || isSlider(objectI) {
+		if objectI.GetStackIndexForMode(stackThreshold, false) == 0 || isSlider(objectI) {
 			sliderStack := int64(0)
-
 			for n := i + 1; n < len(hitObjects); n++ {
 				objectN := hitObjects[n]
-
-				if objectN.GetStartTime()-stackThresholdF > startTime {
+				if objectN.GetStartTime()-stackThreshold > startTime {
 					break
 				}
 
 				if objectN.GetStartPosition().Dst(objectI.GetStartPosition()) < stackDistance {
-					objectI.SetStackIndex(stackThreshold, objectI.GetStackIndex(stackThreshold)+1)
+					objectI.SetStackIndexForMode(stackThreshold, false, objectI.GetStackIndexForMode(stackThreshold, false)+1)
 					startTime = objectN.GetEndTime()
 				} else if objectN.GetStartPosition().Dst(objectI.GetEndPosition()) < stackDistance {
 					sliderStack++
-					objectN.SetStackIndex(stackThreshold, objectN.GetStackIndex(stackThreshold)-sliderStack)
+					objectN.SetStackIndexForMode(stackThreshold, false, objectN.GetStackIndexForMode(stackThreshold, false)-sliderStack)
 					startTime = objectN.GetEndTime()
 				}
 			}
 		}
 	}
+}
+
+func applyOldStackingLazer(hitObjects []objects.IHitObject, stackThreshold float64) {
+	for i, objectI := range hitObjects {
+		if objectI.GetStackIndexForMode(stackThreshold, true) != 0 && !isSlider(objectI) {
+			continue
+		}
+
+		startTime := stackingEndTime(objectI, true)
+		sliderStack := int64(0)
+		for n := i + 1; n < len(hitObjects); n++ {
+			objectN := hitObjects[n]
+			if objectN.GetStartTime()-stackThreshold > startTime {
+				break
+			}
+
+			if objectN.GetStartPosition().Dst(objectI.GetStartPosition()) < stackDistance {
+				objectI.SetStackIndexForMode(stackThreshold, true, objectI.GetStackIndexForMode(stackThreshold, true)+1)
+				startTime = objectN.GetStartTime()
+			} else if objectN.GetStartPosition().Dst(stackingEndPosition(objectI, true)) < stackDistance {
+				sliderStack++
+				objectN.SetStackIndexForMode(stackThreshold, true, objectN.GetStackIndexForMode(stackThreshold, true)-sliderStack)
+				startTime = objectN.GetStartTime()
+			}
+		}
+	}
+}
+
+func stackRangeExceeded(startTime, endTime, stackThreshold float64, lazer bool) bool {
+	if lazer {
+		return float64(int64(startTime)-int64(endTime)) > stackThreshold
+	}
+
+	return startTime-endTime > stackThreshold
+}
+
+func stackingEndTime(object objects.IHitObject, lazer bool) float64 {
+	if lazer {
+		if slider, ok := object.(*objects.Slider); ok {
+			return slider.EndTimeLazer
+		}
+	}
+
+	return object.GetEndTime()
+}
+
+func stackingEndPosition(object objects.IHitObject, lazer bool) vector.Vector2f {
+	if lazer {
+		if slider, ok := object.(*objects.Slider); ok {
+			return slider.PositionAtLazer(slider.EndTimeLazer)
+		}
+	}
+
+	return object.GetEndPosition()
 }

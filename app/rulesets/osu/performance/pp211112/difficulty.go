@@ -190,7 +190,13 @@ func (diffCalc *DifficultyCalculator) CalculateStrainPeaks(bMap *beatmap.BeatMap
 		flashlightSkill.Process(o)
 	}
 
+	baseline := 0.1401973407499798
+	if diff.CheckModActive(difficulty.Flashlight) {
+		baseline = 0.14386309174146011
+	}
+
 	peaks := api.StrainPeaks{
+		Baseline:   baseline,
 		Aim:        aimSkill.GetCurrentStrainPeaks(),
 		Speed:      speedSkill.GetCurrentStrainPeaks(),
 		Flashlight: flashlightSkill.GetCurrentStrainPeaks(),

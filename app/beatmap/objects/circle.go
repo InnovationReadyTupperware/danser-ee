@@ -220,7 +220,7 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 	}
 
 	for _, t := range circles {
-		if diff.CheckModActive(difficulty.Hidden) {
+		if diff.HasHiddenObjectFading() {
 			if !circle.SliderPoint || circle.SliderPointStart || circle.firstEndCircle {
 				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, fadeInStartTime, fadeInStartTime+diff.Preempt*0.4, 0.0, 1.0))
 				t.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, fadeInStartTime+diff.Preempt*0.4, fadeInStartTime+diff.Preempt*0.7, 1.0, 0.0))
@@ -428,7 +428,7 @@ func (circle *Circle) shouldAnimateHit(clicked bool) bool {
 		return false
 	}
 
-	if circle.diff.CheckModActive(difficulty.Hidden) || circle.diff.CheckModActive(difficulty.Traceable) {
+	if circle.diff.HasHiddenObjectFading() || circle.diff.CheckModActive(difficulty.Traceable) {
 		return false
 	}
 

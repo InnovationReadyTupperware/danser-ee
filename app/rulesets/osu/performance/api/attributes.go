@@ -43,6 +43,10 @@ type Attributes struct {
 
 // StrainPeaks contains peaks of Aim, Speed and Flashlight skills, as well as peaks passed through star rating formula
 type StrainPeaks struct {
+	// Baseline is the star-rating value corresponding to zero graph strain for
+	// this calculator version.
+	Baseline float64
+
 	// Aim peaks
 	Aim []float64
 
@@ -52,10 +56,12 @@ type StrainPeaks struct {
 	// Flashlight peaks
 	Flashlight []float64
 
-	// Total contains aim, speed and flashlight peaks passed through star rating formula
+	// Total contains calculator-defined presentation samples passed through that
+	// version's star-rating formula. It is not necessarily a per-object
+	// CalculateStep star-rating history.
 	Total []float64
 }
 
 type PPv2Results struct {
-	Aim, Speed, Acc, Flashlight, Cognition, Total float64
+	Aim, Speed, Acc, Flashlight, Reading, Total float64
 }
