@@ -58,7 +58,36 @@ func drawCDMenu(bld *builder) {
 	}
 }
 
-func drawRecordMenu(bld *builder) {
+type outputDialogCopy struct {
+	title           string
+	supportingText  string
+	outputNameLabel string
+}
+
+func outputDialogCopyFor(mode PMode) outputDialogCopy {
+	switch mode {
+	case Record:
+		return outputDialogCopy{
+			title:           "Set recording output",
+			supportingText:  "Choose the video file name.",
+			outputNameLabel: "Video file name",
+		}
+	case Screenshot:
+		return outputDialogCopy{
+			title:           "Set screenshot output",
+			supportingText:  "Choose the screenshot file name and capture time.",
+			outputNameLabel: "Screenshot file name",
+		}
+	default:
+		return outputDialogCopy{
+			title:           "Set output",
+			supportingText:  "Choose the output file name.",
+			outputNameLabel: "File name",
+		}
+	}
+}
+
+func drawRecordMenu(bld *builder, mode PMode, dialogCopy outputDialogCopy, focusOutputName bool) {
 	if imgui.BeginTable("rfa", 2) {
 		imgui.TableSetupColumnV("c1rfa", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(0))
 		imgui.TableSetupColumnV("c2rfa", imgui.TableColumnFlagsWidthFixed, imgui.TextLineHeight()*7, imgui.ID(1))
@@ -66,19 +95,24 @@ func drawRecordMenu(bld *builder) {
 		imgui.TableNextColumn()
 
 		imgui.AlignTextToFramePadding()
-		imgui.TextUnformatted("Output name:")
+		imgui.TextUnformatted(dialogCopy.outputNameLabel)
 
 		imgui.TableNextColumn()
 
 		imgui.SetNextItemWidth(-1)
+		flags := imgui.InputTextFlagsCallbackCharFilter
+		if focusOutputName {
+			imgui.SetKeyboardFocusHere()
+			flags |= imgui.InputTextFlagsAutoSelectAll
+		}
 
-		inputTextV("##oname", &bld.outputName, imgui.InputTextFlagsCallbackCharFilter, imguiPathFilter)
+		inputTextV("##oname", &bld.outputName, flags, imguiPathFilter)
 
-		if launcherConfig.CurrentPMode == Screenshot {
+		if mode == Screenshot {
 			imgui.TableNextColumn()
 
 			imgui.AlignTextToFramePadding()
-			imgui.TextUnformatted("Screenshot at:")
+			imgui.TextUnformatted("Screenshot time")
 
 			imgui.TableNextColumn()
 

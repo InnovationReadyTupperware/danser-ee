@@ -7,6 +7,8 @@
 ### Added
 
 - Added osu!lazer's `Only fade approach circles` customization for the Hidden mod
+- Added a new experimental popup dialog in the launcher
+  - The `Configure` button now opens redesigned output settings using the new dialog
 
 ### Changed
 

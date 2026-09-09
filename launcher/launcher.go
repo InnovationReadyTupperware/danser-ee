@@ -1611,9 +1611,28 @@ func (l *launcher) drawLowerPanel() {
 		if launcherConfig.CurrentPMode != Watch {
 			imgui.SameLine()
 			if imgui.Button("Configure") {
-				l.openPopup(newPopupF("Record settings", popDynamic, func() {
-					drawRecordMenu(l.bld)
-				}))
+				outputMode := launcherConfig.CurrentPMode
+				dialogCopy := outputDialogCopyFor(outputMode)
+				originalOutputName := l.bld.outputName
+				originalScreenshotTime := l.bld.ssTime
+				focusOutputName := true
+				restoreOutputOptions := func() {
+					l.bld.outputName = originalOutputName
+					l.bld.ssTime = originalScreenshotTime
+				}
+
+				l.openPopup(newPopupDialog(
+					"output-settings",
+					dialogCopy.title,
+					withPopupDialogSupportingText(dialogCopy.supportingText),
+					withPopupDialogContent(func() {
+						drawRecordMenu(l.bld, outputMode, dialogCopy, focusOutputName)
+						focusOutputName = false
+					}),
+					withPopupDialogPrimaryAction(newPopupDialogAction("Save", nil)),
+					withPopupDialogDismissAction(outlinedPopupDialogAction("Cancel", restoreOutputOptions)),
+					withPopupDialogDismissRequest(restoreOutputOptions),
+				))
 			}
 		}
 
