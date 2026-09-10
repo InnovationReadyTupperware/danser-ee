@@ -1611,28 +1611,7 @@ func (l *launcher) drawLowerPanel() {
 		if launcherConfig.CurrentPMode != Watch {
 			imgui.SameLine()
 			if imgui.Button("Configure") {
-				outputMode := launcherConfig.CurrentPMode
-				dialogCopy := outputDialogCopyFor(outputMode)
-				originalOutputName := l.bld.outputName
-				originalScreenshotTime := l.bld.ssTime
-				focusOutputName := true
-				restoreOutputOptions := func() {
-					l.bld.outputName = originalOutputName
-					l.bld.ssTime = originalScreenshotTime
-				}
-
-				l.openPopup(newPopupDialog(
-					"output-settings",
-					dialogCopy.title,
-					withPopupDialogSupportingText(dialogCopy.supportingText),
-					withPopupDialogContent(func() {
-						drawRecordMenu(l.bld, outputMode, dialogCopy, focusOutputName)
-						focusOutputName = false
-					}),
-					withPopupDialogPrimaryAction(newPopupDialogAction("Save", nil)),
-					withPopupDialogDismissAction(outlinedPopupDialogAction("Cancel", restoreOutputOptions)),
-					withPopupDialogDismissRequest(restoreOutputOptions),
-				))
+				l.openOutputSettingsDialog(false)
 			}
 		}
 
@@ -1711,6 +1690,9 @@ func (l *launcher) drawLowerPanel() {
 					if l.processSupervisor != nil && showMessage(mQuestion, "Do you really want to cancel?") {
 						l.processSupervisor.stop()
 					}
+				} else if launcherConfig.CurrentPMode == Screenshot &&
+					screenshotTimeNeedsConfiguration(l.bld, launcherConfig.CurrentMode) {
+					l.openOutputSettingsDialog(true)
 				} else {
 					if l.selectWindow != nil {
 						l.selectWindow.stopPreview()
@@ -1737,6 +1719,82 @@ func (l *launcher) drawLowerPanel() {
 			imgui.PopFont()
 		}
 	})
+}
+
+func (l *launcher) openOutputSettingsDialog(focusScreenshotTime bool) {
+	outputMode := launcherConfig.CurrentPMode
+	if outputMode == Watch {
+		return
+	}
+
+	dialogCopy := outputDialogCopyFor(outputMode)
+	originalOutputName := l.bld.outputName
+	originalScreenshotTime := l.bld.ssTime
+	screenshotTimeState := newScreenshotTimeFieldState(l.bld.ssTime)
+	if outputMode == Screenshot {
+		maxTime, available := screenshotTimeLimit(l.bld, launcherConfig.CurrentMode)
+		screenshotTimeState.syncLimit(maxTime, available)
+		screenshotTimeState.focusRequested = focusScreenshotTime && available
+	}
+
+	focusOutputName := !focusScreenshotTime
+	commitOutputOptions := func() {
+		if outputMode != Screenshot {
+			return
+		}
+
+		maxTime, available := screenshotTimeLimit(l.bld, launcherConfig.CurrentMode)
+		screenshotTimeState.syncLimit(maxTime, available)
+		if !available {
+			return
+		}
+
+		if parsed, valid := screenshotTimeState.commit(maxTime); valid {
+			l.bld.ssTime = parsed
+		}
+	}
+	restoreOutputOptions := func() {
+		l.bld.outputName = originalOutputName
+		l.bld.ssTime = originalScreenshotTime
+	}
+	saveAction := conditionallyClosingPopupDialogAction(
+		newPopupDialogAction("Save", commitOutputOptions),
+		func() bool {
+			if outputMode != Screenshot {
+				return true
+			}
+
+			_, available := screenshotTimeLimit(l.bld, launcherConfig.CurrentMode)
+			return !available || screenshotTimeState.validationError == ""
+		},
+	)
+
+	l.openPopup(newPopupDialog(
+		"output-settings",
+		dialogCopy.title,
+		withPopupDialogSupportingText(dialogCopy.supportingText),
+		withPopupDialogContent(func() {
+			drawRecordMenu(
+				l.bld,
+				launcherConfig.CurrentMode,
+				outputMode,
+				dialogCopy,
+				screenshotTimeState,
+				focusOutputName,
+			)
+			focusOutputName = false
+		}),
+		withPopupDialogValidationText(func() string {
+			if outputMode != Screenshot {
+				return ""
+			}
+
+			return screenshotTimeState.validationError
+		}),
+		withPopupDialogPrimaryAction(saveAction),
+		withPopupDialogDismissAction(outlinedPopupDialogAction("Cancel", restoreOutputOptions)),
+		withPopupDialogDismissRequest(restoreOutputOptions),
+	))
 }
 
 func (l *launcher) drawConfigPanel() {

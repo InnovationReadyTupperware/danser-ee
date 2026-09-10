@@ -1,13 +1,15 @@
 package launcher
 
 import (
+	"fmt"
+	"math"
 	"strconv"
+	"strings"
 
 	"github.com/AllenDang/cimgui-go/imgui"
 
 	"github.com/innovationreadytupperware/danser-ee/build"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
-	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 	"github.com/innovationreadytupperware/danser-ee/framework/platform"
 )
 
@@ -64,6 +66,16 @@ type outputDialogCopy struct {
 	outputNameLabel string
 }
 
+type screenshotTimeFieldState struct {
+	text             string
+	validationError  string
+	validationActive bool
+	limitInitialized bool
+	limitAvailable   bool
+	limit            float64
+	focusRequested   bool
+}
+
 func outputDialogCopyFor(mode PMode) outputDialogCopy {
 	switch mode {
 	case Record:
@@ -87,7 +99,14 @@ func outputDialogCopyFor(mode PMode) outputDialogCopy {
 	}
 }
 
-func drawRecordMenu(bld *builder, mode PMode, dialogCopy outputDialogCopy, focusOutputName bool) {
+func drawRecordMenu(
+	bld *builder,
+	sourceMode Mode,
+	mode PMode,
+	dialogCopy outputDialogCopy,
+	screenshotTimeState *screenshotTimeFieldState,
+	focusOutputName bool,
+) {
 	if imgui.BeginTable("rfa", 2) {
 		imgui.TableSetupColumnV("c1rfa", imgui.TableColumnFlagsWidthFixed, 0, imgui.ID(0))
 		imgui.TableSetupColumnV("c2rfa", imgui.TableColumnFlagsWidthFixed, imgui.TextLineHeight()*7, imgui.ID(1))
@@ -124,16 +143,65 @@ func drawRecordMenu(bld *builder, mode PMode, dialogCopy outputDialogCopy, focus
 
 				imgui.SetNextItemWidth(-1)
 
-				valText := strconv.FormatFloat(float64(bld.ssTime), 'f', 3, 64)
-				prevText := valText
+				if screenshotTimeState == nil {
+					panic("screenshot time state is required in screenshot mode")
+				}
 
-				if inputText("##sstime", &valText) {
-					parsed, err := strconv.ParseFloat(valText, 64)
-					if err != nil {
-						valText = prevText
-					} else {
-						parsed = mutils.Clamp(parsed, 0, float64(bld.end.ogValue))
-						bld.ssTime = float32(parsed)
+				maxTime, available := screenshotTimeLimit(bld, sourceMode)
+				screenshotTimeState.syncLimit(maxTime, available)
+				if !available {
+					imgui.BeginDisabled()
+				}
+
+				if screenshotTimeState.validationError != "" {
+					_, errorColor := popupDialogToneAppearance(
+						popupDialogToneDanger,
+						*imgui.StyleColorVec4(imgui.ColBorder),
+					)
+					imgui.PushStyleVarFloat(imgui.StyleVarFrameBorderSize, 1)
+					imgui.PushStyleColorVec4(imgui.ColBorder, errorColor)
+				}
+
+				flags := imgui.InputTextFlagsEnterReturnsTrue
+				if available && screenshotTimeState.focusRequested {
+					imgui.SetKeyboardFocusHere()
+					flags |= imgui.InputTextFlagsAutoSelectAll
+					screenshotTimeState.focusRequested = false
+				}
+
+				hint := ""
+				if available {
+					hint = screenshotTimePlaceholder(maxTime)
+				}
+
+				enterPressed := imgui.InputTextWithHint(
+					"##sstime",
+					hint,
+					&screenshotTimeState.text,
+					flags,
+					nil,
+				)
+				edited := imgui.IsItemEdited()
+				deactivatedAfterEdit := imgui.IsItemDeactivatedAfterEdit()
+
+				if screenshotTimeState.validationError != "" {
+					imgui.PopStyleColor()
+					imgui.PopStyleVar()
+				}
+
+				if !available {
+					imgui.EndDisabled()
+					if imgui.IsItemHoveredV(imgui.HoveredFlagsAllowWhenDisabled) {
+						imgui.SetTooltip(screenshotTimeUnavailableTooltip(sourceMode))
+					}
+				} else {
+					if edited && screenshotTimeState.validationActive {
+						screenshotTimeState.revalidate(maxTime)
+					}
+					if enterPressed || deactivatedAfterEdit {
+						if parsed, valid := screenshotTimeState.commit(maxTime); valid {
+							bld.ssTime = parsed
+						}
 					}
 				}
 
@@ -144,10 +212,173 @@ func drawRecordMenu(bld *builder, mode PMode, dialogCopy outputDialogCopy, focus
 
 				imgui.EndTable()
 			}
+
 		}
 
 		imgui.EndTable()
 	}
+}
+
+func normalizeScreenshotTimeInput(text string) string {
+	if strings.HasPrefix(text, ".") {
+		return "0" + text
+	}
+
+	return text
+}
+
+func formatScreenshotTime(value float32) string {
+	return strconv.FormatFloat(float64(value), 'f', 3, 32)
+}
+
+func formatScreenshotTimeLimit(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+func screenshotTimePlaceholder(maxValue float64) string {
+	if maxValue <= 0 {
+		return ""
+	}
+
+	return "0-" + formatScreenshotTimeLimit(maxValue)
+}
+
+func screenshotTimeUnavailableTooltip(mode Mode) string {
+	switch mode {
+	case Replay:
+		return "Select a replay to set the screenshot time."
+	case Knockout:
+		return "Select at least one replay to set the screenshot time."
+	default:
+		return "Select a map to set the screenshot time."
+	}
+}
+
+func newScreenshotTimeFieldState(value float32) *screenshotTimeFieldState {
+	return &screenshotTimeFieldState{text: formatScreenshotTime(value)}
+}
+
+func (state *screenshotTimeFieldState) validate(maxValue float64) (float32, bool) {
+	if state == nil {
+		return 0, false
+	}
+
+	state.validationActive = true
+	parsed, validationError := validateScreenshotTimeInput(state.text, maxValue)
+	state.validationError = validationError
+	if validationError != "" {
+		return 0, false
+	}
+
+	return parsed, true
+}
+
+func (state *screenshotTimeFieldState) revalidate(maxValue float64) {
+	if state == nil || !state.validationActive {
+		return
+	}
+
+	_, state.validationError = validateScreenshotTimeInput(state.text, maxValue)
+}
+
+func (state *screenshotTimeFieldState) commit(maxValue float64) (float32, bool) {
+	parsed, valid := state.validate(maxValue)
+	if !valid {
+		return 0, false
+	}
+
+	parsed = float32(math.Round(float64(parsed)*1000) / 1000)
+	state.text = formatScreenshotTime(parsed)
+	return parsed, true
+}
+
+func (state *screenshotTimeFieldState) syncLimit(maxValue float64, available bool) {
+	if state == nil {
+		return
+	}
+
+	changed := !state.limitInitialized ||
+		state.limitAvailable != available ||
+		available && state.limit != maxValue
+
+	state.limitInitialized = true
+	state.limitAvailable = available
+	state.limit = maxValue
+	if !changed {
+		return
+	}
+
+	if !available {
+		state.validationError = ""
+		return
+	}
+
+	_, validationError := validateScreenshotTimeInput(state.text, maxValue)
+	state.validationError = validationError
+	if validationError != "" {
+		state.validationActive = true
+	}
+}
+
+func screenshotTimeLimit(bld *builder, mode Mode) (float64, bool) {
+	if bld == nil || bld.currentMap == nil || bld.currentMap.Length <= 0 {
+		return 0, false
+	}
+
+	switch mode {
+	case Replay:
+		if bld.currentReplay == nil {
+			return 0, false
+		}
+	case Knockout:
+		if bld.numKnockoutReplays() == 0 {
+			return 0, false
+		}
+	}
+
+	return float64(bld.currentMap.Length) / 1000, true
+}
+
+func validateScreenshotTimeInput(text string, maxValue float64) (float32, string) {
+	text = normalizeScreenshotTimeInput(text)
+	parsed, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return 0, "Enter a time in seconds"
+	}
+
+	if validationError := validateScreenshotTimeValue(parsed, maxValue); validationError != "" {
+		return 0, validationError
+	}
+
+	return float32(parsed), ""
+}
+
+func validateScreenshotTimeValue(value float64, maxValue float64) string {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return "Enter a time in seconds"
+	}
+
+	if maxValue <= 0 || value < 0 || value > maxValue {
+		return fmt.Sprintf(
+			"Enter a time between 0 and %s seconds",
+			formatScreenshotTimeLimit(maxValue),
+		)
+	}
+
+	return ""
+}
+
+func screenshotTimeNeedsConfiguration(bld *builder, mode Mode) bool {
+	maxTime, available := screenshotTimeLimit(bld, mode)
+	if !available {
+		return false
+	}
+
+	value := bld.ssTime
+	return math.IsNaN(float64(value)) ||
+		math.IsInf(float64(value), 0) ||
+		value < 0 ||
+		value > float32(maxTime)
 }
 
 func drawAbout(dTex texture.Texture) {

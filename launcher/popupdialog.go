@@ -64,6 +64,7 @@ const (
 type popupDialogAction struct {
 	label       string
 	onClick     func()
+	closeWhen   func() bool
 	appearance  popupDialogActionAppearance
 	keepOpen    bool
 	destructive bool
@@ -93,6 +94,7 @@ type popupDialog struct {
 	title          string
 	supportingText string
 	content        func()
+	validationText func() string
 
 	primaryAction *popupDialogAction
 	dismissAction *popupDialogAction
@@ -160,6 +162,14 @@ func keepOpenPopupDialogAction(label string, onClick func()) popupDialogAction {
 	return action
 }
 
+func conditionallyClosingPopupDialogAction(
+	action popupDialogAction,
+	closeWhen func() bool,
+) popupDialogAction {
+	action.closeWhen = closeWhen
+	return action
+}
+
 func withPopupDialogSupportingText(text string) popupDialogOption {
 	return func(dialog *popupDialog) {
 		dialog.supportingText = text
@@ -169,6 +179,12 @@ func withPopupDialogSupportingText(text string) popupDialogOption {
 func withPopupDialogContent(content func()) popupDialogOption {
 	return func(dialog *popupDialog) {
 		dialog.content = content
+	}
+}
+
+func withPopupDialogValidationText(validationText func() string) popupDialogOption {
+	return func(dialog *popupDialog) {
+		dialog.validationText = validationText
 	}
 }
 
@@ -371,10 +387,36 @@ func (d *popupDialog) drawContent(windowHeight float32, palette popupDialogPalet
 		d.drawBody(windowHeight, palette)
 	}
 
+	if d.validationText != nil {
+		if validationText := d.validationText(); validationText != "" {
+			dummyExactY(8)
+			d.drawValidationText(validationText)
+		}
+	}
+
 	if d.hasActions() {
 		dummyExactY(24)
 		d.drawActions(palette)
 	}
+}
+
+func (d *popupDialog) drawValidationText(text string) {
+	_, errorColor := popupDialogToneAppearance(
+		popupDialogToneDanger,
+		*imgui.StyleColorVec4(imgui.ColText),
+	)
+
+	imgui.PushStyleColorVec4(imgui.ColText, errorColor)
+	imgui.PushFont(FontAw, 14)
+	imgui.TextUnformatted("\uf06a")
+	imgui.PopFont()
+	imgui.SameLineV(0, 6)
+	imgui.PushFont(Font, 15)
+	imgui.PushTextWrapPos()
+	imgui.TextUnformatted(text)
+	imgui.PopTextWrapPos()
+	imgui.PopFont()
+	imgui.PopStyleColor()
 }
 
 func (d *popupDialog) drawHeader(palette popupDialogPalette) {
@@ -620,14 +662,15 @@ func (d *popupDialog) actionWidth(action popupDialogAction) float32 {
 }
 
 func (d *popupDialog) activateActionAt(action popupDialogAction, now time.Time) {
-	if d.phase == popupDialogPhaseClosed || d.phase == popupDialogPhaseDisappearing {
+	if d.phase == popupDialogPhaseClosed ||
+		d.phase == popupDialogPhaseDisappearing {
 		return
 	}
 
 	if action.onClick != nil {
 		action.onClick()
 	}
-	if action.keepOpen {
+	if action.keepOpen || action.closeWhen != nil && !action.closeWhen() {
 		return
 	}
 

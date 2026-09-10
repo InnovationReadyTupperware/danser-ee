@@ -40,6 +40,61 @@ func TestPopupDialogActionAppearances(t *testing.T) {
 	}
 }
 
+func TestPopupDialogConditionalClose(t *testing.T) {
+	now := time.Unix(0, 0)
+	clicks := 0
+	dialog := newPopupDialog(
+		"conditional-close",
+		"Conditional close",
+		withPopupDialogAnimation(false),
+	)
+	dialog.openAt(now)
+	shouldClose := false
+	action := conditionallyClosingPopupDialogAction(
+		newPopupDialogAction("Save", func() { clicks++ }),
+		func() bool { return shouldClose },
+	)
+
+	dialog.activateActionAt(action, now)
+
+	if clicks != 1 {
+		t.Fatalf("conditional action clicks = %d, want 1", clicks)
+	}
+	if dialog.phase != popupDialogPhaseVisible || !dialog.opened {
+		t.Fatalf("conditional action closed dialog early: phase=%v opened=%t", dialog.phase, dialog.opened)
+	}
+
+	shouldClose = true
+	dialog.activateActionAt(action, now)
+	if clicks != 2 {
+		t.Fatalf("conditional action clicks after valid activation = %d, want 2", clicks)
+	}
+	if dialog.phase != popupDialogPhaseClosed || dialog.opened {
+		t.Fatalf("conditional action stayed open: phase=%v opened=%t", dialog.phase, dialog.opened)
+	}
+}
+
+func TestPopupDialogConditionalCloseEvaluatesAfterAction(t *testing.T) {
+	now := time.Unix(0, 0)
+	shouldClose := false
+	dialog := newPopupDialog(
+		"conditional-close-order",
+		"Conditional close order",
+		withPopupDialogAnimation(false),
+	)
+	dialog.openAt(now)
+	action := conditionallyClosingPopupDialogAction(
+		newPopupDialogAction("Save", func() { shouldClose = true }),
+		func() bool { return shouldClose },
+	)
+
+	dialog.activateActionAt(action, now)
+
+	if dialog.phase != popupDialogPhaseClosed || dialog.opened {
+		t.Fatalf("action callback result was not observed before close check: phase=%v opened=%t", dialog.phase, dialog.opened)
+	}
+}
+
 func TestPopupDialogOptionsApplyReusableBehavior(t *testing.T) {
 	scrim := imgui.Vec4{X: 0.1, Y: 0.2, Z: 0.3, W: 0.4}
 	dialog := newPopupDialog(
