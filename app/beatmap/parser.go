@@ -452,10 +452,6 @@ func ParseObjects(beatMap *BeatMap, diffCalcOnly, parseColors bool) {
 	}
 
 	if settings.Objects.StackEnabled || settings.KNOCKOUT || settings.PLAY || diffCalcOnly {
-		if diffCalcOnly {
-			beatMap.calculateStackLeniency(beatMap.Diff, true)
-		} else {
-			beatMap.CalculateStackLeniency(beatMap.Diff)
-		}
+		beatMap.CalculateStackLeniency(beatMap.Diff)
 	}
 }

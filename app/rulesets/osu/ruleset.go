@@ -219,14 +219,7 @@ func NewOsuRuleset(beatMap *beatmap.BeatMap, cursors []*graphics.Cursor, diffs [
 		}
 
 		if ruleset.oppDiffs[player.difficultyCacheKey] == nil {
-			// Performance calculation uses Lazer's stack geometry for both
-			// gameplay modes. DiffCalcMode is scoped to this calculation and is
-			// cleared before runtime object positioning begins.
-			player.diff.DiffCalcMode = true
-
 			ruleset.oppDiffs[player.difficultyCacheKey] = diffCalc.CalculateStep(ruleset.beatMap, player.diff)
-
-			player.diff.DiffCalcMode = false
 
 			star := ruleset.oppDiffs[player.difficultyCacheKey][len(ruleset.oppDiffs[player.difficultyCacheKey])-1]
 

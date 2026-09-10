@@ -34,11 +34,9 @@ type IHitObject interface {
 	GetComboSetHax() int64
 	SetComboSetHax(set int64)
 
-	GetStackIndex(stackThreshold int64) int64
-	GetStackIndexForMode(stackThreshold float64, lazer bool) int64
+	GetStackIndex(stackKey int64) int64
 	GetStackIndexMod(diff *difficulty.Difficulty) int64
-	SetStackIndex(stackThreshold, index int64)
-	SetStackIndexForMode(stackThreshold float64, lazer bool, index int64)
+	SetStackIndex(stackKey, index int64)
 	SetStackLeniency(leniency float64)
 
 	GetColorOffset() int64
@@ -165,38 +163,21 @@ func (hitObject *HitObject) SetComboSetHax(set int64) {
 	hitObject.ComboSetHax = set
 }
 
-func (hitObject *HitObject) GetStackIndex(stackThreshold int64) int64 {
-	return hitObject.StackIndexMap[stackThreshold]
-}
-
-func (hitObject *HitObject) GetStackIndexForMode(stackThreshold float64, lazer bool) int64 {
-	return hitObject.StackIndexMap[stackIndexKey(stackThreshold, lazer)]
+func (hitObject *HitObject) GetStackIndex(stackKey int64) int64 {
+	return hitObject.StackIndexMap[stackKey]
 }
 
 func (hitObject *HitObject) GetStackIndexMod(diff *difficulty.Difficulty) int64 {
-	lazer := diff.IsLazer() || diff.DiffCalcMode
-	stackThreshold := diff.Preempt * hitObject.StackLeniency
-	if !lazer {
-		stackThreshold = math.Floor(stackThreshold)
-	}
-
-	return hitObject.GetStackIndexForMode(stackThreshold, lazer)
+	stackThreshold := math.Trunc(diff.Preempt) * hitObject.StackLeniency
+	return hitObject.GetStackIndex(stackIndexKey(stackThreshold))
 }
 
-func (hitObject *HitObject) SetStackIndex(stackThreshold, index int64) {
-	hitObject.StackIndexMap[stackThreshold] = index
+func (hitObject *HitObject) SetStackIndex(stackKey, index int64) {
+	hitObject.StackIndexMap[stackKey] = index
 }
 
-func (hitObject *HitObject) SetStackIndexForMode(stackThreshold float64, lazer bool, index int64) {
-	hitObject.StackIndexMap[stackIndexKey(stackThreshold, lazer)] = index
-}
-
-func stackIndexKey(stackThreshold float64, lazer bool) int64 {
-	if lazer {
-		return -int64(math.Float64bits(stackThreshold)) - 1
-	}
-
-	return int64(math.Floor(stackThreshold))
+func stackIndexKey(stackThreshold float64) int64 {
+	return int64(math.Float64bits(stackThreshold))
 }
 
 func (hitObject *HitObject) SetStackLeniency(leniency float64) {
@@ -243,10 +224,7 @@ func ModifyPosition(hitObject *HitObject, basePosition vector.Vector2f, diff *di
 
 	stackIndex := hitObject.GetStackIndexMod(diff)
 
-	stackOffset := float32(stackIndex) * float32(diff.CircleRadius) / 10
-	if diff.IsLazer() || diff.DiffCalcMode {
-		stackOffset = float32(stackIndex) * diff.CircleScaleL * 6.4
-	}
+	stackOffset := float32(stackIndex) * diff.CircleScaleL * 6.4
 
 	return basePosition.SubS(stackOffset, stackOffset)
 }

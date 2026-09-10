@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0-alpha.2 - 2026-09-10
+
+# What's new in Danser Enterprise Edition 1.1.0 Alpha 2
+
+### Fixed
+
+- Overlapping objects now pile up in the same positions as in osu!lazer for all playback
+
 ## 1.1.0-alpha.1 - 2026-09-08
 
 # What's new in Danser Enterprise Edition 1.1.0 Alpha 1

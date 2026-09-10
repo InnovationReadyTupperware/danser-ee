@@ -12,26 +12,26 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
-func TestDifficultyOnlyParsingUsesLazerStackingForPerformanceGeometry(t *testing.T) {
+func TestDifficultyOnlyParsingUsesLazerStackingIndependentOfGameplayMode(t *testing.T) {
 	beatMap := loadRegressionBeatmap(t, difficulty.None, difficulty.GameplayLazer)
 
 	// The repeat slider at 4250ms is stacked by osu!lazer because its fractional
 	// slider end extends into the following stack window. Difficulty-only parsing
-	// must use that Lazer end time even though the Stable path is not generated.
+	// must keep that stack geometry independent of the selected gameplay mode.
 	const sliderIndex = 10
 	if got := beatMap.HitObjects[sliderIndex].GetStackIndexMod(beatMap.Diff); got != 1 {
 		t.Fatalf("lazer stack index = %d, want 1", got)
 	}
 
-	// Stable replay provenance still uses Lazer geometry while performance
-	// calculation is active, matching the ruleset's DiffCalcMode contract.
+	// osu!lazer applies the same stacking pass to Stable replays carrying
+	// Classic, so changing gameplay mode must not select another stack map.
 	beatMap.Diff.SetGameplayMode(difficulty.GameplayStable)
-	beatMap.Diff.DiffCalcMode = true
-	defer func() { beatMap.Diff.DiffCalcMode = false }()
+	beatMap.Diff.SetMods(difficulty.Classic)
 	if got := beatMap.HitObjects[sliderIndex].GetStackIndexMod(beatMap.Diff); got != 1 {
-		t.Fatalf("performance stack index for Stable provenance = %d, want Lazer index 1", got)
+		t.Fatalf("Stable + Classic stack index = %d, want shared Lazer index 1", got)
 	}
 }
+
 func TestCalculateStepHandlesSingleSpinnerMap(t *testing.T) {
 	beatMap := beatmap.NewBeatMap()
 	beatMap.HitObjects = []objects.IHitObject{objects.NewDummySpinner(1000, 2000)}
