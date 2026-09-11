@@ -367,7 +367,7 @@ func (spinner *Spinner) Hit(eventTime float64, isHit bool) {
 		return
 	}
 
-	point := spinner.Timings.GetPointAt(spinner.EndTime)
+	point := spinner.Timings.GetPointAt(spinner.EndTime + legacySampleControlPointLeniency)
 
 	index := spinner.BasicHitSound.CustomIndex
 	if index == 0 {
@@ -378,8 +378,18 @@ func (spinner *Spinner) Hit(eventTime float64, isHit bool) {
 	if sampleSet == 0 {
 		sampleSet = point.SampleSet
 	}
+	additionSet := spinner.BasicHitSound.AdditionSet
+	if additionSet == 0 {
+		additionSet = sampleSet
+	}
 
-	audio.PlaySampleAt(eventTime, sampleSet, spinner.BasicHitSound.AdditionSet, spinner.sample, index,
+	if spinner.BasicHitSound.Filename != "" {
+		audio.PlayBeatmapFileSampleAt(eventTime, spinner.BasicHitSound.Filename, additionSet, spinner.sample, index,
+			point.SampleVolume, spinner.BasicHitSound.CustomVolume, spinner.HitObjectID, spinner.StartPosRaw.X64())
+		return
+	}
+
+	audio.PlaySampleAt(eventTime, sampleSet, additionSet, spinner.sample, index,
 		point.SampleVolume, spinner.BasicHitSound.CustomVolume, spinner.HitObjectID, spinner.StartPosRaw.X64())
 }
 

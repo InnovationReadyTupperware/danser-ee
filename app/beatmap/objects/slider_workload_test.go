@@ -1,6 +1,7 @@
 package objects
 
 import (
+	"math"
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/audio"
@@ -76,6 +77,252 @@ func TestPathologicalSliderSuppressesSliderDetailAudio(t *testing.T) {
 
 	if detailEvents != 0 {
 		t.Fatalf("pathological slider emitted %d slider-detail audio events, want none", detailEvents)
+	}
+}
+
+func TestSliderContinuousSamplesUseStartControlPoint(t *testing.T) {
+	slider := NewSlider([]string{
+		"256", "192", "1000", "2", "1",
+		"L|556:192", "1", "300", "0", "0:0", "0:0:9:20",
+	})
+	if slider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	timings := NewTimings()
+	timings.SliderMult = 1.4
+	timings.TickRate = 1
+	timings.AddPoint(0, 600, 2, 3, 0.4, 4, false, false, false)
+	timings.AddPoint(1200, 600, 3, 8, 0.9, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+	slider.SetID(0x51a1d3)
+
+	type sampleEvent struct {
+		sampleSet     int
+		hitsoundIndex int
+		index         int
+		volume        float64
+	}
+
+	var events []sampleEvent
+	audio.AddListener(func(sampleSet, hitsoundIndex, index int, volume float64, objectID int64) {
+		if objectID != slider.GetID() {
+			return
+		}
+
+		events = append(events, sampleEvent{
+			sampleSet:     sampleSet,
+			hitsoundIndex: hitsoundIndex,
+			index:         index,
+			volume:        volume,
+		})
+	})
+
+	slider.PlayTickAt(1500)
+	slider.PlaySlideSamples(1500)
+
+	if len(events) != 2 {
+		t.Fatalf("continuous sample event count = %d, want 2", len(events))
+	}
+
+	for _, event := range events {
+		if event.hitsoundIndex != 4 && event.hitsoundIndex != 5 {
+			t.Fatalf("continuous sample type = %d, want slidertick or sliderslide", event.hitsoundIndex)
+		}
+		if event.sampleSet != 2 || event.index != 3 || event.volume != 0.4 {
+			t.Fatalf("continuous sample metadata = set %d index %d volume %g, want set 2 index 3 volume 0.4",
+				event.sampleSet, event.index, event.volume)
+		}
+	}
+}
+
+func TestSliderParentAndNodeSamplesUseLazerControlPointLeniency(t *testing.T) {
+	slider := NewSlider([]string{
+		"256", "192", "1000", "2", "1",
+		"L|356:192", "1", "100", "0", "0:0", "0:0:9:20",
+	})
+	if slider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	timings := NewTimings()
+	timings.SliderMult = 1.4
+	timings.TickRate = 1
+	timings.AddPoint(0, 600, 1, 2, 0.2, 4, false, false, false)
+	timings.AddPoint(1005, 600, 2, 5, 0.5, 4, false, false, false)
+	timings.AddPoint(1006, 600, 3, 6, 0.6, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+	slider.SetID(0x51a1d7)
+
+	type sampleEvent struct {
+		sampleSet     int
+		hitsoundIndex int
+		index         int
+		volume        float64
+	}
+
+	var events []sampleEvent
+	audio.AddListener(func(sampleSet, hitsoundIndex, index int, volume float64, objectID int64) {
+		if objectID != slider.GetID() {
+			return
+		}
+
+		events = append(events, sampleEvent{
+			sampleSet:     sampleSet,
+			hitsoundIndex: hitsoundIndex,
+			index:         index,
+			volume:        volume,
+		})
+	})
+
+	slider.PlayEdgeSample(0)
+	slider.PlayTickAt(1100)
+
+	if len(events) != 2 {
+		t.Fatalf("sample event count = %d, want 2", len(events))
+	}
+
+	head, tick := events[0], events[1]
+	if head.sampleSet != 2 || head.index != 5 || head.volume != 0.5 {
+		t.Fatalf("head sample metadata = set %d index %d volume %g, want +5 ms node metadata 2/5/0.5",
+			head.sampleSet, head.index, head.volume)
+	}
+	if tick.sampleSet != 3 || tick.hitsoundIndex != 4 || tick.index != 6 || tick.volume != 0.6 {
+		t.Fatalf("tick sample metadata = set %d type %d index %d volume %g, want +6 ms parent metadata 3/4/6/0.6",
+			tick.sampleSet, tick.hitsoundIndex, tick.index, tick.volume)
+	}
+}
+
+func TestSliderTrailingHitSampleOnlyProvidesBanks(t *testing.T) {
+	slider := NewSlider([]string{
+		"256", "192", "1000", "2", "1",
+		"L|356:192", "1", "100", "0", "0:0", "3:2:9:20:ignored.wav",
+	})
+	if slider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	if slider.BasicHitSound.SampleSet != 3 || slider.BasicHitSound.AdditionSet != 2 {
+		t.Fatalf("slider sample banks = %d:%d, want 3:2", slider.BasicHitSound.SampleSet, slider.BasicHitSound.AdditionSet)
+	}
+	if slider.BasicHitSound.CustomIndex != 0 || slider.BasicHitSound.CustomVolume != 0 {
+		t.Fatalf("slider trailing custom index/volume = %d/%g, want ignored", slider.BasicHitSound.CustomIndex, slider.BasicHitSound.CustomVolume)
+	}
+	if slider.BasicHitSound.Filename != "" {
+		t.Fatalf("slider trailing filename = %q, want ignored", slider.BasicHitSound.Filename)
+	}
+}
+
+func TestSliderAudioNodeTimeUsesFractionalLazerSpan(t *testing.T) {
+	slider := NewSlider([]string{
+		"256", "192", "1000", "2", "0",
+		"L|457:192", "2", "201", "0|0|0", "0:0|0:0|0:0", "0:0",
+	})
+	if slider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	timings := NewTimings()
+	timings.SliderMult = 1.4
+	timings.TickRate = 1
+	timings.AddPoint(0, 537.5, 1, 1, 1, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+
+	want := slider.StartTime + slider.visualSpanDuration()
+	if got := slider.audioNodeTime(1); got != want {
+		t.Fatalf("audio node time = %.12f, want lazer span boundary %.12f", got, want)
+	}
+	stableBoundary := slider.StartTime + math.Floor(slider.partLen)
+	if want == stableBoundary {
+		t.Fatalf("test fixture did not produce distinct stable/lazer node times: %g", want)
+	}
+}
+
+func TestSliderHeadSampleUsesNodeControlPointInsteadOfObjectVolume(t *testing.T) {
+	slider := NewSlider([]string{
+		"256", "192", "1000", "2", "1",
+		"L|356:192", "1", "100", "0", "0:0", "3:3:9:20",
+	})
+	if slider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	timings := NewTimings()
+	timings.SliderMult = 1.4
+	timings.TickRate = 1
+	timings.AddPoint(0, 600, 2, 4, 0.6, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+	slider.SetID(0x51a1d4)
+
+	var gotSet, gotIndex int
+	var gotVolume float64
+	audio.AddListener(func(sampleSet, hitsoundIndex, index int, volume float64, objectID int64) {
+		if objectID != slider.GetID() || hitsoundIndex != 0 {
+			return
+		}
+
+		gotSet = sampleSet
+		gotIndex = index
+		gotVolume = volume
+	})
+
+	slider.PlayEdgeSample(0)
+
+	if gotSet != 2 || gotIndex != 4 || gotVolume != 0.6 {
+		t.Fatalf("head sample metadata = set %d index %d volume %g, want set 2 index 4 volume 0.6", gotSet, gotIndex, gotVolume)
+	}
+}
+
+func TestSliderNodeSampleOverridesControlPointIndexAndVolume(t *testing.T) {
+	slider := NewSlider([]string{
+		"256", "192", "1000", "2", "1",
+		"L|356:192", "1", "100", "0", "0:0:7:60", "0:0",
+	})
+	if slider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	timings := NewTimings()
+	timings.SliderMult = 1.4
+	timings.TickRate = 1
+	timings.AddPoint(0, 600, 2, 4, 0.3, 4, false, false, false)
+	timings.FinalizePoints()
+	slider.SetTiming(timings, 14, false)
+	slider.SetID(0x51a1d5)
+
+	var gotIndex int
+	var gotVolume float64
+	audio.AddListener(func(_ int, hitsoundIndex, index int, volume float64, objectID int64) {
+		if objectID != slider.GetID() || hitsoundIndex != 0 {
+			return
+		}
+
+		gotIndex = index
+		gotVolume = volume
+	})
+
+	slider.PlayEdgeSample(0)
+
+	if gotIndex != 7 || gotVolume != 0.6 {
+		t.Fatalf("node sample metadata = index %d volume %g, want index 7 volume 0.6", gotIndex, gotVolume)
+	}
+}
+
+func TestSliderNodeSampleKeepsCustomFilename(t *testing.T) {
+	slider := NewSlider([]string{
+		"256", "192", "1000", "2", "1",
+		"L|356:192", "1", "100", "0", "0:0:7:60:custom-edge.wav", "0:0",
+	})
+	if slider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	if got := slider.sampleFiles[0]; got != "custom-edge.wav" {
+		t.Fatalf("node custom filename = %q, want custom-edge.wav", got)
 	}
 }
 

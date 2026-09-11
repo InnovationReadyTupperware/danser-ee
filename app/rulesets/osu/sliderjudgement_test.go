@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/innovationreadytupperware/danser-ee/app/audio"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
@@ -262,6 +263,76 @@ func TestLazerSliderTailTimingAndOrdering(t *testing.T) {
 	}
 	if lazerSliderEventResult(tail, true) != SliderTailHit {
 		t.Fatal("tracked tail did not produce SliderTailHit")
+	}
+}
+
+func TestNestedSliderSamplesFollowJudgementResults(t *testing.T) {
+	hitSlider := objects.NewSlider([]string{
+		"256", "192", "1000", "2", "1",
+		"L|556:192", "2", "300", "0|0|0", "0:0|0:0|0:0", "0:0",
+	})
+	if hitSlider == nil {
+		t.Fatal("slider was rejected")
+	}
+
+	timings := objects.NewTimings()
+	timings.SliderMult = 1.4
+	timings.TickRate = 1
+	timings.AddPoint(0, 600, 1, 1, 1, 4, false, false, false)
+	timings.FinalizePoints()
+	hitSlider.SetTiming(timings, 14, false)
+
+	diff := difficulty.NewDifficulty(5, 5, 5, 5)
+	hitSlider.SetID(0x51a1d6)
+
+	player := &difficultyPlayer{diff: diff}
+	ruleSlider := &Slider{
+		hitSlider: hitSlider,
+		players:   []*difficultyPlayer{player},
+	}
+	var sampleCount int
+	audio.AddListener(func(_, _, _ int, _ float64, objectID int64) {
+		if objectID == hitSlider.GetID() {
+			sampleCount++
+		}
+	})
+
+	ruleSlider.playNestedSample(sliderEvent{
+		time:      1200,
+		kind:      sliderPointTick,
+		hitResult: LargeTickMiss,
+	})
+	if sampleCount != 0 {
+		t.Fatalf("missed tick emitted %d samples, want none", sampleCount)
+	}
+
+	ruleSlider.playNestedSample(sliderEvent{
+		time:      1200,
+		kind:      sliderPointTick,
+		hitResult: LargeTickHit,
+	})
+	if sampleCount != 1 {
+		t.Fatalf("hit tick emitted %d samples, want one", sampleCount)
+	}
+
+	ruleSlider.playNestedSample(sliderEvent{
+		time:      1400,
+		kind:      sliderPointRepeat,
+		edgeIndex: 1,
+		hitResult: LargeTickHit,
+	})
+	if sampleCount != 2 {
+		t.Fatalf("hit repeat total sample count = %d, want two", sampleCount)
+	}
+
+	ruleSlider.playNestedSample(sliderEvent{
+		time:      1600,
+		kind:      sliderPointTail,
+		edgeIndex: 2,
+		hitResult: SliderTailHit,
+	})
+	if sampleCount != 2 {
+		t.Fatalf("early tail judgement emitted %d total samples, want two before the parent slider ends", sampleCount)
 	}
 }
 

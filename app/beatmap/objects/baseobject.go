@@ -10,6 +10,8 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
+const legacySampleControlPointLeniency = 5.0
+
 type Renderable interface {
 	Draw(time float64, color color2.Color, batch *batch.QuadBatch) bool
 	DrawApproach(time float64, color color2.Color, batch *batch.QuadBatch)
@@ -58,6 +60,10 @@ func parseExtras(data []string, extraIndex int) (info audio.HitSoundInfo) {
 		if len(extras) > 3 {
 			volume, _ := strconv.Atoi(extras[3])
 			info.CustomVolume = float64(volume) / 100.0
+		}
+
+		if len(extras) > 4 {
+			info.Filename = extras[4]
 		}
 	}
 

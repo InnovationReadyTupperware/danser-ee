@@ -15,17 +15,16 @@ const Left = Buttons(1)
 const Right = Buttons(2)
 
 type sliderstate struct {
-	downButton       Buttons
-	isStartHit       bool
-	isHit            bool
-	points           []sliderEvent
-	scored           int
-	missed           int
-	slideStart       int64
-	sliding          bool
-	startResult      HitResult
-	endScored        bool
-	tailSamplePlayed bool
+	downButton  Buttons
+	isStartHit  bool
+	isHit       bool
+	points      []sliderEvent
+	scored      int
+	missed      int
+	slideStart  int64
+	sliding     bool
+	startResult HitResult
+	endScored   bool
 }
 
 type Slider struct {
@@ -302,6 +301,25 @@ func (slider *Slider) animateSliderEvent(point sliderEvent, time int64) {
 	slider.hitSlider.AnimateSliderBreak(float64(time))
 }
 
+func (slider *Slider) playNestedSample(point sliderEvent) {
+	if len(slider.players) != 1 || !point.hitResult.IsHit() {
+		return
+	}
+
+	switch point.kind {
+	case sliderPointTick:
+		slider.hitSlider.PlayTickAt(point.time)
+	case sliderPointRepeat:
+		if !slider.hitSlider.IsPathological() && !slider.hitSlider.IsSingular() {
+			slider.hitSlider.PlayEdgeSample(point.edgeIndex)
+		}
+	case sliderPointTail:
+		// Tail samples are owned by the parent slider at its true end time.
+		// The nested tail may judge up to 36 ms early, but osu!lazer does not
+		// play its sample from that early judgement.
+	}
+}
+
 func (slider *Slider) processTicksStable(player *difficultyPlayer, state *sliderstate, time int64, allowable bool, sliderPosition vector.Vector2f, processSliderEndsAhead bool) {
 	// Stable replays intentionally retain the historical one-event-per-call
 	// cadence and integer timestamps. The explicit event kind removes the old
@@ -345,6 +363,7 @@ func (slider *Slider) processTicksStable(player *difficultyPlayer, state *slider
 		}
 
 		slider.animateSliderEvent(*point, time)
+		slider.playNestedSample(*point)
 
 		slider.ruleSet.SendResult(player.cursor, createSliderJudgementResult(point.hitResult, point.maxResult, combo, time, sliderPosition, slider, point.resultPart()))
 		break
@@ -412,11 +431,7 @@ func (slider *Slider) processTicksLazer(player *difficultyPlayer, state *sliders
 		}
 
 		slider.animateSliderEvent(*point, time)
-
-		if point.isTail() && point.hitResult.IsHit() && !player.classicAlwaysPlayTailSample && len(slider.players) == 1 {
-			slider.hitSlider.PlayEdgeSample(point.edgeIndex)
-			state.tailSamplePlayed = true
-		}
+		slider.playNestedSample(*point)
 
 		// A late frame can resolve several events at once. Keep the result
 		// timestamp at the actual processing time, but place the result at the
@@ -462,7 +477,7 @@ func (slider *Slider) UpdatePostFor(player *difficultyPlayer, time int64, proces
 				}
 			} else if player.classicAlwaysPlayTailSample && sliderResult != Miss {
 				slider.hitSlider.PlayEdgeSample(len(slider.hitSlider.TickReverse))
-			} else if state.endScored && !state.tailSamplePlayed && !player.classicAlwaysPlayTailSample {
+			} else if state.endScored && !player.classicAlwaysPlayTailSample {
 				slider.hitSlider.PlayEdgeSample(len(slider.hitSlider.TickReverse))
 			}
 		}

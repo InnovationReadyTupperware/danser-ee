@@ -5,6 +5,7 @@ type HitSoundInfo struct {
 	AdditionSet  int
 	CustomIndex  int
 	CustomVolume float64
+	Filename     string
 }
 
 type HitSound struct {

@@ -4,11 +4,21 @@
 
 # What's new in Danser Enterprise Edition 1.1.0 Alpha 2
 
+### Changed
+
+- Retired `Audio.HitsoundPositionMultiplier` in favor of `Audio.HitsoundStereoSeparation`, which now defaults to osu!lazer's 20% and pans hitsounds left and right the same way osu!lazer does
+
 ### Fixed
 
 - Overlapping objects now stack in the same positions as in osu!lazer
 - Unstable Rate now normalizes each timing hit by its gameplay rate before calculation
 - Results now show `N/A` when no timed hits contribute to UR
+- Slider heads, ticks, repeats, loops, and tails now resolve and play hitsounds using osu!lazer's sample rules
+  - Slider ticks and loops keep the slider's start-resolved sample bank, index, and volume instead of changing at later timing points
+  - Slider heads, repeats, and tails use their own node sample settings and osu!lazer's legacy control-point leniency
+- Hitsound layers now keep their authored volume and use osu!lazer's 5% minimum volume
+- Legacy sample set `0` now falls back to the Normal bank instead of Soft
+- Custom hitsound filenames now work on circles, spinners, and slider nodes while preserving requested whistle, finish, and clap layers
 
 ## 1.1.0-alpha.1 - 2026-09-08
 

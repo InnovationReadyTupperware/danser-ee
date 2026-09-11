@@ -55,10 +55,11 @@ func hasUnjudgedSliderEvents(events []sliderEvent) bool {
 	return false
 }
 
-// buildStableSliderEvents preserves the stable event schedule. In
-// particular, the final stable point remains at the historical max(duration /
-// 2, end - 36) timestamp. Replacing this with the Lazer event schedule would
-// change replay-visible result timestamps and audio timing for stable scores.
+// buildStableSliderEvents preserves the stable result schedule. In particular,
+// the final stable point remains at the historical max(duration / 2, end - 36)
+// timestamp. Sample playback is projected separately through lazer-compatible
+// slider sample timing, so preserving these result timestamps does not require
+// preserving danser's old Stable edge-sample timestamps.
 func buildStableSliderEvents(slider *objects.Slider) []sliderEvent {
 	events := make([]sliderEvent, 0, len(slider.ScorePoints))
 

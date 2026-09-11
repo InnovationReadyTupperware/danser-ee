@@ -68,6 +68,8 @@ type Slider struct {
 
 	sampleSets    []int
 	additionSets  []int
+	sampleIndices []int
+	sampleFiles   []string
 	samples       []int
 	sampleVolumes []float64
 	baseSample    int
@@ -138,6 +140,13 @@ func NewSlider(data []string) *Slider {
 	slider := &Slider{
 		HitObject: commonParse(data, 10),
 	}
+	// Legacy slider hitSample fields only provide the parent sample banks.
+	// osu!lazer deliberately ignores their custom index and volume here; node
+	// index/volume come from edgeSets or the relevant sample control point. The
+	// filename is ignored for the same reason.
+	slider.BasicHitSound.CustomIndex = 0
+	slider.BasicHitSound.CustomVolume = 0
+	slider.BasicHitSound.Filename = ""
 
 	slider.PositionDelegate = slider.PositionAt
 
@@ -193,6 +202,8 @@ func NewSlider(data []string) *Slider {
 	slider.samples = make([]int, slider.RepeatCount+1)
 	slider.sampleSets = make([]int, slider.RepeatCount+1)
 	slider.additionSets = make([]int, slider.RepeatCount+1)
+	slider.sampleIndices = make([]int, slider.RepeatCount+1)
+	slider.sampleFiles = make([]string, slider.RepeatCount+1)
 	slider.sampleVolumes = make([]float64, slider.RepeatCount+1)
 
 	f, _ := strconv.ParseInt(data[4], 10, 64)
@@ -236,11 +247,22 @@ func NewSlider(data []string) *Slider {
 			slider.sampleSets[i] = sampleSet
 			slider.additionSets[i] = additionSet
 
+			if len(extras) > 2 {
+				sampleIndex, _ := strconv.Atoi(extras[2])
+				if sampleIndex > 0 {
+					slider.sampleIndices[i] = sampleIndex
+				}
+			}
+
 			if len(extras) > 3 {
 				volume, err := strconv.ParseFloat(extras[3], 64)
 				if err == nil {
 					slider.sampleVolumes[i] = volume / 100
 				}
+			}
+
+			if len(extras) > 4 {
+				slider.sampleFiles[i] = extras[4]
 			}
 		}
 	}
@@ -1110,7 +1132,11 @@ func (slider *Slider) Update(time float64) bool {
 
 	if automaticSliderEdgesEnabled() {
 		if slider.lastTime < slider.StartTime && time >= slider.StartTime {
-			slider.HitEdge(0, time, true)
+			// Automatic presentation is effectively autoplay. Keep the visual hit
+			// on the frame that processes it, but schedule the sample at the
+			// authored start. Ruleset-driven play uses the actual judgment time.
+			slider.ArmStart(true, time)
+			slider.playEdgeSampleAt(0, slider.StartTime)
 			slider.InitSlide(slider.StartTime)
 		}
 
@@ -1134,7 +1160,7 @@ func (slider *Slider) Update(time float64) bool {
 
 			if time < p.Time {
 				break
-			} else if slider.lastTime < p.Time {
+			} else if slider.lastTime < p.Time && automaticObjectPresentationEnabled() {
 				if p.IsReverse {
 					slider.HitEdge(p.EdgeIndex, time, true)
 				} else {
@@ -1424,15 +1450,17 @@ func (slider *Slider) PlaySlideSamples(time float64) {
 		return
 	}
 
-	point := slider.Timings.GetPointAt(time)
+	point := slider.sliderSamplePoint()
 
 	sampleSet := slider.BasicHitSound.SampleSet
 	if sampleSet == 0 {
 		sampleSet = point.SampleSet
 	}
 
+	position := slider.audioPositionAt(time)
+
 	audio.PlaySliderLoopsAt(&slider.audioLoops, time, sampleSet, slider.BasicHitSound.AdditionSet, slider.baseSample,
-		point.SampleIndex, point.SampleVolume, slider.HitObjectID, slider.Pos.X64())
+		point.SampleIndex, point.SampleVolume, slider.HitObjectID, position.X64())
 }
 
 func (slider *Slider) StopSlideSamples() {
@@ -1443,33 +1471,41 @@ func (slider *Slider) StopSlideSamples() {
 }
 
 func (slider *Slider) PlayEdgeSample(index int) {
+	slider.playEdgeSampleAt(index, slider.audioNodeTime(index))
+}
+
+func (slider *Slider) playEdgeSampleAt(index int, playbackTime float64) {
 	if slider.audioSubmissionDisabled {
 		return
 	}
-	if index < 0 || index >= len(slider.sampleSets) || index >= len(slider.additionSets) || index >= len(slider.samples) {
+	if index < 0 || index >= len(slider.sampleSets) || index >= len(slider.additionSets) || index >= len(slider.samples) ||
+		index >= len(slider.sampleIndices) || index >= len(slider.sampleFiles) || index >= len(slider.sampleVolumes) {
 		return
 	}
 
 	sampleSet := slider.sampleSets[index]
-	if sampleSet == 0 && index == 0 {
-		sampleSet = slider.BasicHitSound.SampleSet
+	nodeTime := slider.audioNodeTime(index)
+	edgePosition := slider.audioPositionAt(nodeTime)
+
+	point := slider.Timings.GetPointAt(nodeTime + legacySampleControlPointLeniency)
+	if slider.sampleIndices[index] > 0 {
+		point.SampleIndex = slider.sampleIndices[index]
+	}
+	if sampleSet == 0 {
+		sampleSet = point.SampleSet
+	}
+	additionSet := slider.additionSets[index]
+	if additionSet == 0 {
+		additionSet = sampleSet
 	}
 
-	eventTime := slider.StartTime + math.Floor(float64(index)*slider.partLen)
-	edgeTime := eventTime + 5
-	edgePosition := slider.GetStackedPositionAtMod(eventTime, slider.diff)
-	if slider.diff != nil && slider.diff.IsLazer() {
-		eventTime = slider.StartTime + float64(index)*slider.visualSpanDuration()
-		edgeTime = eventTime + 5
-		edgePosition = slider.GetStackedPositionAtModLazer(edgeTime-5, slider.diff)
+	if slider.sampleFiles[index] != "" {
+		audio.PlayBeatmapFileSampleAt(playbackTime, slider.sampleFiles[index], additionSet, slider.samples[index], point.SampleIndex,
+			point.SampleVolume, slider.sampleVolumes[index], slider.HitObjectID, edgePosition.X64())
+		return
 	}
 
-	customVolume := slider.sampleVolumes[index]
-	if customVolume <= 0 && index == 0 {
-		customVolume = slider.BasicHitSound.CustomVolume
-	}
-
-	slider.playSampleT(eventTime, sampleSet, slider.additionSets[index], slider.samples[index], slider.Timings.GetPointAt(edgeTime), customVolume, edgePosition)
+	slider.playSampleT(playbackTime, sampleSet, additionSet, slider.samples[index], point, slider.sampleVolumes[index], edgePosition)
 }
 
 func (slider *Slider) HitEdge(index int, time float64, isHit bool) {
@@ -1480,7 +1516,13 @@ func (slider *Slider) HitEdge(index int, time float64, isHit bool) {
 	}
 
 	if isHit && (index == 0 || (!slider.IsPathological() && (index == slider.RepeatCount || !slider.IsSingular()))) {
-		slider.PlayEdgeSample(index)
+		if index == 0 {
+			// Slider heads are ordinary nested hitobjects in lazer. Their sample
+			// plays when the head is actually judged, not at the nominal start.
+			slider.playEdgeSampleAt(index, time)
+		} else {
+			slider.PlayEdgeSample(index)
+		}
 	}
 }
 
@@ -1489,13 +1531,46 @@ func (slider *Slider) PlayTickAt(eventTime float64) {
 		return
 	}
 
-	point := slider.Timings.GetPointAt(eventTime)
-	position := slider.GetStackedPositionAtMod(eventTime, slider.diff)
-	if slider.diff != nil && slider.diff.IsLazer() {
-		position = slider.GetStackedPositionAtModLazer(eventTime, slider.diff)
+	point := slider.sliderSamplePoint()
+	sampleSet := slider.BasicHitSound.SampleSet
+	if sampleSet == 0 {
+		sampleSet = point.SampleSet
 	}
 
-	audio.PlaySliderTickAt(eventTime, point.SampleSet, point.SampleIndex, point.SampleVolume, slider.HitObjectID, position.X64())
+	position := slider.audioPositionAt(eventTime)
+
+	audio.PlaySliderTickWithHitSoundAt(eventTime, sampleSet, slider.baseSample, point.SampleIndex, point.SampleVolume, slider.HitObjectID, position.X64())
+}
+
+func (slider *Slider) sliderSamplePoint() TimingPoint {
+	return slider.Timings.GetPointAt(slider.StartTime + legacySampleControlPointLeniency + 1)
+}
+
+func (slider *Slider) audioNodeTime(index int) float64 {
+	if index < 0 {
+		return slider.StartTime
+	}
+
+	if spanDuration := slider.visualSpanDuration(); spanDuration > 0 {
+		return slider.StartTime + float64(index)*spanDuration
+	}
+
+	// Manually-constructed and malformed sliders may not have a usable lazer
+	// duration. Preserve the legacy fallback rather than collapsing all nodes
+	// onto the head.
+	return slider.StartTime + math.Floor(float64(index)*slider.partLen)
+}
+
+func (slider *Slider) audioPositionAt(time float64) vector.Vector2f {
+	if slider.diff == nil {
+		return slider.PositionAtLazer(time)
+	}
+
+	// Audio follows the playable lazer slider path even when an imported
+	// stable replay is being judged through danser's Stable compatibility
+	// pipeline. In lazer that replay would be played through Classic on the
+	// same fractional slider geometry.
+	return slider.GetStackedPositionAtModLazer(time, slider.diff)
 }
 
 func (slider *Slider) playSampleT(eventTime float64, sampleSet, additionSet, sample int, point TimingPoint, customVolume float64, pos vector.Vector2f) {

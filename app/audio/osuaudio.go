@@ -2,7 +2,8 @@ package audio
 
 import (
 	"math"
-	"sort"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,7 +18,7 @@ import (
 const (
 	sampleSetCount = 3
 	hitSoundCount  = 7
-	minimumVolume  = 0.08
+	minimumVolume  = 0.05
 )
 
 var sets = map[string]int{
@@ -37,9 +38,11 @@ var hitsounds = map[string]int{
 }
 
 type sampleBank struct {
-	mu       sync.RWMutex
-	defaults [sampleSetCount][hitSoundCount]*bass.Sample
-	beatmap  [sampleSetCount][hitSoundCount]map[int]*bass.Sample
+	mu            sync.RWMutex
+	defaults      [sampleSetCount][hitSoundCount]*bass.Sample
+	beatmap       [sampleSetCount][hitSoundCount]map[int]*bass.Sample
+	customPaths   map[string]string
+	customSamples map[string]*bass.Sample
 }
 
 var bank sampleBank
@@ -155,16 +158,15 @@ func finite(value float64) bool {
 }
 
 func sampleBalance(xPos float64) float64 {
-	if settings.DIVIDES != 1 || !finite(xPos) || !finite(settings.Audio.HitsoundPositionMultiplier) {
+	if settings.DIVIDES != 1 || !finite(xPos) || !finite(settings.Audio.HitsoundStereoSeparation) {
 		return 0
 	}
 
-	// Slider paths may intentionally leave the osu! playfield. Position-based
-	// audio still uses the playfield as its spatial domain; clamp before the
-	// multiplier so an authored out-of-bounds coordinate cannot become a hard
-	// left/right pan.
-	xPos = mutils.Clamp(xPos, 0, 512)
-	return mutils.Clamp((xPos-256)/512*settings.Audio.HitsoundPositionMultiplier, -1, 1)
+	// Lazer treats the setting as the actual maximum balance reached at the
+	// playfield edges: level * 2 * (relativePosition - 0.5). Slider paths may
+	// extend beyond the playfield, so constrain only the final balance.
+	balance := (xPos - 256) / 256 * settings.Audio.HitsoundStereoSeparation
+	return math.Round(mutils.Clamp(balance, -1, 1)*100) / 100
 }
 
 // LoadSamples loads the standard skin samples used as the final fallback for
@@ -212,12 +214,16 @@ func PlaySampleAt(eventTime float64, sampleSet, additionSet, hitsound, index int
 
 	// Play normal. Layered skins request the normal layer even when the
 	// object's hit-sound bitmask does not contain the normal bit.
-	if skin.GetInfo().LayeredHitSounds || hitsound&1 > 0 || hitsound == 0 {
-		playSampleAt(eventTime, sampleSet, 0, index, volume*0.8, objNum, xPos)
+	if normalLayerEnabled(hitsound) {
+		playSampleAt(eventTime, sampleSet, 0, index, volume, objNum, xPos)
 	}
 
+	playAdditionsAt(eventTime, additionSet, hitsound, index, volume, objNum, xPos)
+}
+
+func playAdditionsAt(eventTime float64, additionSet, hitsound, index int, volume float64, objNum int64, xPos float64) {
 	if hitsound&2 > 0 {
-		playSampleAt(eventTime, additionSet, 1, index, volume*0.85, objNum, xPos)
+		playSampleAt(eventTime, additionSet, 1, index, volume, objNum, xPos)
 	}
 
 	if hitsound&4 > 0 {
@@ -225,8 +231,12 @@ func PlaySampleAt(eventTime float64, sampleSet, additionSet, hitsound, index int
 	}
 
 	if hitsound&8 > 0 {
-		playSampleAt(eventTime, additionSet, 3, index, volume*0.85, objNum, xPos)
+		playSampleAt(eventTime, additionSet, 3, index, volume, objNum, xPos)
 	}
+}
+
+func normalLayerEnabled(hitsound int) bool {
+	return hitsound == 0 || hitsound&1 > 0 || skin.GetInfo().LayeredHitSounds
 }
 
 func playSampleAt(eventTime float64, sampleSet, hitsoundIndex, index int, volume float64, objNum int64, xPos float64) {
@@ -251,6 +261,28 @@ func playSampleAt(eventTime float64, sampleSet, hitsoundIndex, index int, volume
 	sample.PlayRVPosAt(volume, balance, scheduledMixerTime(eventTime))
 }
 
+// PlayBeatmapFileSampleAt plays an explicit legacy hitSample filename as the
+// normal layer while preserving requested whistle/finish/clap additions. The
+// file sample itself ignores the object's bank and index. If the file is
+// unavailable (or beatmap samples are disabled), lookup falls back to the
+// ordinary normal sample, matching lazer's FileHitSampleInfo lookup chain.
+func PlayBeatmapFileSampleAt(eventTime float64, filename string, additionSet, hitsound, index int, timingVolume, customVolume float64, objNum int64, xPos float64) {
+	volume := effectiveSampleVolume(timingVolume, customVolume)
+	balance := sampleBalance(xPos)
+
+	var sample *bass.Sample
+	if !settings.Audio.IgnoreBeatmapSamples {
+		sample = resolveBeatmapFileSample(filename)
+	}
+	if sample == nil {
+		playSampleAt(eventTime, 1, 0, 1, volume, objNum, xPos)
+	} else {
+		sample.PlayRVPosAt(volume, balance, scheduledMixerTime(eventTime))
+	}
+
+	playAdditionsAt(eventTime, additionSet, hitsound, index, volume, objNum, xPos)
+}
+
 func snapshotListeners() []func(sampleSet int, hitsoundIndex, index int, volume float64, objNum int64) {
 	listenersMu.RLock()
 	defer listenersMu.RUnlock()
@@ -273,9 +305,42 @@ func resolveSample(sampleSet, hitsoundIndex, index int) *bass.Sample {
 	return bank.defaults[sampleSet-1][hitsoundIndex]
 }
 
+func resolveBeatmapFileSample(filename string) *bass.Sample {
+	key := strings.ToLower(filepath.ToSlash(filepath.Clean(strings.TrimSpace(filename))))
+	if key == "" || key == "." {
+		return nil
+	}
+
+	bank.mu.Lock()
+	defer bank.mu.Unlock()
+
+	path := bank.customPaths[key]
+	if path == "" {
+		path = bank.customPaths[strings.TrimSuffix(key, filepath.Ext(key))]
+	}
+	if path == "" {
+		return nil
+	}
+
+	if sample := bank.customSamples[path]; sample != nil {
+		return sample
+	}
+
+	sample := bass.NewSample(path)
+	if sample == nil {
+		return nil
+	}
+	if bank.customSamples == nil {
+		bank.customSamples = make(map[string]*bass.Sample)
+	}
+	bank.customSamples[path] = sample
+
+	return sample
+}
+
 func normalizeSampleSet(sampleSet int) int {
 	if sampleSet == 0 {
-		return 2
+		return 1
 	}
 	if sampleSet < 0 || sampleSet > sampleSetCount {
 		return 1
@@ -297,10 +362,9 @@ func normalizeSampleIndex(index int) int {
 	return index
 }
 
-// EffectiveSampleVolume applies the legacy precedence and the stable
-// minimum-volume floor. IgnoreBeatmapSampleVolume intentionally ignores both
-// timing-point and per-object values, but keeps component-specific weighting
-// such as the normal-layer 0.8 multiplier.
+// EffectiveSampleVolume applies the legacy precedence and osu!lazer's
+// minimum gameplay-sample volume. IgnoreBeatmapSampleVolume intentionally
+// ignores both timing-point and per-object values.
 func EffectiveSampleVolume(timingVolume, customVolume float64) float64 {
 	return effectiveSampleVolume(timingVolume, customVolume)
 }
@@ -356,7 +420,7 @@ func PlaySliderLoopsAt(state *SliderLoopState, eventTime float64, sampleSet, add
 		stopLoop(&state.whistle)
 	}
 
-	if hitsound&2 == 0 || skin.GetInfo().LayeredHitSounds {
+	if normalLayerEnabled(hitsound) {
 		needsNew := state.slide == nil || state.lastSampleSet != sampleSet || state.lastIndex != index
 		if needsNew {
 			stopLoop(&state.slide)
@@ -422,14 +486,34 @@ func sampleOutputVolume(volume float64) float64 {
 	return settings.Audio.GeneralVolume * settings.Audio.SampleVolume * volume
 }
 
-// PlaySliderTickAt plays the tick at its nominal event timestamp.
+// PlaySliderTickAt preserves the existing slider-tick API. The compatibility
+// path assumes a non-layered normal sample; slider objects that carry the
+// authored hit-sound bitmask should use PlaySliderTickWithHitSoundAt so the
+// legacy LayeredHitSounds setting is respected.
 func PlaySliderTickAt(eventTime float64, sampleSet, index int, volume float64, objNum int64, xPos float64) {
+	PlaySliderTickWithHitSoundAt(eventTime, sampleSet, 1, index, volume, objNum, xPos)
+}
+
+// PlaySliderTickWithHitSoundAt plays a tick at its nominal event timestamp.
+// Slider ticks inherit the slider's normal sample, including whether that
+// normal sample is legacy-layered when the object only requests additions.
+func PlaySliderTickWithHitSoundAt(eventTime float64, sampleSet, hitsound, index int, volume float64, objNum int64, xPos float64) {
+	if !normalLayerEnabled(hitsound) {
+		return
+	}
+
 	playSampleAt(eventTime, sampleSet, 4, index, effectiveSampleVolume(volume, 0), objNum, xPos)
 }
 
 // PlaySliderTick preserves the old immediate API.
 func PlaySliderTick(sampleSet, index int, volume float64, objNum int64, xPos float64) {
 	PlaySliderTickAt(currentGameplayTime(), sampleSet, index, volume, objNum, xPos)
+}
+
+// PlaySliderTickWithHitSound is the immediate counterpart of
+// PlaySliderTickWithHitSoundAt.
+func PlaySliderTickWithHitSound(sampleSet, hitsound, index int, volume float64, objNum int64, xPos float64) {
+	PlaySliderTickWithHitSoundAt(currentGameplayTime(), sampleSet, hitsound, index, volume, objNum, xPos)
 }
 
 // PlayNamedSampleAt schedules a skin sample that is not part of the hit-sound
@@ -495,14 +579,11 @@ func LoadBeatmapSamples(fileMap map[string]string) {
 	for name := range fileMap {
 		keys = append(keys, name)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 
 	for _, originalName := range keys {
 		fileName := strings.TrimSpace(originalName)
-		lowerName := strings.ToLower(fileName)
-		if strings.ContainsAny(fileName, `/\\`) {
-			continue
-		}
+		lowerName := strings.ToLower(filepath.ToSlash(filepath.Clean(fileName)))
 
 		extension := ""
 		for _, candidate := range []string{".wav", ".mp3", ".ogg"} {
@@ -516,6 +597,18 @@ func LoadBeatmapSamples(fileMap map[string]string) {
 		}
 
 		rawName := strings.TrimSuffix(lowerName, extension)
+		bank.mu.Lock()
+		if bank.customPaths == nil {
+			bank.customPaths = make(map[string]string)
+		}
+		bank.customPaths[lowerName] = fileMap[originalName]
+		bank.customPaths[rawName] = fileMap[originalName]
+		bank.mu.Unlock()
+
+		if strings.Contains(lowerName, "/") {
+			continue
+		}
+
 		parts := strings.Split(rawName, "-")
 		if len(parts) != 2 {
 			continue
@@ -592,6 +685,13 @@ func ClearBeatmapSamples() {
 			bank.beatmap[setIndex][soundIndex] = nil
 		}
 	}
+	for _, sample := range bank.customSamples {
+		if sample != nil {
+			samples = append(samples, sample)
+		}
+	}
+	bank.customPaths = nil
+	bank.customSamples = nil
 	bank.mu.Unlock()
 
 	seen := make(map[*bass.Sample]struct{}, len(samples))

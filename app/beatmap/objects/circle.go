@@ -130,7 +130,8 @@ func (circle *Circle) PlaySound(eventTime float64) {
 		return
 	}
 
-	point := circle.Timings.GetPointAt(circle.StartTime)
+	point := circle.Timings.GetPointAt(circle.StartTime + legacySampleControlPointLeniency)
+	position := circle.GetStackedStartPositionMod(circle.diff).X64()
 
 	index := circle.BasicHitSound.CustomIndex
 	sampleSet := circle.BasicHitSound.SampleSet
@@ -142,10 +143,20 @@ func (circle *Circle) PlaySound(eventTime float64) {
 	if sampleSet == 0 {
 		sampleSet = point.SampleSet
 	}
+	additionSet := circle.BasicHitSound.AdditionSet
+	if additionSet == 0 {
+		additionSet = sampleSet
+	}
 
-	audio.PlaySampleAt(eventTime, sampleSet, circle.BasicHitSound.AdditionSet, circle.sample, index,
+	if circle.BasicHitSound.Filename != "" {
+		audio.PlayBeatmapFileSampleAt(eventTime, circle.BasicHitSound.Filename, additionSet, circle.sample, index,
+			point.SampleVolume, circle.BasicHitSound.CustomVolume, circle.HitObjectID, position)
+		return
+	}
+
+	audio.PlaySampleAt(eventTime, sampleSet, additionSet, circle.sample, index,
 		point.SampleVolume, circle.BasicHitSound.CustomVolume, circle.HitObjectID,
-		circle.GetStackedStartPositionMod(circle.diff).X64())
+		position)
 }
 
 func (circle *Circle) SetTiming(timings *Timings, _ int, _ bool) {
