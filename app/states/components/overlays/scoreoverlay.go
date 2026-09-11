@@ -391,16 +391,24 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 		overlay.results.AddJudgmentResult(judgementResult, object)
 	}
 
-	if presentJudgement {
-		playerDiff := overlay.ruleset.GetPlayerDifficulty(c)
-		hitErrorEvent, includeInHitError := buildHitErrorEvent(object, judgementResult)
-		if includeInHitError {
-			overlay.hitErrorMeter.Add(play.HitErrorSample{
-				Time:   hitErrorEvent.time,
-				Offset: hitErrorEvent.offset,
-				Result: hitErrorEvent.result,
-			})
+	playerDiff := overlay.ruleset.GetPlayerDifficulty(c)
+	hitErrorEvent, includeInHitError := buildHitErrorEvent(object, judgementResult, playerDiff)
+	if includeInHitError {
+		sample := play.HitErrorSample{
+			Time:   hitErrorEvent.time,
+			Offset: hitErrorEvent.offset,
+			// osu!lazer stores the mod-derived gameplay rate on each
+			// judgement, excluding seeks and other playback adjustments.
+			GameplayRate: playerDiff.Speed,
+			Result:       hitErrorEvent.result,
+		}
+		if presentJudgement {
+			overlay.hitErrorMeter.Add(sample)
+		} else {
+			overlay.hitErrorMeter.Record(sample)
+		}
 
+		if presentJudgement {
 			var startPos *vector.Vector2f
 			if judgementResult.Number > 0 {
 				pos := overlay.ruleset.GetBeatMap().HitObjects[judgementResult.Number-1].GetStackedEndPositionMod(playerDiff)

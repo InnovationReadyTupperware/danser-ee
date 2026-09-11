@@ -2,23 +2,23 @@ package play
 
 import (
 	"math"
-	"sort"
+	"slices"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
-// scalarStatistics stores population variance using Welford's online
-// algorithm. UR uses sum-of-squares divided by the number of accepted hits,
-// so this intentionally does not use the sample-variance n-1 denominator.
-// Keeping the accumulator incremental avoids rescanning the entire replay
-// history every time a new hit arrives.
-type scalarStatistics struct {
+// unstableRateStatistics stores osu!lazer-compatible unstable-rate state using
+// Welford's online population variance. Each hit error is normalized by the
+// mod-derived gameplay rate recorded for that event before it enters the
+// accumulator.
+type unstableRateStatistics struct {
 	count        int64
 	mean         float64
 	sumOfSquares float64
 }
 
-func (statistics *scalarStatistics) Add(value float64) {
+func (statistics *unstableRateStatistics) Add(timeOffset, gameplayRate float64) {
+	value := timeOffset / gameplayRate
 	statistics.count++
 
 	delta := value - statistics.mean
@@ -27,18 +27,19 @@ func (statistics *scalarStatistics) Add(value float64) {
 	statistics.mean = nextMean
 }
 
-func (statistics scalarStatistics) standardDeviation() float64 {
+func (statistics unstableRateStatistics) value() (float64, bool) {
 	if statistics.count == 0 {
-		return 0
+		return 0, false
 	}
 
 	// Round-off can leave a mathematically zero SSE very slightly negative.
-	return math.Sqrt(max(statistics.sumOfSquares/float64(statistics.count), 0))
+	variance := max(statistics.sumOfSquares/float64(statistics.count), 0)
+	return 10 * math.Sqrt(variance), true
 }
 
-// vectorStatistics is the two-dimensional form of scalarStatistics used by
-// the aim-error meter. The accumulated SSE is the sum of squared Euclidean
-// distances from the running mean, matching the previous full-history pass.
+// vectorStatistics stores the aim-error meter's two-dimensional population
+// variance. The accumulated SSE is the sum of squared Euclidean distances from
+// the running mean, matching the previous full-history pass.
 type vectorStatistics struct {
 	count        int64
 	mean         vector.Vector2d
@@ -71,9 +72,8 @@ func median(values []float64) float64 {
 		return 0
 	}
 
-	sorted := make([]float64, len(values))
-	copy(sorted, values)
-	sort.Float64s(sorted)
+	sorted := slices.Clone(values)
+	slices.Sort(sorted)
 
 	middle := len(sorted) / 2
 	if len(sorted)%2 == 1 {

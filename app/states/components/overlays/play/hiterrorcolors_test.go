@@ -8,8 +8,6 @@ import (
 )
 
 func TestHitErrorColorForUsesLazerJudgmentResult(t *testing.T) {
-	diff := lazerDifficulty(5)
-
 	tests := []struct {
 		name   string
 		result osu.HitResult
@@ -23,30 +21,7 @@ func TestHitErrorColorForUsesLazerJudgmentResult(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := hitErrorColorFor(diff, test.result, 400); got != test.want {
-				t.Fatalf("hitErrorColorFor() = %#v, want %#v", got, test.want)
-			}
-		})
-	}
-}
-
-func TestHitErrorColorForRetainsStableIntegerThresholds(t *testing.T) {
-	diff := stableDifficulty(5)
-
-	tests := []struct {
-		name   string
-		offset float64
-		want   color2.Color
-	}{
-		{name: "inside great", offset: 0, want: legacyHitErrorGreatColor},
-		{name: "great boundary", offset: float64(diff.Hit300), want: legacyHitErrorOkColor},
-		{name: "ok boundary", offset: float64(diff.Hit100), want: legacyHitErrorMehColor},
-		{name: "outer slider head", offset: 300, want: legacyHitErrorMehColor},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := hitErrorColorFor(diff, osu.SliderStart, test.offset); got != test.want {
+			if got := hitErrorColorFor(test.result); got != test.want {
 				t.Fatalf("hitErrorColorFor() = %#v, want %#v", got, test.want)
 			}
 		})
@@ -54,7 +29,7 @@ func TestHitErrorColorForRetainsStableIntegerThresholds(t *testing.T) {
 }
 
 func TestHitErrorColorForUsesLegacyDiagnosticRed(t *testing.T) {
-	if got := hitErrorColorFor(lazerDifficulty(5), osu.PositionalMiss, 0); got != hitErrorPositionalMissColor {
+	if got := hitErrorColorFor(osu.PositionalMiss); got != hitErrorPositionalMissColor {
 		t.Fatalf("positional miss color = %#v, want %#v", got, hitErrorPositionalMissColor)
 	}
 }

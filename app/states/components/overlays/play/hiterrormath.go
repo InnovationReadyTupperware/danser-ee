@@ -65,22 +65,14 @@ func newHitErrorLayout(diff *difficulty.Difficulty, scaleWithSpeed bool) hitErro
 }
 
 func hitErrorWindowsFor(diff *difficulty.Difficulty) hitErrorWindows {
-	if diff != nil && diff.IsLazer() {
-		return hitErrorWindows{
-			great: diff.Hit300U,
-			ok:    diff.Hit100U,
-			meh:   diff.Hit50U,
-		}
-	}
-
 	if diff == nil {
 		return hitErrorWindows{}
 	}
 
 	return hitErrorWindows{
-		great: float64(diff.Hit300),
-		ok:    float64(diff.Hit100),
-		meh:   float64(diff.Hit50),
+		great: diff.Hit300U,
+		ok:    diff.Hit100U,
+		meh:   diff.Hit50U,
 	}
 }
 

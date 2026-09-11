@@ -113,11 +113,13 @@ func (r HitResult) IsScorable() bool {
 	}
 }
 
-// AffectsHitError reports whether a judgement is a successful real-object
-// timing result that can feed the hit-error meter. Slider heads are allowed
-// through their explicit slider part so Lazer Classic's LargeTickHit head is
-// retained, while nested slider results remain excluded. SliderStart is also
-// accepted without a part for the historical Stable result representation.
+// AffectsHitError reports whether a judgement belongs to the legacy result
+// classes historically accepted by danser's hit-error feed. Exact hit-error
+// eligibility also depends on the judged object's hit windows, so new overlay
+// code should apply that policy at the object-aware feed boundary instead.
+//
+// Deprecated: retained for compatibility; exact hit-error consumers must also
+// account for the judged object's hit windows.
 func (result JudgementResult) AffectsHitError() bool {
 	v := result.HitResult & (^Additions)
 

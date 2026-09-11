@@ -3,6 +3,7 @@ package overlays
 import (
 	"testing"
 
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/objects"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
@@ -10,8 +11,11 @@ import (
 
 func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 	circle := objects.DummyCircle(vector.NewVec2f(64, 64), 100)
+	fractionalCircle := objects.DummyCircle(vector.NewVec2f(64, 64), 100.25)
 	slider := &objects.Slider{HitObject: &objects.HitObject{StartTime: 100, EndTime: 500}}
 	spinner := &objects.Spinner{HitObject: &objects.HitObject{StartTime: 100, EndTime: 500}}
+	diff := difficulty.NewDifficulty(5, 5, 5, 5)
+	diff.SetGameplayMode(difficulty.GameplayStable)
 
 	tests := []struct {
 		name       string
@@ -49,14 +53,14 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 			result:     osu.JudgementResult{HitResult: osu.SliderStart, MaxResult: osu.SliderStart, Time: 125},
 			wantOK:     true,
 			wantOffset: 25,
-			wantResult: osu.SliderStart,
+			wantResult: osu.LargeTickHit,
 		},
 		{
 			name:       "slider positional miss",
 			object:     slider,
 			result:     osu.JudgementResult{HitResult: osu.PositionalMiss, MaxResult: osu.SliderStart, Time: -1000},
 			wantOK:     true,
-			wantOffset: -400,
+			wantOffset: -1100,
 			wantResult: osu.PositionalMiss,
 		},
 		{
@@ -66,6 +70,20 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 			wantOK:     true,
 			wantOffset: 25,
 			wantResult: osu.Hit300,
+		},
+		{
+			name:       "stable fractional great boundary uses Lazer window",
+			object:     fractionalCircle,
+			result:     osu.JudgementResult{HitResult: osu.Hit300, Time: 150},
+			wantOK:     true,
+			wantOffset: 49.75,
+			wantResult: osu.Hit100,
+		},
+		{
+			name:   "stable fractional outer boundary is not a Lazer timing hit",
+			object: fractionalCircle,
+			result: osu.JudgementResult{HitResult: osu.Hit50, Time: 250},
+			wantOK: false,
 		},
 		{
 			name:   "slider summary base hit",
@@ -89,7 +107,7 @@ func TestBuildHitErrorEventFiltersObjectsAndUsesHeadTime(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := buildHitErrorEvent(test.object, test.result)
+			got, ok := buildHitErrorEvent(test.object, test.result, diff)
 			if ok != test.wantOK {
 				t.Fatalf("buildHitErrorEvent() ok = %t, want %t", ok, test.wantOK)
 			}

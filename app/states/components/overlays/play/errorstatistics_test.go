@@ -5,32 +5,106 @@ import (
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
+	"github.com/innovationreadytupperware/danser-ee/framework/math/animation"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
-func TestScalarStatisticsMatchesPopulationStandardDeviation(t *testing.T) {
+func TestUnstableRateStatisticsMatchesLazerRateNormalization(t *testing.T) {
+	type sample struct {
+		offset float64
+		rate   float64
+	}
+
 	tests := []struct {
-		name   string
-		values []float64
+		name    string
+		samples []sample
+		want    float64
+		valid   bool
 	}{
 		{name: "empty"},
-		{name: "single", values: []float64{12}},
-		{name: "signed values", values: []float64{-12, -4, 8, 20}},
-		{name: "repeated values", values: []float64{7, 7, 7, 7}},
+		{name: "single", samples: []sample{{offset: 12, rate: 1}}, valid: true},
+		{
+			name: "distributed hits",
+			samples: []sample{
+				{offset: -10, rate: 1},
+				{offset: -9, rate: 1},
+				{offset: -8, rate: 1},
+				{offset: -7, rate: 1},
+				{offset: -6, rate: 1},
+				{offset: -5, rate: 1},
+				{offset: -4, rate: 1},
+				{offset: -3, rate: 1},
+				{offset: -2, rate: 1},
+				{offset: -1, rate: 1},
+				{offset: 0, rate: 1},
+			},
+			want:  10 * math.Sqrt(10),
+			valid: true,
+		},
+		{
+			name: "static rate change",
+			samples: []sample{
+				{offset: -150, rate: 1.5},
+				{offset: -150, rate: 1.5},
+				{offset: 150, rate: 1.5},
+				{offset: 150, rate: 1.5},
+			},
+			want:  1000,
+			valid: true,
+		},
+		{
+			name: "dynamic rate change",
+			samples: []sample{
+				{offset: -50, rate: 0.5},
+				{offset: 75, rate: 0.75},
+				{offset: -100, rate: 1},
+				{offset: 125, rate: 1.25},
+			},
+			want:  1000,
+			valid: true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var statistics scalarStatistics
-			for _, value := range test.values {
-				statistics.Add(value)
+			var statistics unstableRateStatistics
+			for _, sample := range test.samples {
+				statistics.Add(sample.offset, sample.rate)
 			}
 
-			want := populationStandardDeviation(test.values)
-			if math.Abs(statistics.standardDeviation()-want) > 1e-12 {
-				t.Fatalf("standardDeviation() = %.15g, want %.15g", statistics.standardDeviation(), want)
+			got, valid := statistics.value()
+			if valid != test.valid {
+				t.Fatalf("value() valid = %t, want %t", valid, test.valid)
+			}
+			if math.Abs(got-test.want) > 1e-12 {
+				t.Fatalf("value() = %.15g, want %.15g", got, test.want)
 			}
 		})
+	}
+}
+
+func TestHitErrorMeterKeepsRawOffsetsWhileNormalizingURPerEvent(t *testing.T) {
+	meter := &HitErrorMeter{urGlider: animation.NewTargetGlider(0, 0)}
+	samples := []HitErrorSample{
+		{Offset: -50, GameplayRate: 0.5, Result: osu.Hit300},
+		{Offset: 75, GameplayRate: 0.75, Result: osu.Hit300},
+		{Offset: -100, GameplayRate: 1, Result: osu.Hit300},
+		{Offset: 125, GameplayRate: 1.25, Result: osu.Hit300},
+	}
+
+	for _, sample := range samples {
+		meter.Record(sample)
+	}
+
+	if !meter.HasUnstableRate() {
+		t.Fatal("HasUnstableRate() = false, want true after timing hits")
+	}
+	if got := meter.GetUnstableRate(); math.Abs(got-1000) > 1e-12 {
+		t.Fatalf("GetUnstableRate() = %g, want 1000", got)
+	}
+	if got := meter.GetMedian(); got != 12.5 {
+		t.Fatalf("GetMedian() = %g, want raw-offset median 12.5", got)
 	}
 }
 
@@ -118,11 +192,20 @@ func TestHitErrorLayoutUsesActiveMaximumWindow(t *testing.T) {
 		})
 	}
 
-	if got, want := newHitErrorLayout(stableDifficulty(0), false).barHalfWidth, 160.0; got != want {
+	if got, want := newHitErrorLayout(stableDifficulty(0), false).barHalfWidth, 159.6; math.Abs(got-want) > 1e-12 {
 		t.Fatalf("Stable OD0 half-width = %g, want %g", got, want)
 	}
-	if got, want := newHitErrorLayout(stableDifficulty(10), false).barHalfWidth, 80.0; got != want {
+	if got, want := newHitErrorLayout(stableDifficulty(10), false).barHalfWidth, 79.6; math.Abs(got-want) > 1e-12 {
 		t.Fatalf("Stable OD10 half-width = %g, want %g", got, want)
+	}
+}
+
+func TestHitErrorLayoutUsesLazerWindowsIndependentOfGameplayMode(t *testing.T) {
+	stable := stableDifficulty(5)
+	lazer := lazerDifficulty(5)
+
+	if got, want := hitErrorWindowsFor(stable), hitErrorWindowsFor(lazer); got != want {
+		t.Fatalf("Stable replay windows = %#v, want osu!lazer Classic windows %#v", got, want)
 	}
 }
 

@@ -225,10 +225,10 @@ func NewRankingPanel(cursor *graphics.Cursor, ruleset *osu.OsuRuleSet, hitError 
 	}
 
 	stats += "\n"
-	stats += fmt.Sprintf("Unstable Rate: %.2f", hitError.GetUnstableRate())
-
-	if panel.ruleset.GetBeatMap().Diff.Speed != 1.0 {
-		stats += fmt.Sprintf("\n                             (%.2f)", hitError.GetUnstableRateConverted())
+	if hitError.HasUnstableRate() {
+		stats += fmt.Sprintf("Unstable Rate: %.2f", hitError.GetUnstableRate())
+	} else {
+		stats += "Unstable Rate: n/a"
 	}
 
 	panel.stats = strings.Split(stats, "\n")

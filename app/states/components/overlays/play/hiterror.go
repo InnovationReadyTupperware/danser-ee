@@ -39,8 +39,14 @@ type HitErrorSample struct {
 	// Offset is the signed timing error in milliseconds, after feed-level
 	// clamping to the object's maximum judgment window.
 	Offset float64
-	// Result identifies the actual result so Lazer-specific slider-head
-	// colors can be selected without reconstructing the judgment taxonomy.
+	// GameplayRate is the mod-derived gameplay rate recorded for the judgment.
+	// It excludes seek and playback adjustments, matching osu!lazer's true
+	// gameplay-rate contract. osu!lazer normalizes each timing offset by this
+	// value before calculating unstable rate.
+	GameplayRate float64
+	// Result identifies the osu!lazer-compatible timing result used to color
+	// the judgment line. Stable slider heads are translated to Classic's
+	// LargeTickHit before reaching the meter.
 	Result osu.HitResult
 }
 
@@ -185,8 +191,7 @@ type HitErrorMeter struct {
 	errorCurrent  float64
 
 	timingErrors []float64
-	statistics   scalarStatistics
-	unstableRate float64
+	statistics   unstableRateStatistics
 	avgPos       float64
 	avgNeg       float64
 
@@ -298,16 +303,56 @@ func (meter *HitErrorMeter) numericURScale() float64 {
 	return meter.barScale * hitErrorVisualScale(settings.Gameplay.HitErrorMeter.UnstableRateScale)
 }
 
-// Add records and renders one hit-error event. The result is required so
-// Lazer-mode Classic slider heads can use their actual LargeTickHit color
-// instead of having their line color inferred from the timing offset.
+// Add records one hit-error event and presents its short-lived HUD feedback.
 func (meter *HitErrorMeter) Add(sample HitErrorSample) {
+	meter.add(sample, true)
+}
+
+// Record adds one hit-error event to persistent timing statistics without
+// replaying its short-lived HUD feedback. Initial catch-up uses this path.
+func (meter *HitErrorMeter) Record(sample HitErrorSample) {
+	meter.add(sample, false)
+}
+
+func (meter *HitErrorMeter) add(sample HitErrorSample, present bool) {
 	if math.IsNaN(sample.Time) || math.IsInf(sample.Time, 0) || math.IsNaN(sample.Offset) || math.IsInf(sample.Offset, 0) {
 		return
 	}
-	meter.syncGeometry()
 
 	positionalMiss := sample.Result == osu.PositionalMiss
+	if present {
+		meter.presentSample(sample, positionalMiss)
+	}
+
+	if positionalMiss {
+		return
+	}
+
+	if sample.GameplayRate <= 0 || math.IsNaN(sample.GameplayRate) || math.IsInf(sample.GameplayRate, 0) {
+		return
+	}
+
+	if sample.Offset >= 0 {
+		meter.averageP += sample.Offset
+		meter.countP++
+	} else {
+		meter.averageN += sample.Offset
+		meter.countN++
+	}
+
+	meter.timingErrors = append(meter.timingErrors, sample.Offset)
+	meter.statistics.Add(sample.Offset, sample.GameplayRate)
+
+	meter.avgNeg = meter.averageN / max(float64(meter.countN), 1)
+	meter.avgPos = meter.averageP / max(float64(meter.countP), 1)
+
+	unstableRate, _ := meter.statistics.value()
+	meter.urGlider.SetValue(unstableRate, settings.Gameplay.HitErrorMeter.StaticUnstableRate)
+}
+
+func (meter *HitErrorMeter) presentSample(sample HitErrorSample, positionalMiss bool) {
+	meter.syncGeometry()
+
 	if positionalMiss && !settings.Gameplay.HitErrorMeter.ShowPositionalMisses {
 		return
 	}
@@ -333,7 +378,7 @@ func (meter *HitErrorMeter) Add(sample HitErrorSample) {
 		lineThickness,
 		heightMultiplier,
 		baseAlpha,
-		hitErrorColorFor(meter.diff, sample.Result, sample.Offset),
+		hitErrorColorFor(sample.Result),
 		additive,
 	)
 
@@ -358,27 +403,6 @@ func (meter *HitErrorMeter) Add(sample HitErrorSample) {
 	meter.urDisplayFade.Reset()
 	meter.urDisplayFade.SetValue(1)
 	meter.urDisplayFade.AddEventSEase(sample.Time+4000, sample.Time+5000, 1, 0, easing.InQuad)
-
-	if sample.Offset >= 0 {
-		meter.averageP += sample.Offset
-		meter.countP++
-	} else {
-		meter.averageN += sample.Offset
-		meter.countN++
-	}
-
-	meter.timingErrors = append(meter.timingErrors, sample.Offset)
-	// Keep the accumulator in raw replay-time units. Since gameplay speed is
-	// constant for a play, dividing the resulting standard deviation by Speed
-	// is algebraically equivalent to Lazer's per-sample normalization and
-	// preserves danser's existing raw/converted getter contract.
-	meter.statistics.Add(sample.Offset)
-
-	meter.avgNeg = meter.averageN / max(float64(meter.countN), 1)
-	meter.avgPos = meter.averageP / max(float64(meter.countP), 1)
-	meter.unstableRate = meter.statistics.standardDeviation() * 10
-
-	meter.urGlider.SetValue(meter.GetUnstableRateConverted(), settings.Gameplay.HitErrorMeter.StaticUnstableRate)
 }
 
 func hitErrorFadeDuration() float64 {
@@ -524,16 +548,24 @@ func (meter *HitErrorMeter) GetMedianConverted() float64 {
 	return meter.GetMedian() / meter.speed()
 }
 
-// GetUnstableRate returns the raw unstable rate calculated from accepted hit
-// offsets.
+// GetUnstableRate returns osu!lazer-compatible unstable rate, with each
+// accepted timing offset normalized by its gameplay rate.
 func (meter *HitErrorMeter) GetUnstableRate() float64 {
-	return meter.unstableRate
+	unstableRate, _ := meter.statistics.value()
+	return unstableRate
 }
 
-// GetUnstableRateConverted returns the unstable rate after gameplay-speed
-// conversion.
+// HasUnstableRate reports whether at least one timing hit contributes to UR.
+func (meter *HitErrorMeter) HasUnstableRate() bool {
+	return meter.statistics.count > 0
+}
+
+// GetUnstableRateConverted returns the same gameplay-rate-normalized value as
+// GetUnstableRate.
+//
+// Deprecated: unstable rate is normalized per event; use GetUnstableRate.
 func (meter *HitErrorMeter) GetUnstableRateConverted() float64 {
-	return meter.unstableRate / meter.speed()
+	return meter.GetUnstableRate()
 }
 
 func (meter *HitErrorMeter) speed() float64 {

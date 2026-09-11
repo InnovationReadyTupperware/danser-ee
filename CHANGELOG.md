@@ -6,7 +6,9 @@
 
 ### Fixed
 
-- Overlapping objects now pile up in the same positions as in osu!lazer for all playback
+- Overlapping objects now stack in the same positions as in osu!lazer
+- Unstable Rate now normalizes each timing hit by its gameplay rate before calculation
+- Results now show `N/A` when no timed hits contribute to UR
 
 ## 1.1.0-alpha.1 - 2026-09-08
 
@@ -61,9 +63,8 @@
   - New `-solo-knockout` flag to enable it, with `-tag` setting the participant count and `-cursors` the mirrored cursor views
 - Added Lazer-compatible osu!standard judgments for slider parts
   - New `Objects.Sliders.ShowSliderJudgmentMarkers` displays supported misses with the `slidertickmiss` and `sliderendmiss` skin components
-- Added Lazer-compatible hit-error statistics and detailed feedback controls
-  - Includes timing lines, customizable bars, and median hit error on the results screen
-  - Added `Gameplay.HitErrorMeter.ShowColorBar`, `ShowMovingAverage`, `JudgmentLineThickness`, and `PointFadeOutTime` controls
+- Added more hit error bar customization and brought its behavior closer to osu!lazer
+  - New `Gameplay.HitErrorMeter.ShowColorBar` (on by default), `ShowMovingAverage` (on by default), and `JudgmentLineThickness` (3 o!px by default) controls. `PointFadeOutTime` is now shown as "Timing-line fade-out time" and still defaults to 10 seconds
 - Added separate hit-animation controls for objects and sliders
   - New `Objects.HitAnimations` and `Objects.Sliders.HitAnimations` settings, both enabled by default
   - Disabling object hit animations makes successful hit circles disappear almost immediately
@@ -98,11 +99,10 @@
 - Discord Rich Presence is disabled by default
 - New gameplay profiles use 4x MSAA by default, and the launcher visualizer also uses 4x MSAA
   - Change `Graphics.MSAA` to use a different gameplay sample count; changes take effect after restarting danser
-- Positional misses are hidden by default in new profiles
-  - Enable `Gameplay.HitErrorMeter.ShowPositionalMisses` when needed
+- `Gameplay.HitErrorMeter.ShowPositionalMisses` now defaults to false in new profiles
 - New profiles use a short slider-body fade after the slider ends
   - Enable `Objects.Sliders.Snaking.OutFadeInstant` for an instant fade
-- `Gameplay.HitErrorMeter.UnstableRateScale`, shown as `Numeric UR size`, now scales and positions the UR number relative to the hit-error bar
+- `Gameplay.HitErrorMeter.UnstableRateScale`, shown as `Numeric UR size`, now scales the numeric UR readout relative to the hit-error bar
 - File and folder selection now uses platform-integrated dialogs
   - Windows uses native dialogs
   - Linux uses `zenity` or `kdialog` when available
