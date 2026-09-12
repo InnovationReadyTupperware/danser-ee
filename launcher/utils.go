@@ -1,9 +1,7 @@
 package launcher
 
 import (
-	"errors"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -12,7 +10,6 @@ import (
 	"github.com/AllenDang/cimgui-go/imgui"
 	"github.com/Zyko0/go-sdl3/sdl"
 
-	appUtils "github.com/innovationreadytupperware/danser-ee/app/utils"
 	"github.com/innovationreadytupperware/danser-ee/framework/env"
 	"github.com/innovationreadytupperware/danser-ee/framework/platform"
 )
@@ -47,45 +44,6 @@ func showMessage(typ messageType, format string, args ...any) bool {
 
 	return false
 }
-
-func checkForUpdates(pingUpToDate bool) {
-	status, url, err := appUtils.CheckForUpdate()
-	showUpdateResult(status, url, err, pingUpToDate)
-}
-
-// showUpdateResult applies an already completed update check on the launcher
-// thread. The network request is intentionally separate so opening the
-// launcher cannot stall on GitHub or display an SDL dialog from a worker.
-//
-// Automatic startup checks never interrupt the user: failures are logged and
-// the launcher carries on. Only an explicit check from the about panel
-// reports failures, and a repository without published releases (private or
-// otherwise) is explained rather than presented as an error.
-func showUpdateResult(status appUtils.UpdateStatus, url string, err error, pingUpToDate bool) {
-	switch status {
-	case appUtils.Ignored, appUtils.UpToDate:
-		if pingUpToDate {
-			showMessage(mInfo, "You're using the newest version of danser.")
-		}
-	case appUtils.Failed:
-		if errors.Is(err, appUtils.ErrNoReleases) {
-			if pingUpToDate {
-				showMessage(mInfo, "Automatic update checks are unavailable: GitHub has no published releases for danser-ee. The repository may be private or not publishing releases yet.")
-			} else {
-				log.Printf("Launcher: automatic update check skipped: %v", err)
-			}
-		} else if pingUpToDate {
-			showMessage(mError, "Can't get version from GitHub: %s", err)
-		} else {
-			log.Printf("Launcher: automatic update check failed: %v", err)
-		}
-	case appUtils.UpdateAvailable:
-		if showMessage(mQuestion, "You're using an older version of danser.\nYou can download a newer version here: %s\n\nDo you want to go there?", url) {
-			platform.OpenURL(url)
-		}
-	}
-}
-
 func textColumn(text string) {
 	imgui.TableNextColumn()
 	imgui.TextUnformatted(text)

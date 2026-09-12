@@ -30,7 +30,7 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/osuapi"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/app/states/components/common"
-	appUtils "github.com/innovationreadytupperware/danser-ee/app/utils"
+	appUpdate "github.com/innovationreadytupperware/danser-ee/app/update"
 	"github.com/innovationreadytupperware/danser-ee/build"
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
 	"github.com/innovationreadytupperware/danser-ee/framework/bass"
@@ -50,6 +50,8 @@ import (
 )
 
 type Mode int
+
+const productDisplayName = "Danser Enterprise Edition"
 
 const (
 	CursorDance Mode = iota
@@ -135,11 +137,12 @@ type catalogProgressState struct {
 const catalogProgressVisibilityThreshold = 128
 
 type launcher struct {
-	runtimeDone   <-chan struct{}
-	runtimeCancel context.CancelFunc
-	runtimeEvents chan launcherEvent
-	shutdownOnce  sync.Once
-	backgroundWG  sync.WaitGroup
+	runtimeContext context.Context
+	runtimeDone    <-chan struct{}
+	runtimeCancel  context.CancelFunc
+	runtimeEvents  chan launcherEvent
+	shutdownOnce   sync.Once
+	backgroundWG   sync.WaitGroup
 
 	bg *common.Background
 
@@ -242,15 +245,16 @@ func StartLauncher() {
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
 
 	launcher := &launcher{
-		runtimeDone:   runtimeCtx.Done(),
-		runtimeCancel: runtimeCancel,
-		runtimeEvents: make(chan launcherEvent, launcherEventQueueCapacity),
-		bld:           newBuilder(),
-		catalog:       database.NewCatalogSnapshot(nil),
-		popupStack:    make([]iPopup, 0),
-		winter:        (cTime.Month() == 12 && cTime.Day() >= 6) || (cTime.Month() < 2),
-		christmas:     cTime.Month() == 12 && cTime.Day() >= 6,
-		cHold:         make(map[string]*bool),
+		runtimeContext: runtimeCtx,
+		runtimeDone:    runtimeCtx.Done(),
+		runtimeCancel:  runtimeCancel,
+		runtimeEvents:  make(chan launcherEvent, launcherEventQueueCapacity),
+		bld:            newBuilder(),
+		catalog:        database.NewCatalogSnapshot(nil),
+		popupStack:     make([]iPopup, 0),
+		winter:         (cTime.Month() == 12 && cTime.Day() >= 6) || (cTime.Month() < 2),
+		christmas:      cTime.Month() == 12 && cTime.Day() >= 6,
+		cHold:          make(map[string]*bool),
 	}
 	launcher.songSelectCatalogWorker = newSongSelectCatalogWorker()
 
@@ -364,7 +368,7 @@ func (l *launcher) startContext(ctx context.Context) {
 		iconName += "-s"
 	}
 
-	if err := gcontext.SDLCreateWindow(800, 534, "Danser Enterprise Edition "+build.Version, gcontext.OptionalProps{
+	if err := gcontext.SDLCreateWindow(800, 534, productDisplayName+" "+build.Version, gcontext.OptionalProps{
 		IconName:       iconName,
 		ScaleToMonitor: true,
 		BuiltinMSAA:    true,
@@ -451,26 +455,14 @@ func (l *launcher) startBackgroundTasks(ctx context.Context) {
 	}
 
 	checkUpdates := launcherConfig.CheckForUpdates
+	if checkUpdates {
+		l.runBackgroundTask(func() {
+			outcome := appUpdate.Default().Check(ctx, appUpdate.Automatic)
+			logLauncherUpdateOutcome(outcome)
+		})
+	}
 
-	l.backgroundWG.Add(1)
-	go func() {
-		defer l.backgroundWG.Done()
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				log.Printf("Launcher: Background startup task panicked: %v", recovered)
-			}
-		}()
-
-		if checkUpdates {
-			status, url, err := appUtils.CheckForUpdateContext(ctx)
-			if !l.postEventContext(ctx, launcherEvent{
-				kind: launcherStartupTaskEvent,
-				task: func() { showUpdateResult(status, url, err, false) },
-			}) {
-				return
-			}
-		}
-
+	l.runBackgroundTask(func() {
 		if refreshErr := osuapi.TryRefreshTokenContext(ctx); refreshErr != nil && ctx.Err() == nil {
 			l.postEventContext(ctx, launcherEvent{
 				kind: launcherStartupTaskEvent,
@@ -479,7 +471,44 @@ func (l *launcher) startBackgroundTasks(ctx context.Context) {
 				},
 			})
 		}
-	}()
+	})
+}
+
+func (l *launcher) runBackgroundTask(task func()) {
+	if task == nil {
+		return
+	}
+
+	l.backgroundWG.Go(func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("Launcher: background task panicked: %v", recovered)
+			}
+		}()
+		task()
+	})
+}
+
+func logLauncherUpdateOutcome(outcome appUpdate.Outcome) {
+	if !outcome.Performed {
+		return
+	}
+
+	snapshot := outcome.Snapshot
+	switch snapshot.Status {
+	case appUpdate.StatusUpdateAvailable:
+		if snapshot.LatestVersion != "" {
+			log.Printf("Launcher: danser-ee %s is available: %s", snapshot.LatestVersion, snapshot.ReleaseURL)
+		} else {
+			log.Printf("Launcher: a newer danser-ee release is available: %s", snapshot.ReleaseURL)
+		}
+	case appUpdate.StatusNoReleases:
+		log.Printf("Launcher: automatic update check found no published releases")
+	case appUpdate.StatusFailed:
+		if outcome.Err != nil && !errors.Is(outcome.Err, context.Canceled) {
+			log.Printf("Launcher: automatic update check failed: %v", outcome.Err)
+		}
+	}
 }
 
 func (l *launcher) loadBeatmaps(after func()) {
@@ -1829,9 +1858,7 @@ func (l *launcher) drawConfigPanel() {
 		imgui.TableNextColumn()
 
 		if imgui.Button("About") {
-			l.openPopup(newPopupF("About", popDynamic, func() {
-				drawAbout(l.coin.Texture.Texture)
-			}))
+			l.openAboutDialog()
 		}
 
 		imgui.TableNextColumn()

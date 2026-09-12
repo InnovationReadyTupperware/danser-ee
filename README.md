@@ -244,7 +244,8 @@ The `ee` stands for **Enterprise Edition** - intentionally grandiose naming for 
 * `-skin` - overrides `Skin.CurrentSkin` in settings
 * `-cs`, `-ar`, `-od`, `-hp` - overrides maps' difficulty settings (values outside of osu!'s normal limits accepted). Ignored if DA (Difficulty Adjust) mod is specified in `-mods2`
 * `-nodbcheck` - skips updating the database with new, changed or deleted maps
-* `-noupdatecheck` - skips checking GitHub for a newer version of danser
+* `-noupdatecheck` - skips checking GitHub for a newer version of danser-ee
+* `-include-prerelease-updates` - includes alpha, beta, and release candidate versions in update checks
 * `-ss=20.5` - creates a screenshot at the given time in .png format
 * `-quickstart` - skips intro (`-skip` flag), sets `LeadInTime` and `LeadInHold` to 0.
 * `-offset=20` - local audio offset in ms, applies to recordings unlike `Audio.Offset`. ~~Inverted compared to stable~~ not anymore.

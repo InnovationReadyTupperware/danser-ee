@@ -8,9 +8,7 @@ import (
 
 	"github.com/AllenDang/cimgui-go/imgui"
 
-	"github.com/innovationreadytupperware/danser-ee/build"
-	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
-	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	appUpdate "github.com/innovationreadytupperware/danser-ee/app/update"
 )
 
 func drawSpeedMenu(bld *builder) {
@@ -381,69 +379,15 @@ func screenshotTimeNeedsConfiguration(bld *builder, mode Mode) bool {
 		value > float32(maxTime)
 }
 
-func drawAbout(dTex texture.Texture) {
-	centerTable("about1", -1, func() {
-		texRef := imgui.NewTextureRefTextureID(imgui.TextureID(dTex.GetID()))
-		defer texRef.Destroy()
-
-		imgui.Image(*texRef, vec2(100, 100))
-	})
-
-	centerTable("about2", -1, func() {
-		imgui.TextUnformatted("danser-ee " + build.Version)
-	})
-
-	centerTable("about3", -1, func() {
-		if imgui.Button("Check for updates") {
-			checkForUpdates(true)
-		}
-	})
-
-	imgui.Dummy(vec2(1, imgui.FrameHeight()))
-
-	centerTable("about4.1", -1, func() {
-		imgui.TextUnformatted("Advanced visualisation multi-tool")
-	})
-
-	centerTable("about4.2", -1, func() {
-		imgui.TextUnformatted("for osu!")
-	})
-
-	imgui.Dummy(vec2(1, imgui.FrameHeight()))
-
-	if imgui.BeginTableV("about5", 3, imgui.TableFlagsSizingStretchSame, vec2(-1, 0), -1) {
-		imgui.TableNextColumn()
-
-		centerTable("aboutgithub", -1, func() {
-			if imgui.Button("GitHub") {
-				platform.OpenURL("https://github.com/InnovationReadyTupperware/danser-ee")
-			}
-		})
-
-		imgui.TableNextColumn()
-
-		centerTable("aboutdonate", -1, func() {
-			if imgui.Button("Donate") {
-				platform.OpenURL("https://wieku.me/donate")
-			}
-		})
-
-		imgui.TableNextColumn()
-
-		centerTable("aboutdiscord", -1, func() {
-			if imgui.Button("Discord") {
-				platform.OpenURL("https://wieku.me/lair")
-			}
-		})
-
-		imgui.EndTable()
-	}
-}
-
 func drawLauncherConfig() {
 	imgui.PushStyleVarVec2(imgui.StyleVarCellPadding, vec2(imgui.CurrentStyle().CellPadding().X, 10))
 
 	checkboxOption("Check for updates on startup", &launcherConfig.CheckForUpdates)
+	includePrerelease := launcherConfig.IncludePrereleaseUpdates
+	checkboxOption("Include pre-release updates", &launcherConfig.IncludePrereleaseUpdates)
+	if launcherConfig.IncludePrereleaseUpdates != includePrerelease {
+		appUpdate.Default().SetIncludePrereleaseUpdates(launcherConfig.IncludePrereleaseUpdates)
+	}
 
 	checkboxOption("Load latest replay on startup", &launcherConfig.LoadLatestReplay)
 

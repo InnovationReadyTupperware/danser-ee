@@ -83,7 +83,8 @@ go run tools/assets/assets.go ./ $BUILD_DIR/
 
 cp $BUILD_DIR/danser.syso danser.syso
 
-go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.Version=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release' -X 'github.com/innovationreadytupperware/danser-ee/build.Branch=$branch'" -buildmode=c-shared -o $BUILD_DIR/danser-core.dll -v -x -tags "exclude_cimgui_glfw exclude_cimgui_sdli"
+# Keep developer-only launcher controls out of packaged binaries
+go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.Version=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release' -X 'github.com/innovationreadytupperware/danser-ee/build.Branch=$branch'" -buildmode=c-shared -o $BUILD_DIR/danser-core.dll -v -x -tags "danser_release exclude_cimgui_glfw exclude_cimgui_sdli"
 
 rm -f danser.syso
 

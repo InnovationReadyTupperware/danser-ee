@@ -97,10 +97,13 @@ func TestPopupDialogConditionalCloseEvaluatesAfterAction(t *testing.T) {
 
 func TestPopupDialogOptionsApplyReusableBehavior(t *testing.T) {
 	scrim := imgui.Vec4{X: 0.1, Y: 0.2, Z: 0.3, W: 0.4}
+	accessoryDrawn := false
 	dialog := newPopupDialog(
 		"options",
 		"Options",
 		withPopupDialogTone(popupDialogToneWarning),
+		withPopupDialogHeaderAccessory(vec2(32, 32), func(popupDialogPalette) { accessoryDrawn = true }),
+		withPopupDialogPlainBody(),
 		withPopupDialogExtraAction(newPopupDialogAction("Help", nil)),
 		withPopupDialogDismissOnEscape(false),
 		withPopupDialogDismissOnClickOutside(false),
@@ -109,6 +112,16 @@ func TestPopupDialogOptionsApplyReusableBehavior(t *testing.T) {
 
 	if dialog.tone != popupDialogToneWarning {
 		t.Fatalf("tone = %v, want warning", dialog.tone)
+	}
+	if dialog.headerAccessory == nil || dialog.headerAccessory.size != vec2(32, 32) {
+		t.Fatalf("headerAccessory = %#v, want 32x32 accessory", dialog.headerAccessory)
+	}
+	if !dialog.plainBody {
+		t.Fatal("plainBody = false, want true")
+	}
+	dialog.headerAccessory.draw(popupDialogPalette{})
+	if !accessoryDrawn {
+		t.Fatal("header accessory draw callback was not retained")
 	}
 	if dialog.extraAction == nil || dialog.extraAction.label != "Help" {
 		t.Fatalf("extraAction = %#v, want Help action", dialog.extraAction)

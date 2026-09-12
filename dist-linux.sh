@@ -49,7 +49,8 @@ cmake --build "$cimgui_build_dir" --parallel
 chmod u+w "$cimgui_module/lib/linux/x64" "$cimgui_module/lib/linux/x64/cimgui.a"
 cp "$cimgui_build_dir/cimgui.a" "$cimgui_module/lib/linux/x64/cimgui.a"
 
-go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.Version=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release' -X 'github.com/innovationreadytupperware/danser-ee/build.Branch=$branch'" -buildmode=c-shared -o $BUILD_DIR/danser-core.so -v -x -tags "exclude_cimgui_glfw exclude_cimgui_sdli"
+# Keep developer-only launcher controls out of packaged binaries
+go build -trimpath -ldflags "-s -w -X 'github.com/innovationreadytupperware/danser-ee/build.Version=$build' -X 'github.com/innovationreadytupperware/danser-ee/build.Stream=Release' -X 'github.com/innovationreadytupperware/danser-ee/build.Branch=$branch'" -buildmode=c-shared -o $BUILD_DIR/danser-core.so -v -x -tags "danser_release exclude_cimgui_glfw exclude_cimgui_sdli"
 
 mv $BUILD_DIR/danser-core.so $BUILD_DIR/libdanser-core.so
 cp {libbass.so,libbass_fx.so,libbassmix.so,libyuv.so,libSDL3.so} $BUILD_DIR/

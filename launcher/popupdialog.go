@@ -70,6 +70,11 @@ type popupDialogAction struct {
 	destructive bool
 }
 
+type popupDialogHeaderAccessory struct {
+	size imgui.Vec2
+	draw func(popupDialogPalette)
+}
+
 type popupDialogDismissInput struct {
 	escapePressed        bool
 	outsideMouseReleased bool
@@ -90,11 +95,13 @@ type popupDialogPalette struct {
 type popupDialogOption func(*popupDialog)
 
 type popupDialog struct {
-	name           string
-	title          string
-	supportingText string
-	content        func()
-	validationText func() string
+	name            string
+	title           string
+	supportingText  string
+	content         func()
+	validationText  func() string
+	headerAccessory *popupDialogHeaderAccessory
+	plainBody       bool
 
 	primaryAction *popupDialogAction
 	dismissAction *popupDialogAction
@@ -185,6 +192,25 @@ func withPopupDialogContent(content func()) popupDialogOption {
 func withPopupDialogValidationText(validationText func() string) popupDialogOption {
 	return func(dialog *popupDialog) {
 		dialog.validationText = validationText
+	}
+}
+
+func withPopupDialogPlainBody() popupDialogOption {
+	return func(dialog *popupDialog) {
+		dialog.plainBody = true
+	}
+}
+
+func withPopupDialogHeaderAccessory(size imgui.Vec2, draw func(popupDialogPalette)) popupDialogOption {
+	return func(dialog *popupDialog) {
+		if draw == nil || size.X <= 0 || size.Y <= 0 {
+			return
+		}
+
+		dialog.headerAccessory = &popupDialogHeaderAccessory{
+			size: size,
+			draw: draw,
+		}
 	}
 }
 
@@ -384,7 +410,11 @@ func (d *popupDialog) drawContent(windowHeight float32, palette popupDialogPalet
 
 	if d.content != nil {
 		dummyExactY(16)
-		d.drawBody(windowHeight, palette)
+		if d.plainBody {
+			d.content()
+		} else {
+			d.drawBody(windowHeight, palette)
+		}
 	}
 
 	if d.validationText != nil {
@@ -423,9 +453,13 @@ func (d *popupDialog) drawHeader(palette popupDialogPalette) {
 	start := imgui.CursorPos()
 	available := imgui.ContentRegionAvail().X
 	titleWidth := available
+	if d.headerAccessory != nil {
+		titleWidth -= d.headerAccessory.size.X + popupDialogActionGap
+	}
 	if d.showCloseButton() {
 		titleWidth -= popupDialogCloseSize + popupDialogActionGap
 	}
+	titleWidth = max(float32(1), titleWidth)
 
 	glyph, toneColor := popupDialogToneAppearance(d.tone, palette.text)
 	if glyph != "" {
@@ -445,16 +479,27 @@ func (d *popupDialog) drawHeader(palette popupDialogPalette) {
 	imgui.PopStyleColor()
 	imgui.PopFont()
 	afterTitleY := imgui.CursorPos().Y
+	headerBottomY := afterTitleY
+	rightX := start.X + available
 
-	if !d.showCloseButton() {
-		return
+	if d.showCloseButton() {
+		rightX -= popupDialogCloseSize
+		imgui.SetCursorPos(vec2(rightX, start.Y))
+		if d.drawCloseButton(palette) {
+			d.requestDismissAt(time.Now())
+		}
+		headerBottomY = max(headerBottomY, start.Y+popupDialogCloseSize)
+		rightX -= popupDialogActionGap
 	}
 
-	imgui.SetCursorPos(vec2(start.X+available-popupDialogCloseSize, start.Y))
-	if d.drawCloseButton(palette) {
-		d.requestDismissAt(time.Now())
+	if d.headerAccessory != nil {
+		rightX -= d.headerAccessory.size.X
+		imgui.SetCursorPos(vec2(rightX, start.Y))
+		d.headerAccessory.draw(palette)
+		headerBottomY = max(headerBottomY, start.Y+d.headerAccessory.size.Y)
 	}
-	imgui.SetCursorPos(vec2(start.X, max(afterTitleY, start.Y+popupDialogCloseSize)))
+
+	imgui.SetCursorPos(vec2(start.X, headerBottomY))
 }
 
 func (d *popupDialog) drawCloseButton(palette popupDialogPalette) bool {

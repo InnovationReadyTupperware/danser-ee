@@ -2,6 +2,7 @@ package app
 
 import "C"
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -30,6 +31,7 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/ffmpeg"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/app/states"
+	appUpdate "github.com/innovationreadytupperware/danser-ee/app/update"
 	"github.com/innovationreadytupperware/danser-ee/app/utils"
 	"github.com/innovationreadytupperware/danser-ee/build"
 	"github.com/innovationreadytupperware/danser-ee/framework/assets"
@@ -169,7 +171,8 @@ func run() {
 
 		noDbCheck := flag.Bool("nodbcheck", false, "Don't validate the database and only import new beatmap sets if there are any. Useful for slow drives.")
 		rebuildDB := flag.Bool("rebuilddb", false, "Rebuild danser's beatmap catalog by rescanning the Songs folder while preserving local play statistics.")
-		noUpdCheck := flag.Bool("noupdatecheck", strings.HasPrefix(env.LibDir(), "/usr/lib/"), "Don't check for updates. Speeds up startup if older version of danser is needed for various reasons. Has no effect if danser is running as a linux package")
+		noUpdCheck := flag.Bool("noupdatecheck", strings.HasPrefix(env.LibDir(), "/usr/lib/"), "Don't check for danser-ee updates during this run. Automatic checks are disabled for Linux package installs.")
+		includePrereleaseUpdates := flag.Bool("include-prerelease-updates", false, "Include pre-release versions when checking for danser-ee updates.")
 
 		ar := flag.Float64("ar", math.NaN(), "Modify map's AR, only in cursordance/play modes")
 		od := flag.Float64("od", math.NaN(), "Modify map's OD, only in cursordance/play modes")
@@ -219,7 +222,7 @@ func run() {
 		}
 
 		if !*noUpdCheck {
-			checkForUpdates()
+			startCLIUpdateCheck(*includePrereleaseUpdates)
 		}
 
 		if *out != "" {
@@ -1172,22 +1175,39 @@ func ensureScreenFramebuffer() error {
 	return nil
 }
 
-func checkForUpdates() {
-	status, url, err := utils.CheckForUpdate()
+func startCLIUpdateCheck(includePrerelease bool) {
+	service := appUpdate.Default()
+	service.SetIncludePrereleaseUpdates(includePrerelease)
+	goroutines.Run(func() {
+		outcome := service.Check(context.Background(), appUpdate.Automatic)
+		logCLIUpdateOutcome(outcome)
+	})
+}
 
-	switch status {
-	case utils.Failed:
-		if errors.Is(err, utils.ErrNoReleases) {
-			log.Println("Update checks are unavailable:", err)
+func logCLIUpdateOutcome(outcome appUpdate.Outcome) {
+	snapshot := outcome.Snapshot
+	switch snapshot.Status {
+	case appUpdate.StatusUpdateAvailable:
+		if snapshot.LatestVersion != "" {
+			log.Printf("danser-ee %s is available.", snapshot.LatestVersion)
 		} else {
-			log.Println("Can't get version from GitHub:", err)
+			log.Println("A newer danser-ee release is available.")
 		}
-	case utils.UpToDate:
-		log.Println("You're using the newest version of danser.")
-	case utils.UpdateAvailable:
-		log.Println("You're using an older version of danser.")
-		log.Println("You can download a newer version here:", url)
-		time.Sleep(2 * time.Second)
+		if snapshot.ReleaseURL != "" {
+			log.Println("Download:", snapshot.ReleaseURL)
+		}
+	case appUpdate.StatusUpToDate:
+		if outcome.Performed {
+			log.Println("You're using the newest version of danser-ee.")
+		}
+	case appUpdate.StatusNoReleases:
+		if outcome.Performed {
+			log.Println("Update checks are unavailable: no published releases were found.")
+		}
+	case appUpdate.StatusFailed:
+		if outcome.Performed && outcome.Err != nil {
+			log.Println("Can't check for updates:", outcome.Err)
+		}
 	}
 }
 

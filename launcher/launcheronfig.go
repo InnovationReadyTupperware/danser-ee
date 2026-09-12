@@ -11,54 +11,58 @@ import (
 	"strings"
 	"time"
 
+	appUpdate "github.com/innovationreadytupperware/danser-ee/app/update"
 	"github.com/innovationreadytupperware/danser-ee/framework/env"
 	"github.com/innovationreadytupperware/danser-ee/framework/files"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 )
 
 var launcherConfig = &launcherConf{
-	Profile:          nil,
-	CheckForUpdates:  true,
-	ShowFileAfter:    true,
-	PreviewSelected:  true,
-	PreviewVolume:    0.25,
-	SortMapsBy:       Title,
-	SortAscending:    true,
-	LoadLatestReplay: false,
-	SkipMapUpdate:    false,
-	AutoRefreshDB:    false,
-	ShowJSONPaths:    false,
-	CurrentMode:      CursorDance,
-	CurrentPMode:     Watch,
+	Profile:                  nil,
+	CheckForUpdates:          true,
+	IncludePrereleaseUpdates: false,
+	ShowFileAfter:            true,
+	PreviewSelected:          true,
+	PreviewVolume:            0.25,
+	SortMapsBy:               Title,
+	SortAscending:            true,
+	LoadLatestReplay:         false,
+	SkipMapUpdate:            false,
+	AutoRefreshDB:            false,
+	ShowJSONPaths:            false,
+	CurrentMode:              CursorDance,
+	CurrentPMode:             Watch,
 }
 
 type launcherConf struct {
-	Profile          *string
-	CheckForUpdates  bool
-	ShowFileAfter    bool
-	PreviewSelected  bool
-	PreviewVolume    float64
-	SortMapsBy       SortBy
-	SortAscending    bool
-	LoadLatestReplay bool
-	SkipMapUpdate    bool
-	AutoRefreshDB    bool
-	ShowJSONPaths    bool
-	LastKnockoutPath string
-	CurrentMode      Mode
-	CurrentPMode     PMode
+	Profile                  *string
+	CheckForUpdates          bool
+	IncludePrereleaseUpdates bool
+	ShowFileAfter            bool
+	PreviewSelected          bool
+	PreviewVolume            float64
+	SortMapsBy               SortBy
+	SortAscending            bool
+	LoadLatestReplay         bool
+	SkipMapUpdate            bool
+	AutoRefreshDB            bool
+	ShowJSONPaths            bool
+	LastKnockoutPath         string
+	CurrentMode              Mode
+	CurrentPMode             PMode
 }
 
 func defaultLauncherConfig() launcherConf {
 	return launcherConf{
-		CheckForUpdates: true,
-		ShowFileAfter:   true,
-		PreviewSelected: true,
-		PreviewVolume:   0.25,
-		SortMapsBy:      Title,
-		SortAscending:   true,
-		CurrentMode:     CursorDance,
-		CurrentPMode:    Watch,
+		CheckForUpdates:          true,
+		IncludePrereleaseUpdates: false,
+		ShowFileAfter:            true,
+		PreviewSelected:          true,
+		PreviewVolume:            0.25,
+		SortMapsBy:               Title,
+		SortAscending:            true,
+		CurrentMode:              CursorDance,
+		CurrentPMode:             Watch,
 	}
 }
 
@@ -119,6 +123,7 @@ func loadLauncherConfig() {
 
 	launcherConfig.CurrentMode = mutils.Clamp(launcherConfig.CurrentMode, CursorDance, SoloKnockout)
 	launcherConfig.CurrentPMode = mutils.Clamp(launcherConfig.CurrentPMode, Watch, Screenshot)
+	appUpdate.Default().SetIncludePrereleaseUpdates(launcherConfig.IncludePrereleaseUpdates)
 
 	saveLauncherConfig()
 }

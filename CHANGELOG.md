@@ -4,8 +4,14 @@
 
 # What's new in Danser Enterprise Edition 1.1.0 Alpha 2
 
+### Added
+
+- Added `Include pre-release updates` to Launcher settings and `-include-prerelease-updates` to CLI update checks. With pre-release updates off, stable builds only check stable releases, while pre-release builds can finish their current release line without jumping to a newer pre-release line
+
 ### Changed
 
+- Redesigned About
+- Update checks no longer interrupt or delay startup
 - Retired `Audio.HitsoundPositionMultiplier` in favor of `Audio.HitsoundStereoSeparation`, which now defaults to osu!lazer's 20% and pans hitsounds left and right the same way osu!lazer does
 
 ### Fixed
