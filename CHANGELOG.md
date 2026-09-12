@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.1.0 - 2026-09-12
+
+# What's new in Danser Enterprise Edition 1.1.0
+
+### Highlights
+
+- Added support for the July 2026 osu!standard performance points and star rating rework
+- Hitsounds now follow osu!lazer's rules for sample resolution, volume, custom filenames, and stereo positioning
+- Overlapping objects now stack in the same positions as in osu!lazer
+- Recording and screenshot output settings have been redesigned, with screenshot time validated against the selected map or replay
+- Launcher and CLI startup no longer wait for update checks
+
+### Breaking Changes
+
+- Hitsound stereo positioning now matches osu!lazer, including its 20% default separation, replacing `Audio.HitsoundPositionMultiplier` with `Audio.HitsoundStereoSeparation`
+
+### Added
+
+- Added support for the July 2026 osu!standard performance points and star rating rework
+  - Song-select star ratings will be recalculated for the July 2026 rework, while older SR/PP versions remain available for gameplay overlays and calculations
+  - Old `260321` and `26xxxx` development selections migrate to `260706`
+- Introduced a new popup dialog design for the launcher, starting with About and output configuration
+- Added osu!lazer's `Only fade approach circles` customization for the Hidden mod
+- Added `Include pre-release updates` to Launcher settings and `-include-prerelease-updates` to CLI update checks
+  - Stable builds continue checking only stable releases unless pre-release updates are enabled
+  - Pre-release builds can still advance within their current release line when the setting is off
+
+### Changed
+
+- Redesigned the launcher's About page with the new popup dialog design
+- Redesigned recording and screenshot output settings with the new popup dialog design
+  - Screenshot time can be entered as values like `.25` without a leading zero
+  - Invalid screenshot times are caught before taking a screenshot
+- Launcher and CLI update checks now run without interrupting or delaying startup
+
+### Fixed
+
+- Object stacking now follows osu!lazer's behavior
+- Hit error bar feedback now uses osu!lazer's fractional 300/100/50 timing windows, including for replays recorded in osu!stable
+  - At OD5, this means +/-49.5 ms, +/-99.5 ms, and +/-149.5 ms boundaries instead of osu!stable's +/-50 ms, +/-100 ms, and +/-150 ms
+- Unstable Rate now normalizes each timing hit by its gameplay rate before calculation
+- The results screen shows Unstable Rate as `N/A` when no timed hits contribute
+- Slider heads, ticks, repeats, loops, and tails now resolve and play hitsounds using osu!lazer's sample rules
+  - Slider ticks and loops keep the slider's start-resolved sample bank, index, and volume instead of changing at later timing points
+  - Slider heads, repeats, and tails use their own node sample settings
+- Circles, spinners, and slider nodes now resolve hitsound control points with osu!lazer's 5 ms legacy leniency
+- Hitsound layers now keep their authored volume and use osu!lazer's 5% minimum volume
+- Legacy sample set `0` now falls back to the Normal bank instead of Soft
+- Custom hitsound filenames now work on circles, spinners, and slider nodes while preserving requested whistle, finish, and clap layers
+
 ## 1.1.0-alpha.3 - 2026-09-12
 
 # What's new in Danser Enterprise Edition 1.1.0 Alpha 3
@@ -77,7 +127,7 @@
 - Solo knockout can now run with generated participants instead of replay files
 - Lazer-compatible sliders now judge heads, ticks, repeats, and tails separately and can show skin-aware markers for supported misses
 
-### Breaking changes
+### Breaking Changes
 
 - OpenGL 4.5 core is now required
 
