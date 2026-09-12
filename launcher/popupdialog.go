@@ -411,7 +411,7 @@ func (d *popupDialog) drawContent(windowHeight float32, palette popupDialogPalet
 	if d.content != nil {
 		dummyExactY(16)
 		if d.plainBody {
-			d.content()
+			d.drawPlainBody(windowHeight)
 		} else {
 			d.drawBody(windowHeight, palette)
 		}
@@ -520,6 +520,30 @@ func (d *popupDialog) drawCloseButton(palette popupDialogPalette) bool {
 	imgui.PopStyleColorV(4)
 	imgui.PopStyleVarV(2)
 	return pressed
+}
+
+func (d *popupDialog) drawPlainBody(windowHeight float32) {
+	maxDialogHeight := max(float32(1), windowHeight-popupDialogWindowMargin*2)
+	bodyTop := imgui.CursorScreenPos().Y - imgui.WindowPos().Y
+	maxBodyHeight := max(
+		float32(1),
+		maxDialogHeight-bodyTop-popupDialogPadding,
+	)
+
+	imgui.PushStyleVarVec2(imgui.StyleVarWindowPadding, vzero())
+	imgui.SetNextWindowSizeConstraints(
+		vec2(0, 0),
+		vec2(imgui.ContentRegionAvail().X, maxBodyHeight),
+	)
+	imgui.BeginChildStrV(
+		"##popup-dialog-plain-body-"+d.name,
+		vec2(0, 0),
+		imgui.ChildFlagsAutoResizeY|imgui.ChildFlagsAlwaysUseWindowPadding,
+		imgui.WindowFlagsNoSavedSettings,
+	)
+	d.content()
+	imgui.EndChild()
+	imgui.PopStyleVar()
 }
 
 func (d *popupDialog) drawBody(windowHeight float32, palette popupDialogPalette) {

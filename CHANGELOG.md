@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0-alpha.3 - 2026-09-12
+
+# What's new in Danser Enterprise Edition 1.1.0 Alpha 3
+
+### Fixed
+
+- The About dialog keeps its title and controls visible while its content scrolls
+
 ## 1.1.0-alpha.2 - 2026-09-10
 
 # What's new in Danser Enterprise Edition 1.1.0 Alpha 2
