@@ -57,22 +57,26 @@ walk through the surfaces that apply and say which ones you checked.
 ## Errors users can see
 
 An error that exists only in a log is invisible to most GUI users. Route the
-same failure to the surface the person is actually using:
+failure according to the process that owns it, not according to whether the
+overall session began from the CLI or the launcher:
 
 - **CLI:** write an actionable error to the normal log or command-line output,
   include the operation and relevant map, replay, or output, and return a
-  failure result. A dialog may supplement a gameplay error, but it must not be
-  the only report for a command-line workflow.
-- **GUI launcher:** show a native or in-app error dialog when an operation
-  fails. Logging is useful for diagnosis, but it is not a substitute for a
-  visible explanation and next step.
-- **Gameplay window:** once the gameplay window exists, failures are always a
-  visual event, even when the CLI started the process. Prefer a dialog or
-  overlay parented to that window. If the launcher owns the child process,
-  surface the failure in the launcher as well; never leave the user with only
-  a child-process log.
-- **Early startup:** if SDL or the normal UI cannot be created, use the
-  platform's native fallback and still preserve a useful log entry.
+  failure result. If a visual dialog is needed on the direct CLI/gameplay path,
+  it must be native; launcher in-app popups are not available there.
+- **GUI launcher:** use an in-app modal for launcher-owned failures only when
+  the launcher is initialized, rendering, responsive, and able to receive
+  input. If the launcher may be blocked or unresponsive, use the native platform
+  dialog path instead.
+- **Gameplay child/window:** failures originating in the gameplay process use
+  the gameplay/native dialog path regardless of whether that process was
+  started directly from the CLI or spawned by the launcher. Once the SDL
+  window exists, parent native dialogs to it when possible. This includes
+  runtime failures such as graphics, audio, rendering, recording, or resource
+  allocation errors.
+- **Early startup and fatal paths:** if SDL, ImGui, or the normal UI cannot be
+  created or trusted to keep rendering, use the platform's native fallback and
+  still preserve a useful log entry.
 
 ## Logging
 

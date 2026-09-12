@@ -12,7 +12,19 @@
   <strong>Danser Enterprise Edition (danser-ee)</strong> is a maintained fork of <a href="https://github.com/Wieku/danser-go">danser-go</a>, a GUI/CLI visualization tool for osu!standard maps. It can also render osu!stable and osu!lazer replays and record output to MP4.
 </p>
 
-## Examples
+## Contents
+
+- [See it in action](#see-it-in-action)
+- [What's different from danser-go?](#whats-different-from-danser-go)
+- [Why this fork exists](#why-this-fork-exists)
+- [Platform support](#platform-support)
+- [Download and run](#download-and-run)
+- [CLI reference](#cli-reference)
+- [Building from source](#building-from-source)
+
+## See it in action
+
+*(These videos are from danser-go and show the core danser experience, not danser-ee-exclusive features.)*
 
 * [Omoi - Chiisana Koi no Uta (Synth Rock Cover) [Kroytz's EX EX] - TAG2 Mirror Collage](https://youtu.be/Vo0Pbpu113Y)
 * [Sex Whales & Fraxo - Dead To Me (feat. Lox Chatterbox) [extrad1881 (ar 10)] Mirror Collage](https://youtu.be/KCHqrVGdXrk)
@@ -21,6 +33,72 @@
 * [osu! top 50 replays knockout | xi - FREEDOM DiVE [ENDLESS DiMENSiONS]](https://youtu.be/kzr_Sr0Shuc)
 * [osu! top 50 knockout | YURRY CANNON - Suicide Parade [Sakase]](https://youtu.be/GS_yoq5MJMU)
 * [osu! top 50 replays knockout | Kobaryo - Bookmaker [Corrupt The World]](https://youtu.be/SJqkP1IDUq0)
+
+## What's different from danser-go?
+
+If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience while continuing development as its own fork.
+
+### A few of the bigger changes:
+
+- **Lazer gameplay is the default.** Lazer and replay-free playback use Lazer-compatible behavior directly, while osu!stable replays receive Classic (CL) mod automatically just like in osu!lazer. The old `LZ` mod compatibility workaround is gone.
+- **Launcher startup and large song libraries are much more responsive.** Catalog updates no longer block normal launcher startup, and song search and scrolling no longer stutter on large libraries.
+- **Several settings have been ported from osu!lazer.** These include the `Only fade approach circles` toggle for Hidden, plus `Combo color normalization` and `Hit animations` settings.
+- **Current osu!standard star rating and performance calculations (July 2026 SR/PP rework).**
+- **Audio timing and recording sync are substantially more accurate.**
+- **High-FPS gameplay is much smoother.**
+
+<details>
+<summary><strong>Detailed comparison with the danser-go fork base</strong></summary>
+
+The table compares current `danser-ee` behavior with the documented fork point (`upstream/dev` at `3eb75a34`). It is a summary of meaningful product differences, not a complete changelog.
+
+| Area                             | danser-ee                                                                                                                        | danser-go (fork base)                                                                                                  |
+|----------------------------------|----------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| CLI no-argument behavior         | ✅ Helpful usage, no rickroll                                                                                                    | ❌ Surprise rickroll                                                                                                   |
+| Gameplay behavior                | Lazer gameplay behavior by default. Replays recorded in osu!stable automatically receive the Classic mod, just like in osu!lazer | `LZ` mod used to opt into Lazer-oriented behavior                                                                      |
+| Object stacking                  | Overlapping objects pile up in the same positions as in osu!lazer                                                                | Stable-derived stacking positions                                                                                      |
+| Slider judgments                 | Heads, ticks, repeats, and tails are judged separately in non-CL gameplay                                                        | Approximate tick/tail handling                                                                                         |
+| Slider end timing                | Preserves sub-millisecond slider end times, matching osu!lazer                                                                   | Slider end timing is rounded to integer milliseconds                                                                   |
+| Cursor-dance spinners            | Lazer movement and completion targets while Stable replays retain Stable behavior                                                | Fixed autoplay-oriented spinner behavior                                                                               |
+| Slider miss markers              | Missed slider ticks and tails can show osu!lazer-style skin-aware markers                                                        | No slider-body miss markers                                                                                            |
+| Latest osu!standard SR/PP rework | ✅ July 2026 SR/PP rework                                                                                                        | October 2025 SR/PP rework                                                                                              |
+| osu!lazer settings               | ✅ `Only fade approach circles` for Hidden mod, combo color normalization, and hit animations toggle                             | ❌ No equivalent settings; hit animations stay enabled unless an instafade skin is used                                |
+| Song catalog startup             | ✅ You can use the launcher while your library is processed in the background                                                    | ❌ You have to wait for danser to process your library before you can use the main menu                                |
+| Song search and scrolling        | ✅ Fast and fluid even on massive libraries                                                                                      | ❌❌❌ Search and scrolling can stutter severely, especially on large libraries                                        |
+| Hit-error timing                 | Matches osu!lazer timing behavior across all playback, including osu!stable replays                                              | Stable-derived integer hit-error windows                                                                               |
+| Unstable Rate (UR)               | Each timing hit is normalized by gameplay rate before UR is calculated                                                           | Speed adjustment is applied only to the final UR value                                                                 |
+| Hit-error customization          | Toggleable color band and moving-average arrow, adjustable timing-line thickness and fade                                        | Fixed bar layout with fewer display options and no results-screen median                                               |
+| High-refresh frame pacing        | Deadline-based timing with dedicated Windows pacing for high-refresh and custom FPS caps                                         | ❌ Custom FPS caps can incur full scheduler-quantum stalls on Windows                                                  |
+| Hitsound and storyboard timing   | Sounds use their intended event times in realtime playback and recording                                                         | ❌ Playback is triggered by the frame that processes the event                                                         |
+| GPU/MSAA startup failures        | Unsupported configurations fail with an actionable error before gameplay starts                                                  | ❌ Unsupported multisample/framebuffer configurations can hang during startup                                          |
+| Slider snaking                   | Stays in sync with the current playback position after seeking                                                                   | Pre-scheduled snaking can become out of sync after seeking                                                             |
+| Recording synchronization        | Audio/video stay synchronized through speed changes and audio stalls                                                             | Audio is timed separately from encoded video ("source-clocked"), which can cause desync during speed changes or stalls |
+| Recording failures and output    | Encoder failures are checked; intermediates are retained for recovery; existing final output is not replaced                     | ❌ Encoder failure can be missed and recovery intermediates can be destroyed                                           |
+| Recording color                  | ✅ BT.709 limited-range conversion with matching encoded metadata                                                                | ❌ BT.601 conversion tagged as BT.709                                                                                  |
+| Recording motion blur            | Samples are centered on the encoded frame timeline without black startup history                                                 | ❌ Trailing shutter with black startup history                                                                         |
+| Solo knockout                    | ✅ Replay-free knockout with generated, fully scored participants                                                                | -                                                                                                                      |
+
+<small><em>Scope note: This comparison is against the documented fork base, not current upstream. It reflects the behavior observed there and the changes currently implemented in danser-ee. The approaches shown here are not necessarily the only or best possible solutions, and both projects may continue to evolve. The table is intended to document meaningful differences in good faith, not to claim final authority over how they should be solved.</em></small>
+
+</details>
+
+## Why this fork exists
+
+`danser-ee` is a maintained fork of [danser-go](https://github.com/Wieku/danser-go). I started it after upstream development had slowed for over a year. I wanted to keep pushing danser forward at my own pace and bring it closer to the standard I always believed it could reach. I share the fork publicly because it may be useful to other danser users too.
+
+The `ee` stands for **Enterprise Edition** - intentionally grandiose naming for what is, in practice, a pragmatic fork of `danser-go`.
+
+## Platform support
+
+| Operating system | Status         |
+|------------------|----------------|
+| Windows x64      | ✅             |
+| Linux x64        | 🟡 Best effort |
+| macOS            | ❌             |
+
+**Linux:** Support is best effort and is not as thoroughly tested as Windows.
+
+**macOS:** Not supported because danser relies heavily on OpenGL, which Apple has deprecated and no longer meaningfully advances on macOS.
 
 ## Download and run
 
@@ -58,156 +136,13 @@
    ./danser-cli <arguments>
    ```
 
-   For map selection, replay playback, recording, screenshots, mods, and the rest of the available options, head to the [CLI run arguments](#cli-run-arguments) reference.
+   For map selection, replay playback, recording, screenshots, mods, and the rest of the available options, head to the [CLI reference](#cli-reference).
 
-## What's the difference between danser-go and danser-ee?
+## CLI reference
 
-If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience and continues building on it with fixes, refinements, and broader product work where we think the experience can be improved.
+<details>
+<summary><strong>Run arguments and examples</strong></summary>
 
-The comparison below is a high-level snapshot of meaningful differences since the fork point (`upstream/dev` at `3eb75a34`). It is not intended to represent every change or serve as a complete changelog.
-
-### Core experience and launcher
-
-| Feature                         |                         danser-ee                          |                   danser-go (fork base)                   |
-|---------------------------------|:----------------------------------------------------------:|:---------------------------------------------------------:|
-| Core danser experience          |                             ✅                             |                            ✅                             |
-| Native dialogs (SDL3)           |                             ✅                             |                sqweek/dialog (Wieku fork)                 |
-| CLI no-argument behavior        |               ✅ Helpful usage, no rickroll                |                   ❌ Surprise rickroll                    |
-| Launcher resource lifecycle     |               ✅ On-demand resource loading                |                  Eager resource loading                   |
-| Launcher preview lifecycle      |                   ✅ Dormant when unused                   |                    Active while unused                    |
-| Launcher event pipeline         | ✅ Bounded typed events with main-thread state application | ❌ Mixed cross-thread callbacks and shared launcher state |
-| Child-process supervision       |      ✅ Cancellable lifecycle and bounded diagnostics      |    ❌ Shared `exec.Cmd` lifecycle and direct teardown     |
-| Filesystem watcher lifecycle    |       ✅ Owned watcher with coalesced notifications        |                ❌ Global watcher lifecycle                |
-| Launcher shutdown ordering      |        ✅ Ordered cancellation, joins, and cleanup         |             ❌ Unjoined asynchronous cleanup              |
-| Startup task cancellation       |             ✅ Context-bound background tasks              |              ❌ Untracked asynchronous work               |
-| Profile persistence             |              ✅ Path-confined, checked writes              |                ❌ Unchecked profile writes                |
-| Replay and file-drop validation |          ✅ Nil-safe, normalized input boundaries          |            ❌ Unchecked selection assumptions             |
-
-### Library and song selection
-
-| Feature                            |                                   danser-ee                                    |              danser-go (fork base)              |
-|------------------------------------|:------------------------------------------------------------------------------:|:-----------------------------------------------:|
-| Beatmap catalog startup            |                       ✅ Cache-first catalog publication                       | ❌❌❌ Synchronous full-library materialization |
-| Incremental beatmap reconciliation |                   ✅ Fingerprint-driven delta reconciliation                   |             ❌ Full catalog rebuild             |
-| Catalog reconciliation progress    |               ✅ Staged main-thread telemetry in the output row                |                        -                        |
-| Catalog refresh orchestration      |                ✅ Coalesced, cancellable generation coordinator                |  ❌ Shared lock around sequential refresh work  |
-| Library search readiness           | ✅ Search remains warm while the launcher is idle and during catalog refreshes |        Selector-bound search preparation        |
-| Song search pipeline               |           ✅ Precomputed query index and reusable result projection            |   ❌❌❌ Per-query full result reconstruction   |
-| Song-select scrolling              |      ✅ Variable-height virtualized layout with logarithmic range lookup       |      ❌❌❌ Repeated full-list layout work      |
-| Song-set grouping                  |              ✅ Stable indexed grouping independent of sort order              |       ❌ Per-result directory regrouping        |
-| Library artwork loading            |            ✅ Deferred background loading outside active scrolling             |        ❌ Synchronous tooltip asset work        |
-| Optional osu!.db acceleration      |                     ✅ Read-only Stable metadata bootstrap                     |                        -                        |
-| Lazy beatmap and skin assets       |                       ✅ Demand-driven asset resolution                        |             ❌ Eager asset indexing             |
-| Selected-map startup               |           ✅ Direct selected-map load while reconciliation continues           |     Full library load before map selection      |
-
-### Gameplay compatibility and slider visuals
-
-| Feature                           |                                   danser-ee                                   |         danser-go (fork base)         |
-|-----------------------------------|:-----------------------------------------------------------------------------:|:-------------------------------------:|
-| Native Classic (CL) mod           |                                      ✅                                       |          synthetic Lazer mod          |
-| Provenance-aware gameplay engine  |       ✅ Replay-aware dual-runtime judgment with Lazer-native fallback        |          legacy ruleset path          |
-| Mod conflict handling             |                    Lazer conflict rules for supported mods                    |         Legacy conflict masks         |
-| Adaptive AP judgment engine       |            ✅ Mode-aware AP judgment with CL-gated Lazer reduction            |           legacy AP window            |
-| Replay-driven knockout lineup     |                         ✅ Explicit replay selection                          |       replay selection required       |
-| Solo knockout mode                | ✅ Map-driven generated Danser participants with shared cursor-dance controls |                   -                   |
-| Lazer's combo color normalization |                     ✅ HSPA perceived-brightness control                      |                   -                   |
-| Opening combo color               |                       palette index 1 (osu!lazer order)                       |    palette index 0 unless flagged     |
-| Hidden mod customization          |               ✅ osu!lazer `Only fade approach circles` setting               |                   -                   |
-| Lazer's hit animation toggle      |                      ✅ configurable; enabled by default                      |            fixed animation            |
-| Stable/Lazer stacking             |                ✅ gameplay-provenance-aware stacking semantics                |    ❌ single legacy stacking path     |
-| Slider judgment granularity       |                per-event head, tick, repeat, and tail results                 | approximate slider tick/tail handling |
-| Slider miss-result presentation   |              `slidertickmiss` / `sliderendmiss` skin components               |                   -                   |
-| Slider visual timing              |                        fractional end-time evaluation                         |            integer timing             |
-| Slider snaking                    |                           frame-computed, seek-safe                           |         pre-scheduled gliders         |
-| Slider hit animations             |                          configurable, on by default                          |                   -                   |
-| Slider tail hit animation         |                         skin-native endpoint pipeline                         |      universal endpoint fallback      |
-| Slider body fade policy           |                timed body fade; short post-end fade by default                |     instant body fade by default      |
-
-### Difficulty and performance
-
-| Feature                          |                                danser-ee                                |        danser-go (fork base)         |
-|----------------------------------|:-----------------------------------------------------------------------:|:------------------------------------:|
-| Current osu!standard SR/PP model |                        ✅ July 2026 SR/PP rework                        |   ❌ Old October 2025 SR/PP rework   |
-
-### Hit-error, spinner, and HUD behavior
-
-| Feature                         |                 danser-ee                  | danser-go (fork base) |
-|---------------------------------|:------------------------------------------:|:---------------------:|
-| Lazer hit-error & UR            |                     ✅                     |    rescan-based UR    |
-| Legacy hit-error bar profile    |       centered OD-dependent windows        | legacy approximation  |
-| Hit-error timing lines          |       10 s fade, 50-line pool, EWMA        |           -           |
-| Numeric UR layout               |        scales and anchors with bar         | fixed-size companion  |
-| Hit-error bar customization     |       colors, arrow, thickness, fade       |           -           |
-| Positional miss markers         |             opt-in diagnostics             |   shown by default    |
-| Spinner HUD positioning         |        scale-aware legacy placement        |    fixed placement    |
-| Spinner judgment model          | mode-aware completion and bonus thresholds | fixed ratio threshold |
-| Cursor-dance spinner RPM policy |  map-scaled target; OD 11 default ceiling  |  fixed autoplay RPM   |
-| Spinner shape movement          |        shared phase and polar paths        |    shape-specific     |
-| Spinner RPM display             |          Lazer trailing RPM meter          | legacy filtered rate  |
-| Cursor-dance RPM stability      | duration-aware ramp toward captured target |           -           |
-| Stable spinner replay behavior  |          preserved under Classic           |           -           |
-
-### Audio and recording
-
-| Feature                           |                                         danser-ee                                          |                          danser-go (fork base)                           |
-|-----------------------------------|:------------------------------------------------------------------------------------------:|:------------------------------------------------------------------------:|
-| Accurate recording sync           |                                             ✅                                             |                              source-clocked                              |
-| Recording output publication      |               ✅ Validated base names, isolated sessions, no-replace publish               |            ❌ Output-derived temp paths and overwrite publish            |
-| Recording failure recovery        |           ✅ Checked encoder exits, bounded diagnostics, retained intermediates            | ❌❌❌ Unchecked encoder exits; destructive cleanup on mux-start failure |
-| Recording configuration preflight | ✅ Immutable session snapshot, exact encoder probe, GL limits, and 2 GiB allocation budget |      ❌ Encoder-list check with late option and allocation failures      |
-| Recording color contract          |                  ✅ BT.709 limited-range conversion and encoded metadata                   |             ❌❌❌ BT.601 pixel conversion tagged as BT.709              |
-| Motion-blur shutter timeline      |       ✅ Centered sample-clock shutter, edge-clamped history, and exact frame counts       |           ❌ Causal trailing shutter and black startup history           |
-| Timestamped hitsound scheduling   |                   nominal event timestamps on the master-mixer timeline                    |              ❌ Frame-triggered playback; not mixer-locked               |
-| Audio lifecycle safety            |      serialized BASS access, cancellable voices, and explicit map/storyboard cleanup       |                                    -                                     |
-| Offline audio output              |          mixer-clocked rendering with actual output format and zero-filled blocks          |                         source-clocked rendering                         |
-| BASS core version                 |                                          2.4.18.3                                          |                                older 2.4                                 |
-| Floating-point realtime audio     |                                             ✅                                             |                               16-bit mixer                               |
-
-### Rendering and GPU compatibility
-
-| Feature                         |                                                             danser-ee                                                             |                                     danser-go (fork base)                                     |
-|---------------------------------|:---------------------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------------------------------------------:|
-| OpenGL context baseline         |                                         Required 4.5 core context with queried GPU limits                                         |                            3.3 core context with extension checks                             |
-| Default gameplay antialiasing   |                                                        4x on new profiles                                                         |                                        Off by default                                         |
-| MSAA capability validation      | Driver validation rejects unsupported counts or incomplete render targets before gameplay starts; supported 16x remains available |              ❌ Unchecked multisample allocation can stall unsupported contexts               |
-| Gameplay MSAA consistency       |                         One validated sample count shared by gameplay rendering, bloom, and strain graph                          | Main framebuffer follows the profile while bloom and strain graph use different sample counts |
-| Gameplay MSAA setting lifecycle |                          Changes are locked during playback and take effect on the next gameplay launch                           |              Live profile changes can alter the main render path during playback              |
-| Framebuffer construction        |                 Dimension, allocation, sample-count, and completeness checks return contextual errors before use                  |                       ❌ Allocation and completeness are left unchecked                       |
-| Typed buffer contracts          |                         Integer attributes and index uploads honor their declared types and byte offsets                          |                ❌ Integer types and index offsets are not consistently honored                |
-| Texture atlas capacity          |                                Overflow-safe packing bounded by GPU texture and array-layer limits                                |        ❌ Texture-size clamp only; layer growth and byte-size arithmetic are unchecked        |
-
-### Runtime and platform
-
-| Feature                     |                        danser-ee                        |                    danser-go (fork base)                    |
-|-----------------------------|:-------------------------------------------------------:|:-----------------------------------------------------------:|
-| Deadline-based frame timing |                    ✅ + thread-safe                     |                unsynchronized, polling-based                |
-| Windows high-rate pacing    | ✅ MMCSS-managed render scheduling with a spin-tail cap | ❌ Custom-cap waits can incur full scheduler-quantum stalls |
-| Refreshed dependencies      |                           ✅                            |                              -                              |
-| Platform support            |            Windows-first, Linux best effort             |                       Upstream policy                       |
-
-<small><em>Scope note: This comparison reflects the behavior observed in the documented fork base and the changes currently implemented in danser-ee. The approaches shown here are not necessarily the only or best possible solutions, and some may continue to evolve as the project matures. The table is intended to document meaningful differences in good faith, not to claim final authority over how they should be solved.</em></small>
-
-## About danser-ee
-
-`danser-ee` is a maintained fork of [danser-go](https://github.com/Wieku/danser-go). Upstream development has been moving at a very slow pace, while I needed improvements and bug fixes sooner than upstream could provide them. I maintain those changes here and share the fork publicly because they may be useful to other danser users too.
-
-The `ee` stands for **Enterprise Edition** - intentionally grandiose naming for what is, in practice, a pragmatic fork of danser-go.
-
-`danser-ee` is maintained by [InnovationReadyTupperware](https://github.com/InnovationReadyTupperware). The original [danser-go](https://github.com/Wieku/danser-go) project was created by [Sebastian Krajewski (Wieku)](https://github.com/Wieku), founder and maintainer of the upstream project.
-
-## Platform support
-
-| Operating system | Status         |
-|------------------|----------------|
-| Windows x64      | ✅             |
-| Linux x64        | 🟡 Best effort |
-| macOS            | ❌             |
-
-**Linux:** Support is best effort and is not as thoroughly tested as Windows.
-
-**macOS:** Not supported because danser relies heavily on OpenGL, which Apple has deprecated and no longer meaningfully advances on macOS.
-
-## CLI run arguments
 * `-artist="NOMA"` or `-a="NOMA"`
 * `-title="Brain Power"` or `-t="Brain Power"`
 * `-difficulty="Overdrive"` or `-d="Overdrive"`
@@ -270,7 +205,9 @@ Examples which should give the same result:
 
 Settings and knockout usage are detailed in the upstream [danser-go wiki](https://github.com/Wieku/danser-go/wiki).
 
-## Building the project
+</details>
+
+## Building from source
 
 `danser-ee` uses CGO and depends on native runtime files and project assets. A successful Go build does not make an arbitrary output directory self-contained, so development builds should be run with the repository root as their working directory.
 
@@ -283,7 +220,7 @@ Settings and knockout usage are detailed in the upstream [danser-go wiki](https:
 * OpenGL support from a modern graphics driver. Recording requires buffer storage, direct-state access, image copy, and texture readback capabilities; preflight reports missing capabilities before encoder startup. Linux build environments may also need `libgl1-mesa-dev`.
 * Linux builds may additionally need `xorg-dev`, `libgtk-3`, and `libgtk-3-dev`.
 
-### Build and run from source
+### Build and run
 
 Clone the repository and work from its root directory:
 
@@ -320,7 +257,8 @@ go build ./...
 > Use `dist-win.sh` or `dist-linux.sh` for release packages. A normal development
 > build does not assemble the launcher and bundled runtime files.
 
-### Frame pacing diagnostics
+<details>
+<summary><strong>Frame pacing diagnostics</strong></summary>
 
 Set `DANSER_FRAME_PROBE=1` before starting an interactive gameplay process to
 retain up to 128 of the slowest samples for each instrumented render layer.
@@ -335,12 +273,4 @@ $env:DANSER_FRAME_PROBE = '1'
 .\danser-ee.exe <arguments>
 ```
 
-## Credits and license
-
-`danser-ee` is maintained by [InnovationReadyTupperware](https://github.com/InnovationReadyTupperware).
-
-The original [danser-go](https://github.com/Wieku/danser-go) software was created by [Sebastian Krajewski (Wieku)](https://github.com/Wieku), founder and maintainer of the upstream project, together with [danser-go contributors](https://github.com/Wieku/danser-go/graphs/contributors).
-
-Unless stated otherwise, source files are distributed under the GNU General Public License v3.0.
-
-Full credits and third-party license information can be found in [CREDITS.md](CREDITS.md).
+</details>
