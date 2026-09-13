@@ -45,6 +45,34 @@ func TestKnockoutArgumentsIncludeSelectedReplays(t *testing.T) {
 	t.Fatal("knockout arguments did not include -knockout2")
 }
 
+func TestSetReplayAddsClassicForStableReplay(t *testing.T) {
+	builder := newBuilder()
+	builder.setReplay(&rplpa.Replay{
+		OsuVersion: difficulty.LazerReplayVersion - 1,
+		Mods:       uint32(difficulty.Hidden),
+	})
+
+	difficulties := []struct {
+		name string
+		diff *difficulty.Difficulty
+	}{
+		{name: "source", diff: builder.sourceDiff},
+		{name: "base", diff: builder.baseDiff},
+		{name: "active", diff: builder.diff},
+	}
+
+	for _, test := range difficulties {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.diff.Mods; got != difficulty.Hidden|difficulty.Classic {
+				t.Errorf("replay mods = %v, want HDCL", got)
+			}
+			if got := test.diff.GetGameplayMode(); got != difficulty.GameplayStable {
+				t.Errorf("gameplay mode = %v, want Stable", got)
+			}
+		})
+	}
+}
+
 func TestSoloKnockoutArgumentsUseGeneratedParticipants(t *testing.T) {
 	oldMode := launcherConfig.CurrentMode
 	oldPMode := launcherConfig.CurrentPMode

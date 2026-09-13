@@ -1369,20 +1369,7 @@ func (l *launcher) loadReplay(p string) (*knockoutReplay, error) {
 
 	diff := difficulty.NewDifficulty(5, 5, 5, 5)
 	diff.SetGameplayMode(difficulty.GameplayModeFromReplayVersion(int(replay.OsuVersion)))
-
-	if replay.ScoreInfo != nil && replay.ScoreInfo.Mods != nil && len(replay.ScoreInfo.Mods) > 0 {
-		modsNew := make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))
-
-		for _, mod := range replay.ScoreInfo.Mods {
-			if mod != nil {
-				modsNew = append(modsNew, *mod)
-			}
-		}
-
-		diff.SetMods2(modsNew)
-	} else {
-		diff.SetMods(difficulty.Modifier(replay.Mods))
-	}
+	diff.SetModsFromReplay(replay)
 
 	return &knockoutReplay{
 		path:         p,

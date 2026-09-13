@@ -1,5 +1,7 @@
 package difficulty
 
+import "github.com/wieku/rplpa"
+
 // LazerReplayVersion is the first osu! version that identifies a replay as
 // having been recorded by osu!lazer rather than osu!stable.
 const LazerReplayVersion = 30000000
@@ -28,6 +30,36 @@ func GameplayModeFromReplayVersion(osuVersion int) GameplayMode {
 	}
 
 	return GameplayStable
+}
+
+// SetModsFromReplay applies replay modifiers and their structured settings.
+// Stable replays receive Classic with default settings, matching osu!lazer's
+// legacy replay decoder while leaving gameplay provenance separate.
+func (diff *Difficulty) SetModsFromReplay(replay *rplpa.Replay) {
+	if replay == nil {
+		diff.SetMods(None)
+		return
+	}
+
+	var mods []rplpa.ModInfo
+	if replay.ScoreInfo != nil {
+		mods = make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))
+		for _, mod := range replay.ScoreInfo.Mods {
+			if mod != nil {
+				mods = append(mods, *mod)
+			}
+		}
+	}
+
+	if len(mods) > 0 {
+		diff.SetMods2(mods)
+	} else {
+		diff.SetMods(Modifier(replay.Mods))
+	}
+
+	if GameplayModeFromReplayVersion(int(replay.OsuVersion)) == GameplayStable && !diff.CheckModActive(Classic) {
+		diff.AddMod(Classic)
+	}
 }
 
 // String returns the stable diagnostic name for the gameplay implementation.

@@ -135,31 +135,9 @@ func (b *builder) setReplay(replay *rplpa.Replay) {
 	b.sourceDiff.SetGameplayMode(gameplayMode)
 	b.baseDiff.SetGameplayMode(gameplayMode)
 	b.diff.SetGameplayMode(gameplayMode)
-	b.diff.RemoveMod(^difficulty.None)
-
-	if replay.ScoreInfo != nil && replay.ScoreInfo.Mods != nil && len(replay.ScoreInfo.Mods) > 0 {
-		modsNew := make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))
-
-		for _, mod := range replay.ScoreInfo.Mods {
-			if mod != nil {
-				modsNew = append(modsNew, *mod)
-			}
-		}
-
-		if len(modsNew) > 0 {
-			b.sourceDiff.SetMods2(modsNew)
-			b.baseDiff.SetMods(b.sourceDiff.Mods)
-			b.diff.SetMods2(modsNew)
-		} else {
-			b.sourceDiff.SetMods(difficulty.Modifier(replay.Mods))
-			b.baseDiff.SetMods(difficulty.Modifier(replay.Mods))
-			b.diff.SetMods(difficulty.Modifier(replay.Mods))
-		}
-	} else {
-		b.sourceDiff.SetMods(difficulty.Modifier(replay.Mods))
-		b.baseDiff.SetMods(difficulty.Modifier(replay.Mods))
-		b.diff.SetMods(difficulty.Modifier(replay.Mods))
-	}
+	b.sourceDiff.SetModsFromReplay(replay)
+	b.baseDiff.SetMods(b.sourceDiff.Mods)
+	b.diff.SetModsFromReplay(replay)
 
 }
 

@@ -129,23 +129,18 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 		control := NewSubControl()
 
 		control.diff = beatMap.Diff.Clone()
-		control.diff.SetGameplayMode(difficulty.GameplayModeFromReplayVersion(int(replay.OsuVersion)))
-		control.diff.SetMods(difficulty.None)
+		gameplayMode := difficulty.GameplayModeFromReplayVersion(int(replay.OsuVersion))
+		control.diff.SetGameplayMode(gameplayMode)
+		control.diff.SetModsFromReplay(replay)
 
-		if replay.ScoreInfo != nil && replay.ScoreInfo.Mods != nil && len(replay.ScoreInfo.Mods) > 0 {
-			modsNew := make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))
-
-			for _, mod := range replay.ScoreInfo.Mods {
-				modsNew = append(modsNew, *mod)
-			}
-
-			control.diff.SetMods2(modsNew)
-		} else {
-			control.diff.SetMods(difficulty.Modifier(replay.Mods))
+		effectiveBeatmapDiff := beatMap.Diff
+		if gameplayMode == difficulty.GameplayStable && !effectiveBeatmapDiff.CheckModActive(difficulty.Classic) {
+			effectiveBeatmapDiff = beatMap.Diff.Clone()
+			effectiveBeatmapDiff.AddMod(difficulty.Classic)
 		}
 
-		if localReplay && !beatMap.Diff.Equals(control.diff) {
-			control.diff.SetMods2(beatMap.Diff.ExportMods2())
+		if localReplay && !effectiveBeatmapDiff.Equals(control.diff) {
+			control.diff.SetMods2(effectiveBeatmapDiff.ExportMods2())
 			control.modifiedMods = true
 		}
 

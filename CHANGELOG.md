@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- osu!stable replays now receive the `CL` mod in knockout and replay modes
 - Knockout and solo knockout no longer show playfield judgments by default
 - Launcher recording progress now recognizes newer FFmpeg recorder startup messages
 

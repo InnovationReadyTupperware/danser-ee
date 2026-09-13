@@ -28,6 +28,89 @@ func TestGameplayModeFromReplayVersion(t *testing.T) {
 	}
 }
 
+func TestSetModsFromReplay(t *testing.T) {
+	tests := []struct {
+		name        string
+		replay      *rplpa.Replay
+		wantMods    Modifier
+		wantClassic ClassicSettings
+	}{
+		{
+			name: "Stable legacy mods",
+			replay: &rplpa.Replay{
+				OsuVersion: LazerReplayVersion - 1,
+				Mods:       uint32(Hidden),
+			},
+			wantMods:    Hidden | Classic,
+			wantClassic: NewClassicSettings(),
+		},
+		{
+			name: "Lazer Classic settings",
+			replay: &rplpa.Replay{
+				OsuVersion: LazerReplayVersion,
+				ScoreInfo: &rplpa.ScoreInfo{Mods: []*rplpa.ModInfo{{
+					Acronym: "CL",
+					Settings: map[string]any{
+						"classic_note_lock": false,
+					},
+				}}},
+			},
+			wantMods: Classic,
+			wantClassic: func() ClassicSettings {
+				settings := NewClassicSettings()
+				settings.ClassicNoteLock = false
+				return settings
+			}(),
+		},
+		{
+			name: "Stable explicit Classic settings",
+			replay: &rplpa.Replay{
+				OsuVersion: LazerReplayVersion - 1,
+				ScoreInfo: &rplpa.ScoreInfo{Mods: []*rplpa.ModInfo{{
+					Acronym: "CL",
+					Settings: map[string]any{
+						"classic_health": false,
+					},
+				}}},
+			},
+			wantMods: Classic,
+			wantClassic: func() ClassicSettings {
+				settings := NewClassicSettings()
+				settings.ClassicHealth = false
+				return settings
+			}(),
+		},
+		{
+			name: "Lazer without Classic",
+			replay: &rplpa.Replay{
+				OsuVersion: LazerReplayVersion,
+				Mods:       uint32(HardRock),
+			},
+			wantMods: HardRock,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			diff := NewDifficulty(5, 5, 5, 5)
+			diff.SetModsFromReplay(test.replay)
+
+			if diff.Mods != test.wantMods {
+				t.Fatalf("SetModsFromReplay() mods = %v, want %v", diff.Mods, test.wantMods)
+			}
+
+			classic, hasClassic := GetModConfig[ClassicSettings](diff)
+			if test.wantMods.Active(Classic) {
+				if !hasClassic || classic != test.wantClassic {
+					t.Fatalf("SetModsFromReplay() Classic settings = %#v, %t; want %#v, true", classic, hasClassic, test.wantClassic)
+				}
+			} else if hasClassic {
+				t.Fatalf("SetModsFromReplay() unexpectedly created Classic settings: %#v", classic)
+			}
+		})
+	}
+}
+
 func TestClassicDoesNotChangeGameplayMode(t *testing.T) {
 	diff := NewDifficulty(5, 5, 5, 5)
 	diff.SetGameplayMode(GameplayStable)
