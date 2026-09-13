@@ -42,6 +42,39 @@ func TestCursorDanceFailurePoliciesKeepVisualPlaybackAlive(t *testing.T) {
 	}
 }
 
+func TestReplayControllerOverlayFollowsPlaybackMode(t *testing.T) {
+	previousPlayers := settings.PLAYERS
+	previousReplay := settings.REPLAY
+	t.Cleanup(func() {
+		settings.PLAYERS = previousPlayers
+		settings.REPLAY = previousReplay
+	})
+
+	tests := []struct {
+		name              string
+		players           int
+		replay            string
+		automatedPlayback bool
+		wantScoreOverlay  bool
+	}{
+		{name: "watch replay", players: 1, replay: "play.osr", wantScoreOverlay: true},
+		{name: "cursor dance with ui", players: 1, automatedPlayback: true, wantScoreOverlay: true},
+		{name: "single participant knockout", players: 1, wantScoreOverlay: false},
+		{name: "multi participant knockout", players: 50, wantScoreOverlay: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			settings.PLAYERS = test.players
+			settings.REPLAY = test.replay
+
+			if got := shouldUseScoreOverlayForReplayController(test.automatedPlayback); got != test.wantScoreOverlay {
+				t.Fatalf("shouldUseScoreOverlayForReplayController(%t) = %t, want %t", test.automatedPlayback, got, test.wantScoreOverlay)
+			}
+		})
+	}
+}
+
 func TestShouldTrimBeatmapForPlaybackIncludesStandaloneAutomatedPlayback(t *testing.T) {
 	previousPlay := settings.PLAY
 	previousKnockout := settings.KNOCKOUT

@@ -312,7 +312,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 		player.controller.SetBeatMap(player.bMap)
 		player.controller.InitCursors()
 
-		if settings.PLAYERS == 1 {
+		if shouldUseScoreOverlayForReplayController(automatedPlayback) {
 			player.overlay = overlays.NewScoreOverlay(player.controller.(*dance.ReplayController).GetRuleset(), player.controller.GetCursors()[0], activeMSAA)
 		} else {
 			player.overlay = overlays.NewKnockoutOverlay(controller.(*dance.ReplayController))
@@ -680,6 +680,12 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 	})
 
 	return player, nil
+}
+
+func shouldUseScoreOverlayForReplayController(automatedPlayback bool) bool {
+	// A single replay-controller participant can mean replay viewing, generated
+	// autoplay with UI, or an explicit knockout that loaded only one participant.
+	return settings.PLAYERS == 1 && (settings.REPLAY != "" || automatedPlayback)
 }
 
 func shouldTrimBeatmapForPlayback(automatedPlayback bool) bool {

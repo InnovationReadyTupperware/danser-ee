@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.1-alpha.1 - 2026-09-13
+
+# What's new in Danser Enterprise Edition 1.1.1 Alpha 1
+
+### Added
+
+- Added `Knockout.ShowJudgments` (disabled by default) to optionally show 300/100/50/miss sprites and slider-part miss markers for knockout participants
+
+### Fixed
+
+- Knockout and solo knockout no longer show playfield judgments by default
+
 ## 1.1.0 - 2026-09-12
 
 # What's new in Danser Enterprise Edition 1.1.0

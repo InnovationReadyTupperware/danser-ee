@@ -280,7 +280,7 @@ func (overlay *KnockoutOverlay) hitReceived(cursor *graphics.Cursor, judgementRe
 		judgementResult.Position.Y = 384 - judgementResult.Position.Y
 	}
 
-	if player.oldIndex >= 0 && player.oldIndex < len(overlay.results) {
+	if settings.Knockout.ShowJudgments && player.oldIndex >= 0 && player.oldIndex < len(overlay.results) {
 		hitObjects := overlay.controller.GetBeatMap().HitObjects
 		if judgementResult.Number >= 0 && judgementResult.Number < int64(len(hitObjects)) {
 			overlay.results[player.oldIndex].AddJudgmentResult(
@@ -471,6 +471,10 @@ func (overlay *KnockoutOverlay) DrawBackground(batch *batch.QuadBatch, _ []color
 }
 
 func (overlay *KnockoutOverlay) DrawBeforeObjects(batch *batch.QuadBatch, colors []color2.Color, alpha float64) {
+	if !settings.Knockout.ShowJudgments {
+		return
+	}
+
 	alpha *= overlay.fade.GetValue()
 
 	for i, results := range overlay.results {
@@ -485,12 +489,14 @@ func (overlay *KnockoutOverlay) DrawBeforeObjects(batch *batch.QuadBatch, colors
 func (overlay *KnockoutOverlay) DrawNormal(batch *batch.QuadBatch, colors []color2.Color, alpha float64) {
 	alpha *= overlay.fade.GetValue()
 
-	for _, results := range overlay.results {
-		if results != nil {
-			results.DrawTop(batch, alpha)
+	if settings.Knockout.ShowJudgments {
+		for _, results := range overlay.results {
+			if results != nil {
+				results.DrawTop(batch, alpha)
+			}
 		}
+		batch.Flush()
 	}
-	batch.Flush()
 
 	scl := 384.0 * (1080.0 / 900.0 * 0.9) / (51)
 

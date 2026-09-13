@@ -15,6 +15,7 @@ func initKnockout() *knockout {
 		LiveSort:            true,
 		SortBy:              "Score",
 		HideOverlayOnBreaks: false,
+		ShowJudgments:       false,
 		MinCursorSize:       3.0,
 		MaxCursorSize:       7.0,
 		AddDanser:           false,
@@ -55,6 +56,8 @@ type knockout struct {
 
 	// Whether knockout overlay (player list with stats) should be hidden in breaks
 	HideOverlayOnBreaks bool
+
+	ShowJudgments bool `label:"Show playfield judgments" tooltip:"Show 300/100/50/miss sprites and slider-part miss markers on the playfield for knockout participants"`
 
 	//Minimum cursor size (when all players are alive)
 	MinCursorSize float64 `min:"1" max:"20"`
