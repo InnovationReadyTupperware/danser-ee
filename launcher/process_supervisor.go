@@ -248,7 +248,7 @@ func scanProcessOutput(ctx context.Context, owner *launcher, reader io.Reader, o
 			owner.postEventContext(ctx, launcherEvent{kind: launcherProcessOpenSettingsEvent})
 		}
 
-		if strings.Contains(line, "Starting encoding!") {
+		if strings.Contains(line, "Starting encoding!") || strings.Contains(line, "Recorder: Starting encoding session") {
 			state.encoding = true
 			owner.postEventContext(ctx, launcherEvent{kind: launcherProcessEncodingStartedEvent})
 		}

@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.1.1-alpha.1 - 2026-09-13
+## 1.1.1 - 2026-09-13
 
-# What's new in Danser Enterprise Edition 1.1.1 Alpha 1
+# What's new in Danser Enterprise Edition 1.1.1
 
 ### Added
 
@@ -11,6 +11,7 @@
 ### Fixed
 
 - Knockout and solo knockout no longer show playfield judgments by default
+- Launcher recording progress now recognizes newer FFmpeg recorder startup messages
 
 ## 1.1.0 - 2026-09-12
 
