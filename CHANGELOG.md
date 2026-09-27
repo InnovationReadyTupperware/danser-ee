@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2 - 2026-09-24
+
+# What's new in Danser Enterprise Edition 1.1.2
+
+### Fixed
+
+- Fixed crashes while rendering slider bodies on AMD Vega systems with affected OpenGL drivers
+
 ## 1.1.1 - 2026-09-13
 
 # What's new in Danser Enterprise Edition 1.1.1

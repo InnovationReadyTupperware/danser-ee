@@ -541,8 +541,16 @@ func (f *Framebuffer) ClearColorIM(index int, color color2.Color) {
 	gl.ClearNamedFramebufferfv(f.handle, gl.COLOR, int32(index), &color.ToArray()[0])
 }
 
+// ClearDepthV clears the framebuffer's depth buffer to v.
+//
+// OpenGL requires one float for a depth clear, but a reported AMD Vega driver
+// reads 16 bytes from the value. The four-float backing array supplies storage
+// for that overread, and runtime.KeepAlive keeps the array alive through the
+// cgo call. Conforming drivers ignore the three padding values.
 func (f *Framebuffer) ClearDepthV(v float32) {
-	gl.ClearNamedFramebufferfv(f.handle, gl.DEPTH, 0, &v)
+	depthValues := [4]float32{v, 0, 0, 0}
+	gl.ClearNamedFramebufferfv(f.handle, gl.DEPTH, 0, &depthValues[0])
+	runtime.KeepAlive(depthValues)
 }
 
 func (f *Framebuffer) ClearDepth() {
