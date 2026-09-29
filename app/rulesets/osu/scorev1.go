@@ -28,7 +28,7 @@ func (s *scoreV1Processor) Init(beatMap *beatmap.BeatMap, player *difficultyPlay
 	s.maxHits = 0
 	s.accuracy = 1
 
-	s.modMultiplier = player.diff.GetScoreMultiplier()
+	s.modMultiplier = legacyReplayScoreMultiplier(player.diff)
 
 	pauses := int64(0)
 	for _, p := range beatMap.Pauses {
@@ -50,7 +50,9 @@ func (s *scoreV1Processor) AddResult(result JudgementResult) {
 		if result.HitResult&RawHits > 0 {
 			s.score += increase
 		} else {
-			s.score += increase + int64(float64(increase)*float64(combo)*s.scoreMultiplier*s.modMultiplier/25.0)
+			// osu!stable divides the integer score increase before applying
+			// the combo and difficulty multipliers.
+			s.score += increase + int64(float64(combo)*(float64(increase/25)*s.scoreMultiplier*s.modMultiplier))
 		}
 	}
 

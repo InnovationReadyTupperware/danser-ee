@@ -430,12 +430,28 @@ func (diff *Difficulty) GetScoreMultiplier() float64 {
 	}
 
 	if diff.IsLazer() {
-		value := math.Floor(diff.Speed*10)/10 - 1
+		if diff.Mods.Active(Hidden) {
+			hiddenMultiplier := 1.04
+			if hidden, ok := GetModConfig[HiddenSettings](diff); ok && hidden.OnlyFadeApproachCircles {
+				hiddenMultiplier -= 0.02
+			}
+			baseMultiplier *= hiddenMultiplier / 1.06
+		}
+		if diff.Mods.Active(Classic) {
+			if classic, ok := GetModConfig[ClassicSettings](diff); ok && classic.ClassicNoteLock {
+				baseMultiplier *= 0.985 / 0.96
+			}
+		}
 
 		if diff.Speed >= 1 {
-			baseMultiplier *= 1 + value/5
+			rate := math.Trunc(diff.Speed*10) / 10
+			penalty := 0.0
+			if rate != 1 && rate != 1.5 {
+				penalty = 0.01
+			}
+			baseMultiplier *= 1 + (rate-1)*0.46 - penalty
 		} else {
-			baseMultiplier *= 0.6 + value
+			baseMultiplier *= math.Trunc(diff.Speed*20)/20*1.4 - 0.5
 		}
 	} else {
 		if diff.Speed > 1 {

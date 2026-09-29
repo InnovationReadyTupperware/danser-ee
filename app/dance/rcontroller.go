@@ -45,6 +45,7 @@ type RpData struct {
 
 type subControl struct {
 	danceController Controller
+	recordedScore   *osu.RecordedStableScore
 	replayIndex     int
 	replayTime      float64
 	frames          []*rplpa.ReplayData
@@ -147,6 +148,16 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 		log.Println("\tMods:", control.diff.GetModString())
 
 		loadFrames(control, replay.ReplayData)
+		if gameplayMode == difficulty.GameplayStable && !control.modifiedMods && !control.diff.Mods.Active(difficulty.ScoreV2) {
+			control.recordedScore = &osu.RecordedStableScore{
+				TotalScore: int64(replay.Score),
+				MaxCombo:   int(replay.MaxCombo),
+				Count300:   int(replay.Count300),
+				Count100:   int(replay.Count100),
+				Count50:    int(replay.Count50),
+				CountMiss:  int(replay.CountMiss),
+			}
+		}
 
 		mxCombo := replay.MaxCombo
 
@@ -393,6 +404,9 @@ func (controller *ReplayController) InitCursors() {
 	controller.ruleset = osu.NewOsuRuleset(controller.bMap, controller.cursors, diffs)
 
 	for i, c := range controller.controllers {
+		if c.recordedScore != nil {
+			controller.ruleset.SetRecordedStableScore(controller.cursors[i], *c.recordedScore)
+		}
 		if controller.replays[i].ModsV.Active(difficulty.Relax) {
 			controller.controllers[i].relaxController = input.NewRelaxInputProcessor(controller.ruleset, controller.cursors[i])
 		}

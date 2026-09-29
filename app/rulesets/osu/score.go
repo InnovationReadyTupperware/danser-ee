@@ -15,6 +15,14 @@ type scoreProcessor interface {
 	GetAccuracy() float64
 }
 
+// Stable replay headers predate Classic. The injected compatibility mod affects
+// Lazer's standardised score, but not the recorded ScoreV1/ScoreV2 total.
+func legacyReplayScoreMultiplier(diff *difficulty.Difficulty) float64 {
+	legacy := *diff
+	legacy.Mods &^= difficulty.Classic
+	return legacy.GetScoreMultiplier()
+}
+
 type Score struct {
 	Score        int64
 	Accuracy     float64

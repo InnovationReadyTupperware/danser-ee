@@ -134,7 +134,8 @@ type ScoreOverlay struct {
 
 	isLazer bool
 
-	skipped bool
+	skipped             bool
+	recordedResultShown bool
 }
 
 type keyInfo struct {
@@ -442,9 +443,12 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 		overlay.flashlight.UpdateCombo(int64(overlay.comboCounter.GetCombo()))
 	}
 
-	overlay.entry.UpdatePlayer(sc.Score, int64(sc.Combo))
+	standardisedScore := overlay.ruleset.GetDisplayScore(overlay.cursor, settings.ScoreDisplayStandardised)
+	classicScore := overlay.ruleset.GetDisplayScore(overlay.cursor, settings.ScoreDisplayClassic)
+	displayScore := overlay.ruleset.GetDisplayScore(overlay.cursor, settings.Gameplay.Score.DisplayMode)
+	overlay.entry.UpdatePlayer(standardisedScore, classicScore, int64(sc.Combo))
 
-	overlay.scoreGlider.SetValue(float64(sc.Score), settings.Gameplay.Score.StaticScore)
+	overlay.scoreGlider.SetValue(float64(displayScore), settings.Gameplay.Score.StaticScore)
 	overlay.accuracyGlider.SetValue(sc.Accuracy*100, settings.Gameplay.Score.StaticAccuracy)
 
 	overlay.ppDisplay.Add(score.PP)
@@ -465,6 +469,7 @@ func (overlay *ScoreOverlay) hitReceived(c *graphics.Cursor, judgementResult osu
 		})
 	}
 
+	score.Score = displayScore
 	overlay.customStats.GetStatHolder().SetScoreStats(score)
 
 	fcPP := overlay.ruleset.GetFCPP(overlay.cursor)
@@ -524,6 +529,20 @@ func (overlay *ScoreOverlay) processKey(info *keyInfo, action osu.ButtonAction) 
 }
 
 func (overlay *ScoreOverlay) Update(time float64) {
+	if time >= overlay.beatmapEnd {
+		overlay.ruleset.ShowRecordedStableScore(overlay.cursor)
+	}
+	if _, ok := overlay.ruleset.GetRecordedStableScore(overlay.cursor); ok && !overlay.recordedResultShown {
+		overlay.recordedResultShown = true
+		standardised := overlay.ruleset.GetDisplayScore(overlay.cursor, settings.ScoreDisplayStandardised)
+		classic := overlay.ruleset.GetDisplayScore(overlay.cursor, settings.ScoreDisplayClassic)
+		overlay.scoreGlider.SetValue(float64(overlay.ruleset.GetDisplayScore(overlay.cursor, settings.Gameplay.Score.DisplayMode)), settings.Gameplay.Score.StaticScore)
+		score := overlay.ruleset.GetPresentationScore(overlay.cursor)
+		overlay.accuracyGlider.SetValue(score.Accuracy*100, settings.Gameplay.Score.StaticAccuracy)
+		overlay.entry.UpdatePlayer(standardised, classic, int64(score.Combo))
+		score.Score = overlay.ruleset.GetDisplayScore(overlay.cursor, settings.Gameplay.Score.DisplayMode)
+		overlay.customStats.GetStatHolder().SetScoreStats(score)
+	}
 	if overlay.audioTime == 0 {
 		overlay.audioTime = time
 		overlay.normalTime = time
@@ -872,7 +891,8 @@ func (overlay *ScoreOverlay) drawScore(batch *batch.QuadBatch, alpha float64) {
 	scoreFormat := "%08d"
 
 	playerDiff := overlay.ruleset.GetPlayerDifficulty(overlay.cursor)
-	if playerDiff.IsLazer() {
+	_, recordedResult := overlay.ruleset.GetRecordedStableScore(overlay.cursor)
+	if (playerDiff.IsLazer() || recordedResult) && settings.Gameplay.Score.DisplayMode != settings.ScoreDisplayClassic {
 		scoreFormat = "%06d"
 	}
 

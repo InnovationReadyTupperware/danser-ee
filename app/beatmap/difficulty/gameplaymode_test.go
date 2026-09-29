@@ -135,6 +135,37 @@ func TestClassicDoesNotChangeGameplayMode(t *testing.T) {
 	}
 }
 
+func TestClassicScoreMultiplierAppliesToStableReplay(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mode GameplayMode
+		mods Modifier
+		want float64
+	}{
+		{"Stable NM replay", GameplayStable, Classic, 0.96},
+		{"Stable HDDT replay", GameplayStable, Hidden | DoubleTime | Classic, 1.06 * 1.12 * 0.96},
+		{"Lazer Classic", GameplayLazer, Classic, 0.985},
+		{"Lazer HDDT Classic", GameplayLazer, Hidden | DoubleTime | Classic, 1.04 * 1.23 * 0.985},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			diff := NewDifficulty(5, 5, 5, 5)
+			diff.SetGameplayMode(test.mode)
+			diff.SetMods(test.mods)
+			if got := diff.GetScoreMultiplier(); math.Abs(got-test.want) > 1e-12 {
+				t.Fatalf("GetScoreMultiplier() = %.8f, want %.8f", got, test.want)
+			}
+		})
+	}
+
+	stableReplay := &rplpa.Replay{OsuVersion: LazerReplayVersion - 1}
+	diff := NewDifficulty(5, 5, 5, 5)
+	diff.SetGameplayMode(GameplayStable)
+	diff.SetModsFromReplay(stableReplay)
+	if !diff.CheckModActive(Classic) || diff.GetScoreMultiplier() != 0.96 {
+		t.Fatalf("Stable replay Classic multiplier = %.8f with mods %v, want 0.96 with Classic", diff.GetScoreMultiplier(), diff.Mods)
+	}
+}
+
 func TestLegacyLazerModifierIsIgnoredAndNotExported(t *testing.T) {
 	if got := ParseFromAcronym("LZ"); got != None {
 		t.Fatalf("ParseFromAcronym(LZ) = %v, want None", got)
@@ -166,8 +197,26 @@ func TestRelaxScoreMultiplierFollowsGameplayMode(t *testing.T) {
 	lazer.SetGameplayMode(GameplayLazer)
 	lazer.SetMods(Relax | Classic)
 
-	if got := lazer.GetScoreMultiplier(); math.Abs(got-0.096) > 1e-12 {
-		t.Fatalf("Lazer Relax multiplier = %v, want 0.096", got)
+	if got := lazer.GetScoreMultiplier(); math.Abs(got-0.0985) > 1e-12 {
+		t.Fatalf("Lazer Relax multiplier = %v, want 0.0985", got)
+	}
+}
+
+func TestLazerClassicScoreMultiplierFollowsNoteLockSetting(t *testing.T) {
+	diff := NewDifficulty(5, 5, 5, 5)
+	diff.SetGameplayMode(GameplayLazer)
+	diff.SetMods2([]rplpa.ModInfo{{Acronym: "CL", Settings: map[string]any{"classic_note_lock": false}}})
+	if got := diff.GetScoreMultiplier(); math.Abs(got-0.96) > 1e-12 {
+		t.Fatalf("Classic without note lock multiplier = %v, want 0.96", got)
+	}
+}
+
+func TestLazerHiddenScoreMultiplierFollowsFadeSetting(t *testing.T) {
+	diff := NewDifficulty(5, 5, 5, 5)
+	diff.SetGameplayMode(GameplayLazer)
+	diff.SetMods2([]rplpa.ModInfo{{Acronym: "HD", Settings: map[string]any{"only_fade_approach_circles": true}}})
+	if got := diff.GetScoreMultiplier(); math.Abs(got-1.02) > 1e-12 {
+		t.Fatalf("Hidden with approach-only fading multiplier = %v, want 1.02", got)
 	}
 }
 

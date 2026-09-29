@@ -1,6 +1,7 @@
 package osu
 
 import (
+	"math"
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
@@ -8,6 +9,29 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/graphics"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/api"
 )
+
+func TestLegacyReplayScoreMultiplierExcludesInjectedClassic(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mods difficulty.Modifier
+		want float64
+	}{
+		{name: "NM with Classic", mods: difficulty.Classic, want: 1},
+		{name: "HDDT with Classic", mods: difficulty.Hidden | difficulty.DoubleTime | difficulty.Classic, want: 1.06 * 1.12},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			diff := difficulty.NewDifficulty(5, 5, 5, 5)
+			diff.SetGameplayMode(difficulty.GameplayStable)
+			diff.SetMods(test.mods)
+			if got := legacyReplayScoreMultiplier(diff); math.Abs(got-test.want) > 1e-12 {
+				t.Fatalf("legacy score multiplier = %.8f, want %.8f", got, test.want)
+			}
+			if got := diff.GetScoreMultiplier(); math.Abs(got-test.want*0.96) > 1e-12 {
+				t.Fatalf("Lazer score multiplier = %.8f, want Classic penalty", got)
+			}
+		})
+	}
+}
 
 func TestScoreContinuesAggregatingAfterFailedGrade(t *testing.T) {
 	score := Score{Grade: F, Accuracy: 1}

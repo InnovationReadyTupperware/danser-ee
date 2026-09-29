@@ -8,6 +8,7 @@ import (
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 	"github.com/innovationreadytupperware/danser-ee/app/osuapi"
+	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
 	"github.com/innovationreadytupperware/danser-ee/app/skin"
 	"github.com/innovationreadytupperware/danser-ee/framework/env"
@@ -89,6 +90,14 @@ func NewScoreboard(beatMap *beatmap.BeatMap, isLazer bool, omitID int64) *ScoreB
 	} else if len(scores) == 0 {
 		log.Println("Can't find online scores!")
 	} else {
+		if isLazer {
+			for i := range scores {
+				if scores[i].ClassicTotalScore == 0 && scores[i].TotalScore > 0 {
+					scores[i].ClassicTotalScore = osu.ClassicDisplayScore(scores[i].TotalScore, len(beatMap.HitObjects))
+				}
+			}
+		}
+
 		if omitID > 0 {
 			for i := 0; i < len(scores); i++ {
 				if scores[i].ID == omitID {
@@ -100,6 +109,12 @@ func NewScoreboard(beatMap *beatmap.BeatMap, isLazer bool, omitID int64) *ScoreB
 		}
 
 		sort.SliceStable(scores, func(i, j int) bool {
+			if isLazer {
+				if settings.Gameplay.Score.DisplayMode == settings.ScoreDisplayClassic {
+					return scores[i].ClassicTotalScore > scores[j].ClassicTotalScore
+				}
+				return scores[i].TotalScore > scores[j].TotalScore
+			}
 			return scores[i].LegacyTotalScore > scores[j].LegacyTotalScore
 		})
 
@@ -142,7 +157,7 @@ func (board *ScoreBoard) AddPlayer(name string, autoPlay bool) {
 		}
 	}
 
-	board.UpdatePlayer(0, 0)
+	board.UpdatePlayer(0, 0, 0)
 
 	hasAvatar := false
 
@@ -162,10 +177,10 @@ func (board *ScoreBoard) AddPlayer(name string, autoPlay bool) {
 	board.avatarsVisible = hasAvatar
 }
 
-func (board *ScoreBoard) UpdatePlayer(score, combo int64) {
-	board.playerEntry.score.Score = score
-	board.playerEntry.score.ClassicTotalScore = score
-	board.playerEntry.score.TotalScore = score
+func (board *ScoreBoard) UpdatePlayer(standardisedScore, classicScore, combo int64) {
+	board.playerEntry.score.Score = classicScore
+	board.playerEntry.score.ClassicTotalScore = classicScore
+	board.playerEntry.score.TotalScore = standardisedScore
 	board.playerEntry.score.MaxCombo = combo
 
 	sort.SliceStable(board.scores, func(i, j int) bool {

@@ -93,3 +93,23 @@ func TestHitErrorMeterSettingsAcceptLegacyJSONNames(t *testing.T) {
 		t.Fatal("ScaleTimingWithSpeed = false, want true")
 	}
 }
+
+func TestScoreDisplayModeKeepsExistingScoreSettings(t *testing.T) {
+	config := NewConfigFile()
+	if config.Gameplay.Score.DisplayMode != ScoreDisplayStandardised {
+		t.Fatalf("default score display mode = %q, want Standardised", config.Gameplay.Score.DisplayMode)
+	}
+
+	data := []byte(`{"Gameplay":{"Score":{"Show":false,"Scale":1.5,"Opacity":0.7,"XOffset":12,"YOffset":-8,"ProgressBar":"Bar"}}}`)
+	if err := json.Unmarshal(data, config); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	score := config.Gameplay.Score
+	if score.Show || score.Scale != 1.5 || score.Opacity != 0.7 || score.XOffset != 12 || score.YOffset != -8 || score.ProgressBar != "Bar" {
+		t.Fatalf("existing Score settings changed after loading: %+v", score)
+	}
+	if score.DisplayMode != ScoreDisplayStandardised {
+		t.Fatalf("missing DisplayMode changed default to %q", score.DisplayMode)
+	}
+}
