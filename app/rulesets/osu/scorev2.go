@@ -30,7 +30,7 @@ func newScoreV2Processor() *scoreV2Processor {
 
 func (s *scoreV2Processor) Init(beatMap *beatmap.BeatMap, player *difficultyPlayer) {
 	s.player = player
-	s.modMultiplier = player.diff.GetScoreMultiplier()
+	s.modMultiplier = legacyReplayScoreMultiplier(player.diff)
 
 	s.comboPartMax = 0
 	s.maxHits = 0

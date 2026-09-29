@@ -101,6 +101,7 @@ type subSet struct {
 	score          *Score
 	hp             IHealthProcessor
 	scoreProcessor scoreProcessor
+	recordedScore  *recordedScoreDisplay
 
 	currentKatu int
 	currentBad  int
@@ -111,10 +112,11 @@ type subSet struct {
 	// failureRecorded is the score/health failure latch. It is separate from
 	// failed because generated knockout participants keep playing after their
 	// score becomes F.
-	failureRecorded bool
-	failed          bool
-	sdpfFail        bool
-	replayEnded     bool
+	failureRecorded    bool
+	failed             bool
+	sdpfFail           bool
+	replayEnded        bool
+	recordedScoreReady bool
 
 	potentialCombo int
 }
@@ -984,6 +986,92 @@ func (set *OsuRuleSet) GetFinalDiffAttribs(cursor *graphics.Cursor) api.Attribut
 
 func (set *OsuRuleSet) GetScore(cursor *graphics.Cursor) Score {
 	return *(set.cursors[cursor].score)
+}
+
+type recordedScoreDisplay struct {
+	result       RecordedStableScore
+	standardised int64
+	classic      int64
+}
+
+// SetRecordedStableScore attaches the original result for a replay whose mods
+// still match its header. Playback keeps judging frames; the recorded result
+// becomes the displayed score when the replay ends or solo results begin.
+func (set *OsuRuleSet) SetRecordedStableScore(cursor *graphics.Cursor, result RecordedStableScore) {
+	subSet := set.cursors[cursor]
+	if subSet == nil || subSet.player.diff.IsLazer() || subSet.player.diff.Mods.Active(difficulty.ScoreV2) || result.TotalScore <= 0 ||
+		result.MaxCombo < 0 || result.Count300 < 0 || result.Count100 < 0 ||
+		result.Count50 < 0 || result.CountMiss < 0 ||
+		result.Count300+result.Count100+result.Count50+result.CountMiss == 0 {
+		return
+	}
+
+	attrs := set.GetFinalDiffAttribs(cursor)
+	standardised := standardisedStableScore(result, set.beatMap, subSet.player.diff, attrs.LegacyScoreBaseMultiplier)
+	subSet.recordedScore = &recordedScoreDisplay{
+		result:       result,
+		standardised: standardised,
+		classic:      ClassicDisplayScore(standardised, len(set.beatMap.HitObjects)),
+	}
+}
+
+// GetRecordedStableScore returns the header result once final display begins.
+func (set *OsuRuleSet) GetRecordedStableScore(cursor *graphics.Cursor) (RecordedStableScore, bool) {
+	subSet := set.cursors[cursor]
+	if subSet == nil || !(subSet.replayEnded || subSet.recordedScoreReady) || subSet.recordedScore == nil {
+		return RecordedStableScore{}, false
+	}
+	return subSet.recordedScore.result, true
+}
+
+// ShowRecordedStableScore makes the recorded result available when the solo
+// results screen begins, even if the replay has trailing input frames.
+func (set *OsuRuleSet) ShowRecordedStableScore(cursor *graphics.Cursor) {
+	if subSet := set.cursors[cursor]; subSet != nil && subSet.recordedScore != nil {
+		subSet.recordedScoreReady = true
+	}
+}
+
+// GetPresentationScore uses the recorded Stable result after playback finishes.
+// Live judgement and performance calculations continue to use GetScore.
+func (set *OsuRuleSet) GetPresentationScore(cursor *graphics.Cursor) Score {
+	score := set.GetScore(cursor)
+	result, ok := set.GetRecordedStableScore(cursor)
+	if !ok {
+		return score
+	}
+
+	score.Combo = uint(result.MaxCombo)
+	score.Count300 = uint(result.Count300)
+	score.Count100 = uint(result.Count100)
+	score.Count50 = uint(result.Count50)
+	score.CountMiss = uint(result.CountMiss)
+	score.scoredObjects = uint(result.Count300 + result.Count100 + result.Count50 + result.CountMiss)
+	if score.scoredObjects > 0 {
+		score.Accuracy = float64(result.Count300*300+result.Count100*100+result.Count50*50) / float64(score.scoredObjects*300)
+	}
+	score.CalculateGrade(difficulty.GameplayStable, set.cursors[cursor].player.diff.Mods)
+	return score
+}
+
+// GetDisplayScore applies the selected display scale without changing the
+// score used for performance calculations or gameplay ranking.
+func (set *OsuRuleSet) GetDisplayScore(cursor *graphics.Cursor, mode string) int64 {
+	subSet := set.cursors[cursor]
+	if (subSet.replayEnded || subSet.recordedScoreReady) && subSet.recordedScore != nil {
+		if mode == settings.ScoreDisplayClassic {
+			return subSet.recordedScore.classic
+		}
+		return subSet.recordedScore.standardised
+	}
+	if processor, ok := subSet.scoreProcessor.(*scoreV3Processor); ok {
+		if mode == settings.ScoreDisplayClassic {
+			return ClassicDisplayScore(processor.score, len(set.beatMap.HitObjects))
+		}
+		return processor.score
+	}
+
+	return subSet.score.Score
 }
 
 func (set *OsuRuleSet) GetHP(cursor *graphics.Cursor) float64 {

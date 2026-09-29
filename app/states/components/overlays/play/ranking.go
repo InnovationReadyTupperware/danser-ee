@@ -135,7 +135,7 @@ func NewRankingPanel(cursor *graphics.Cursor, ruleset *osu.OsuRuleSet, hitError 
 	rAcc := sprite.NewSpriteSingle(skin.GetTexture("ranking-accuracy"), 3, rAPos, vector.TopLeft)
 	rCombo := sprite.NewSpriteSingle(skin.GetTexture("ranking-maxcombo"), 4, rCPos, vector.TopLeft)
 
-	score := panel.ruleset.GetScore(panel.cursor)
+	score := panel.ruleset.GetPresentationScore(panel.cursor)
 
 	panel.pp = fmt.Sprintf("%."+strconv.Itoa(settings.Gameplay.PPCounter.Decimals)+"fpp", score.PP.Total)
 
@@ -185,7 +185,12 @@ func NewRankingPanel(cursor *graphics.Cursor, ruleset *osu.OsuRuleSet, hitError 
 
 	panel.playedBy = fmt.Sprintf("Played by %s on %s", panel.cursor.Name, scoreTime.Format("2006-01-02 15:04:05 MST"))
 
-	panel.score = fmt.Sprintf("%08d", score.Score)
+	displayScore := ruleset.GetDisplayScore(cursor, settings.Gameplay.Score.DisplayMode)
+	scoreFormat := "%08d"
+	if settings.Gameplay.Score.DisplayMode != settings.ScoreDisplayClassic {
+		scoreFormat = "%06d"
+	}
+	panel.score = fmt.Sprintf(scoreFormat, displayScore)
 	panel.maxCombo = fmt.Sprintf("%dx", score.Combo)
 	panel.accuracy = fmt.Sprintf("%.2f%%", score.Accuracy*100)
 

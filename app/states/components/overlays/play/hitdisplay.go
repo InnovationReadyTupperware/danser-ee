@@ -49,7 +49,7 @@ func NewHitDisplay(ruleset *osu.OsuRuleSet, cursor *graphics.Cursor) *HitDisplay
 }
 
 func (sprite *HitDisplay) Update(_ float64) {
-	score := sprite.ruleset.GetScore(sprite.cursor)
+	score := sprite.ruleset.GetPresentationScore(sprite.cursor)
 
 	if sprite.hit300 != score.Count300 {
 		sprite.hit300 = score.Count300

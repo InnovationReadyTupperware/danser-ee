@@ -48,15 +48,12 @@ func initGameplay() *gameplay {
 			UseFallbackSkin:      false,
 		},
 		Score: &score{
-			hudElementOffset: &hudElementOffset{
-				hudElement: &hudElement{
-					Show:    true,
-					Scale:   1.0,
-					Opacity: 1.0,
-				},
-				XOffset: 0,
-				YOffset: 0,
-			},
+			Show:            true,
+			DisplayMode:     ScoreDisplayStandardised,
+			Scale:           1.0,
+			Opacity:         1.0,
+			XOffset:         0,
+			YOffset:         0,
 			ProgressBar:     "Pie",
 			ShowGradeAlways: false,
 			StaticScore:     false,
@@ -350,12 +347,23 @@ type aimError struct {
 }
 
 type score struct {
-	*hudElementOffset
-	ProgressBar     string `combo:"Pie,Bar,BottomRight,Bottom"`
-	ShowGradeAlways bool   `label:"Always show grade"`
+	Show            bool
+	DisplayMode     string  `label:"Score display mode" combo:"Standardised,Classic" liveedit:"false"`
+	Scale           float64 `max:"3" scale:"100.0" format:"%.0f%%"`
+	Opacity         float64 `scale:"100.0" format:"%.0f%%"`
+	offset          string  `vector:"true" left:"XOffset" right:"YOffset"`
+	XOffset         float64 `min:"-10000" max:"10000"`
+	YOffset         float64 `min:"-10000" max:"10000"`
+	ProgressBar     string  `combo:"Pie,Bar,BottomRight,Bottom"`
+	ShowGradeAlways bool    `label:"Always show grade"`
 	StaticScore     bool
 	StaticAccuracy  bool
 }
+
+const (
+	ScoreDisplayStandardised = "Standardised"
+	ScoreDisplayClassic      = "Classic"
+)
 
 type comboCounter struct {
 	*hudElementOffset
