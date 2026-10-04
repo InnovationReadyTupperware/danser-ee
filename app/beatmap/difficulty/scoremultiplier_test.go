@@ -16,7 +16,7 @@ func TestLazerScoreMultiplierRevisions(t *testing.T) {
 		v1, v2 float64
 	}{
 		{"HR", []rplpa.ModInfo{{Acronym: "HR"}}, 1.06, 1.09},
-		{"NF V2", []rplpa.ModInfo{{Acronym: "NF"}, {Acronym: "V2"}}, 0.5, 0.5},
+		{"NF ignores legacy ScoreV2 modifier", []rplpa.ModInfo{{Acronym: "NF"}, {Acronym: "V2"}}, 0.5, 0.5},
 		{"EZ default", []rplpa.ModInfo{{Acronym: "EZ"}}, 0.5, 0.8},
 		{"EZ fewer retries", []rplpa.ModInfo{{Acronym: "EZ", Settings: map[string]any{"retries": 0}}}, 0.5, 0.8},
 		{"EZ extra retry", []rplpa.ModInfo{{Acronym: "EZ", Settings: map[string]any{"retries": 3}}}, 0.5, 0.7},
@@ -78,6 +78,9 @@ func TestReplayScoreVersionSurvivesModOverrides(t *testing.T) {
 	oldRevision.ScoreVersion = 30000016
 	if !diff.Clone().Equals(diff) || !clone.Equals(oldRevision) {
 		t.Fatal("score revision must not change difficulty equality/cache identity")
+	}
+	if clone.GetModStringMasked() != oldRevision.GetModStringMasked() {
+		t.Fatal("score revision changed the SR/PP cache key")
 	}
 	diff.SetModsFromReplay(nil)
 	if diff.ScoreVersion != 0 {

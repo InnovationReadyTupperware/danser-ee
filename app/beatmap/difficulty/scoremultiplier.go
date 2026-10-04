@@ -12,11 +12,12 @@ func (diff *Difficulty) lazerScoreMultiplier() float64 {
 	if diff.Mods.Active(Easy) {
 		value := 0.5
 		if v2 {
-			retries := NewEasySettings().Retries
+			defaultRetries := NewEasySettings().Retries
+			retries := defaultRetries
 			if easy, ok := GetModConfig[EasySettings](diff); ok {
 				retries = easy.Retries
 			}
-			value = max(0.4, 0.8-max(0, 0.1*float64(retries-2)))
+			value = max(0.4, 0.8-max(0, 0.1*float64(retries-defaultRetries)))
 		}
 		multiplier *= value
 	}
