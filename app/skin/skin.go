@@ -247,6 +247,8 @@ func GetLegacySliderEndTextures() (circle, overlay *texture.TextureRegion, ok bo
 func GetTextureSource(name string, source Source) *texture.TextureRegion {
 	// Output frames need complete UVs before drawing. Marshal before taking
 	// textureLock so the GL thread never waits on a worker holding that lock
+	// SDL and the GL context initialize inside CallMain; SDL's main thread
+	// therefore also drains the dispatcher. Calls on it must upload inline
 	if settings.RECORD && !gcontext.IsMainThread() {
 		var region *texture.TextureRegion
 		goroutines.CallMain(func() { region = getTextureSource(name, source) })
