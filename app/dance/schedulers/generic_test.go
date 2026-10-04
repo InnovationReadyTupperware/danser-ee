@@ -107,3 +107,24 @@ func TestGenericSchedulerHandlesRepeatedOverlapCollapse(t *testing.T) {
 		t.Fatalf("mover received windows %v, want one three-object window", mover.windowLengths)
 	}
 }
+
+func TestRandomSliderDanceProcessesSlidersShiftedByExpansion(t *testing.T) {
+	diff := difficulty.NewDifficulty(5, 5, 5, 5)
+	timings := objects.NewTimings()
+	timings.SliderMult, timings.TickRate = 1.4, 1
+	timings.AddPoint(0, 600, 1, 1, 1, 4, false, false, false)
+	timings.FinalizePoints()
+	first := objects.NewSlider([]string{"256", "192", "1000", "2", "0", "B|320:240|380:192", "1", "160", "0", "0:0"})
+	second := objects.NewSlider([]string{"256", "192", "3000", "2", "0", "B|320:240|380:192", "1", "160", "0", "0:0"})
+	first.SetTiming(timings, 14, false)
+	second.SetTiming(timings, 14, false)
+	resolved := preprocessRandomSliderDance([]objects.IHitObject{first, second}, diff, true, func() bool { return true })
+	if got, want := len(resolved), len(first.ScorePointsLazer)+len(second.ScorePointsLazer)+2; got != want {
+		t.Fatalf("random slider-dance point count = %d, want %d", got, want)
+	}
+	for _, object := range resolved {
+		if _, ok := object.(*objects.Slider); ok {
+			t.Fatal("random slider dance skipped a later selected slider")
+		}
+	}
+}

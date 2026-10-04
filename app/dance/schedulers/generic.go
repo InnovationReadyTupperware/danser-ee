@@ -52,15 +52,14 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 	}
 
 	// Slider dance / random slider dance resolving. The deterministic path can
-	// expand all sliders in one pass. Keep the legacy random loop untouched so
-	// Random Slider Dance retains its existing random draw and selection
-	// behavior.
+	// expand all sliders in one pass. Random preprocessing must follow the
+	// growing queue so later sliders are still considered after expansion.
 	if config.SliderDance && !config.RandomSliderDance {
 		scheduler.queue = utils.ExpandSliderDanceQueueForDiff(scheduler.queue, diff)
 	} else {
-		for i := range len(scheduler.queue) {
-			scheduler.queue = utils.PreprocessQueueForDiff(i, scheduler.queue, config.RandomSliderDance && rand.Intn(2) == 0, diff)
-		}
+		scheduler.queue = preprocessRandomSliderDance(scheduler.queue, diff, config.RandomSliderDance, func() bool {
+			return rand.Intn(2) == 0
+		})
 	}
 
 	// Convert spinners to pseudo spinners with captured beginning and ending
@@ -144,6 +143,15 @@ func (scheduler *GenericScheduler) Init(objs []objects.IHitObject, diff *difficu
 
 	toRemove := scheduler.mover.SetObjects(scheduler.queue) - 1
 	scheduler.queue = scheduler.queue[toRemove:]
+}
+
+// preprocessRandomSliderDance follows queue growth while retaining random
+// selection for each visited point and mandatory generated-movement fallbacks
+func preprocessRandomSliderDance(queue []objects.IHitObject, diff *difficulty.Difficulty, enabled bool, choose func() bool) []objects.IHitObject {
+	for i := 0; i < len(queue); i++ {
+		queue = utils.PreprocessQueueForDiff(i, queue, enabled && choose(), diff)
+	}
+	return queue
 }
 
 // initializeCursor preserves the historical starting position for real

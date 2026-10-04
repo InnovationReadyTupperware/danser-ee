@@ -17,7 +17,7 @@ func Solve2B(queue []objects.IHitObject) []objects.IHitObject {
 // cursor-dance representation for the consuming gameplay provenance.
 func Solve2BForDiff(queue []objects.IHitObject, diff *difficulty.Difficulty) []objects.IHitObject {
 	// Resolving 2B conflicts
-	for i := range queue {
+	for i := 0; i < len(queue); i++ {
 		s, ok := queue[i].(*objects.Slider)
 		if !ok {
 			continue

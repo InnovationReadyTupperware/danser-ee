@@ -272,3 +272,22 @@ func newNormalTestSlider(t testHelper, startTime float64) *objects.Slider {
 func formatTestTime(time float64) string {
 	return strconv.FormatFloat(time, 'f', -1, 64)
 }
+
+func TestSolve2BProcessesSlidersShiftedBeyondOriginalQueueLength(t *testing.T) {
+	for _, mode := range []difficulty.GameplayMode{difficulty.GameplayStable, difficulty.GameplayLazer} {
+		diff := difficulty.NewDifficulty(5, 5, 5, 5)
+		diff.SetGameplayMode(mode)
+		queue := []objects.IHitObject{
+			newNormalTestSlider(t, 1000),
+			objects.DummyCircle(vector.NewVec2f(300, 200), 1100),
+			newNormalTestSlider(t, 3000),
+			objects.DummyCircle(vector.NewVec2f(300, 200), 3100),
+		}
+		resolved := Solve2BForDiff(queue, diff)
+		for _, object := range resolved {
+			if _, ok := object.(*objects.Slider); ok {
+				t.Fatalf("%s 2B resolution retained a conflicting slider", mode)
+			}
+		}
+	}
+}
