@@ -75,6 +75,8 @@ func NewScoreboard(beatMap *beatmap.BeatMap, isLazer bool, omitID int64) *ScoreB
 		mode = osuapi.CountryMode
 	} else if settings.Gameplay.ScoreBoard.Mode == "Friends" {
 		mode = osuapi.FriendsMode
+	} else if settings.Gameplay.ScoreBoard.Mode == "Team" {
+		mode = osuapi.TeamMode
 	}
 
 	if settings.Gameplay.ScoreBoard.ModsOnly {
