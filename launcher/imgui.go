@@ -138,7 +138,8 @@ func SetupImgui() {
 	})
 }
 
-// addFont transfers a native copy of the font data to ImGui's owning atlas
+// addFont transfers the native data buffer to ImGui for the atlas lifetime
+// The atlas frees it on destruction; the caller must not free it after adding
 func addFont(fileName string, merge bool) *imgui.Font {
 	fontBytes, err := assets.GetBytes("assets/fonts/" + fileName)
 	if err != nil {
@@ -147,15 +148,18 @@ func addFont(fileName string, merge bool) *imgui.Font {
 	if len(fontBytes) == 0 {
 		panic("Launcher: Empty font asset: " + fileName)
 	}
+	return addFontData(fontBytes, merge)
+}
+
+// addFontData copies Go bytes into the native buffer owned by the font atlas
+func addFontData(fontBytes []byte, merge bool) *imgui.Font {
 	fontData := C.malloc(C.size_t(len(fontBytes)))
-	if fontData == nil {
-		panic("Launcher: Failed to allocate font data: " + fileName)
-	}
 	C.memcpy(fontData, unsafe.Pointer(&fontBytes[0]), C.size_t(len(fontBytes)))
 	runtime.KeepAlive(fontBytes)
 	config := imgui.NewFontConfig()
 	defer config.Destroy()
 	config.SetMergeMode(merge)
+	config.SetFontDataOwnedByAtlas(true)
 	return ImIO.Fonts().AddFontFromMemoryTTFV(uintptr(fontData), int32(len(fontBytes)), 0, config, nil)
 }
 
