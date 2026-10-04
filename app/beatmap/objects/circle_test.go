@@ -2,6 +2,8 @@ package objects
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
@@ -9,6 +11,7 @@ import (
 	"github.com/wieku/rplpa"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/sprite"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
 
@@ -166,5 +169,96 @@ func testCircleWithHitSprites() *Circle {
 		HitObject:        &HitObject{},
 		hitCircle:        sprite.NewSpriteSingle(nil, 0, position, vector.Centre),
 		hitCircleOverlay: sprite.NewSpriteSingle(nil, 0, position, vector.Centre),
+	}
+}
+
+func TestDisabledHitAnimationsRetainSkinTransformsUnderParentFade(t *testing.T) {
+
+	previousGeneral, previousSkin := settings.General, settings.Skin
+	config := settings.NewConfigFile()
+	settings.General, settings.Skin = config.General, config.Skin
+	settings.General.OsuSkinsDir = t.TempDir()
+	settings.Skin.CurrentSkin = "hit-animation-test"
+	skinDir := filepath.Join(settings.General.OsuSkinsDir, settings.Skin.CurrentSkin)
+	if err := os.Mkdir(skinDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skinDir, "skin.ini"), []byte("[General]\nVersion: 2.5\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { settings.General, settings.Skin = previousGeneral, previousSkin })
+	previous := settings.Objects
+	settings.Objects = settings.NewConfigFile().Objects
+	settings.Objects.HitAnimations = false
+	t.Cleanup(func() { settings.Objects = previous })
+	for _, kind := range []string{"circle", "slider head", "slider tail"} {
+		t.Run(kind, func(t *testing.T) {
+			circle := testCircleWithHitSprites()
+			circle.diff = difficulty.NewDifficulty(5, 5, 5, 5)
+			circle.silent = true
+			circle.sprites = []sprite.ISprite{circle.hitCircle, circle.hitCircleOverlay}
+			if kind != "circle" {
+				circle.SliderPoint = true
+				circle.SliderPointStart = kind == "slider head"
+				circle.SliderPointEnd = kind == "slider tail"
+				circle.hitCircleTexture = new(texture.TextureRegion{})
+			}
+			if circle.SliderPointEnd {
+				circle.ArmSliderPoint(true, 1000, 400)
+			} else {
+				circle.Arm(true, 1000)
+			}
+			circle.Update(1030)
+			if circle.hitFade == nil || math.Abs(circle.hitFade.GetValue()-0.25) > 1e-9 {
+				t.Fatal("disabled hit animation did not use a 60 ms OutQuad parent fade")
+			}
+			if circle.hitCircle.GetScale().X <= 1 || circle.hitCircle.GetAlpha() <= 0.25 {
+				t.Fatal("short parent fade replaced the skin's scale or alpha transforms")
+			}
+			circle.Update(1060)
+			if circle.hitFade.GetValue() != 0 {
+				t.Fatal("disabled hit animation remained visible after 60 ms")
+			}
+			circle.Arm(false, 2000)
+			if circle.hitFade != nil {
+				t.Fatal("re-arming a miss retained the previous hit's parent fade")
+			}
+		})
+	}
+}
+
+func TestDisabledHitAnimationsKeepSliderRepeatLifecycle(t *testing.T) {
+	previous := settings.Objects
+	settings.Objects = settings.NewConfigFile().Objects
+	settings.Objects.HitAnimations = false
+	t.Cleanup(func() { settings.Objects = previous })
+	circle := testCircleWithHitSprites()
+	circle.diff = difficulty.NewDifficulty(5, 5, 5, 5)
+	circle.SliderPoint = true
+	circle.hitCircleTexture = new(texture.TextureRegion{})
+	circle.ArmSliderPoint(true, 1000, 400)
+	circle.hitCircle.Update(1200)
+	if circle.hitFade != nil || circle.hitCircle.GetScale().X != 1 || circle.hitCircle.GetAlpha() <= 0 {
+		t.Fatal("slider repeat lost its span-limited fade without hit transforms")
+	}
+	circle.hitCircle.Update(1300)
+	if circle.hitCircle.GetAlpha() > 0.001 || !circle.sliderPointLatched {
+		t.Fatal("slider repeat did not expire at 300 ms or latch its position")
+	}
+}
+
+func TestSliderAnimationSwitchStillSuppressesSkinTransforms(t *testing.T) {
+	previous := settings.Objects
+	settings.Objects = settings.NewConfigFile().Objects
+	settings.Objects.Sliders.HitAnimations = false
+	t.Cleanup(func() { settings.Objects = previous })
+	circle := testCircleWithHitSprites()
+	circle.diff = difficulty.NewDifficulty(5, 5, 5, 5)
+	circle.SliderPoint, circle.SliderPointStart = true, true
+	circle.hitCircleTexture = new(texture.TextureRegion{})
+	circle.Arm(true, 1000)
+	circle.hitCircle.Update(1030)
+	if circle.hitCircle.GetScale().X != 1 || circle.hitFade != nil {
+		t.Fatal("slider animation switch no longer suppressed slider hit transforms")
 	}
 }

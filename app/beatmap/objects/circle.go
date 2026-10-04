@@ -37,6 +37,7 @@ type Circle struct {
 	comboText        *sprite.TextSprite
 
 	sprites         []sprite.ISprite
+	hitFade         *animation.Glider
 	diff            *difficulty.Difficulty
 	lastTime        float64
 	silent          bool
@@ -112,6 +113,10 @@ func (circle *Circle) Update(time float64) bool {
 		circle.PlaySound(circle.StartTime)
 	}
 
+	if circle.hitFade != nil {
+		circle.hitFade.Update(time)
+	}
+
 	for _, s := range circle.sprites {
 		s.Update(time)
 	}
@@ -165,6 +170,7 @@ func (circle *Circle) SetTiming(timings *Timings, _ int, _ bool) {
 
 func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 	circle.diff = diff
+	circle.hitFade = nil
 	circle.sliderPointLatched = false
 
 	startTime := circle.StartTime - diff.Preempt
@@ -313,8 +319,9 @@ func setReverse(arrow *sprite.Sprite, start float64, length float64, loops int) 
 func (circle *Circle) Arm(clicked bool, time float64) {
 	circle.clearHitTransforms(time)
 
-	if circle.shouldAnimateHit(clicked) {
+	if circle.canAnimateHit(clicked) {
 		circle.addLegacyHitAnimation(time, time+difficulty.HitFadeOut)
+		circle.addDisabledHitAnimationFade(time)
 		return
 	}
 
@@ -332,9 +339,10 @@ func (circle *Circle) Arm(clicked bool, time float64) {
 func (circle *Circle) ArmSliderPoint(clicked bool, time, spanDuration float64) {
 	circle.clearHitTransforms(time)
 
-	if clicked && circle.shouldAnimateHit(true) {
+	if circle.canAnimateHit(clicked) {
 		circle.addLegacyHitAnimation(time, time+difficulty.HitFadeOut)
-		if circle.reverseArrow != nil {
+		circle.addDisabledHitAnimationFade(time)
+		if settings.Objects.HitAnimations && circle.reverseArrow != nil {
 			circle.addReverseArrowAnimation(time, sliderPointFadeDuration(false, true, spanDuration))
 		}
 	} else {
@@ -347,7 +355,18 @@ func (circle *Circle) ArmSliderPoint(clicked bool, time, spanDuration float64) {
 	}
 }
 
+// addDisabledHitAnimationFade retains skin transforms under a short parent fade
+// Repeats retain their separate endpoint lifecycle rather than the global fade
+func (circle *Circle) addDisabledHitAnimationFade(time float64) {
+	if settings.Objects.HitAnimations || (circle.SliderPoint && !circle.SliderPointStart && !circle.SliderPointEnd) {
+		return
+	}
+	circle.hitFade = animation.NewGlider(1)
+	circle.hitFade.AddEventSEase(time, time+60, 1, 0, easing.OutQuad)
+}
+
 func (circle *Circle) clearHitTransforms(time float64) {
+	circle.hitFade = nil
 	if circle.hitCircle != nil {
 		circle.hitCircle.ClearTransformations()
 	}
@@ -385,7 +404,7 @@ func (circle *Circle) addLegacyHitAnimation(startTime, endTime float64) {
 	if skin.GetInfo().Version < 2 && circle.comboText != nil {
 		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Scale, easing.OutQuad, startTime, endTime, 1.0, endScale))
 		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, endTime, 1.0, 0.0))
-	} else if circle.comboText != nil {
+	} else if circle.comboText != nil && settings.Objects.HitAnimations {
 		circle.comboText.AddTransform(animation.NewSingleTransform(animation.Fade, easing.Linear, startTime, startTime+60, 1.0, 0.0))
 	}
 }
@@ -440,12 +459,11 @@ func sliderPointFadeDuration(isEnd, clicked bool, spanDuration float64) float64 
 	return 100
 }
 
-// shouldAnimateHit keeps the Lazer hit-animation switch separate from the
-// slider-specific follow-circle and endpoint animation switch. A slider head
-// or legacy endpoint must satisfy both settings, while ordinary hit circles
-// only depend on the global setting.
-func (circle *Circle) shouldAnimateHit(clicked bool) bool {
-	if !clicked || !settings.Objects.HitAnimations || circle.diff == nil {
+// canAnimateHit checks whether the skin's hit transforms apply to this object
+// The global switch controls the parent fade; the slider switch suppresses
+// slider transforms independently
+func (circle *Circle) canAnimateHit(clicked bool) bool {
+	if !clicked || circle.diff == nil {
 		return false
 	}
 
@@ -457,6 +475,9 @@ func (circle *Circle) shouldAnimateHit(clicked bool) bool {
 		return true
 	}
 
+	if !settings.Objects.HitAnimations && !circle.SliderPointStart && !circle.SliderPointEnd {
+		return false
+	}
 	return circle.hitCircleTexture != nil && settings.Objects.Sliders.HitAnimations
 }
 
@@ -479,6 +500,9 @@ func (circle *Circle) Draw(time float64, color color2.Color, batch *batch.QuadBa
 	batch.SetTranslation(position.Copy64())
 
 	alpha := float64(color.A)
+	if circle.hitFade != nil {
+		alpha *= circle.hitFade.GetValue()
+	}
 
 	if settings.DIVIDES >= settings.Objects.Colors.MandalaTexturesTrigger {
 		alpha *= settings.Objects.Colors.MandalaTexturesAlpha
@@ -526,7 +550,7 @@ func (circle *Circle) Draw(time float64, color color2.Color, batch *batch.QuadBa
 	batch.SetSubScale(1, 1)
 	batch.SetTranslation(vector.NewVec2d(0, 0))
 
-	if time >= circle.StartTime && circle.hitCircle.GetAlpha() <= 0.001 {
+	if time >= circle.StartTime && (circle.hitCircle.GetAlpha() <= 0.001 || (circle.hitFade != nil && circle.hitFade.GetValue() <= 0.001)) {
 		return true
 	}
 
