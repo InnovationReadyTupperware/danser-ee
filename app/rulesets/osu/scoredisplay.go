@@ -47,6 +47,8 @@ func standardisedStableScore(replay RecordedStableScore, beatMap *beatmap.BeatMa
 	legacy.SetGameplayMode(difficulty.GameplayStable)
 	legacyModMultiplier := legacyReplayScoreMultiplier(legacy)
 	modern := diff.Clone()
+	// Stable score migration targets current Lazer scoring, not the replay era
+	modern.ScoreVersion = 0
 	modern.SetGameplayMode(difficulty.GameplayLazer)
 	return migrateLegacyScoreV1(replay, attrs, legacyModMultiplier, modern.GetScoreMultiplier())
 }
