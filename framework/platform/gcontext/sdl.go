@@ -26,6 +26,11 @@ type OptionalProps struct {
 	Fullscreen     bool
 }
 
+// IsMainThread reports whether the caller runs on SDL's main thread
+func IsMainThread() bool {
+	return sdl.IsMainThread()
+}
+
 var (
 	sdlWindow      *sdl.Window
 	sdlContext     sdl.GLContext

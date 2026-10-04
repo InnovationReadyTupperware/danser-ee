@@ -17,6 +17,7 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/font"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/color"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 )
 
 type Source int
@@ -244,6 +245,17 @@ func GetLegacySliderEndTextures() (circle, overlay *texture.TextureRegion, ok bo
 }
 
 func GetTextureSource(name string, source Source) *texture.TextureRegion {
+	// Output frames need complete UVs before drawing. Marshal before taking
+	// textureLock so the GL thread never waits on a worker holding that lock
+	if settings.RECORD && !gcontext.IsMainThread() {
+		var region *texture.TextureRegion
+		goroutines.CallMain(func() { region = getTextureSource(name, source) })
+		return region
+	}
+	return getTextureSource(name, source)
+}
+
+func getTextureSource(name string, source Source) *texture.TextureRegion {
 	checkInit()
 
 	textureLock.Lock()
@@ -435,7 +447,7 @@ func loadTexture(name string, source Source) *texture.TextureRegion {
 
 	if region != nil {
 		// Upload this texture in GL thread
-		goroutines.CallNonBlockMain(func() {
+		upload := func() {
 			checkAtlas()
 
 			var rg *texture.TextureRegion
@@ -468,7 +480,12 @@ func loadTexture(name string, source Source) *texture.TextureRegion {
 			region.U2 = rg.U2
 			region.V1 = rg.V1
 			region.V2 = rg.V2
-		})
+		}
+		if settings.RECORD {
+			upload()
+		} else {
+			goroutines.CallNonBlockMain(upload)
+		}
 	}
 
 	return region
