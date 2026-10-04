@@ -90,7 +90,11 @@ func NewScoreboard(beatMap *beatmap.BeatMap, isLazer bool, omitID int64) *ScoreB
 	if err != nil {
 		log.Println("Error connecting to osu!api:", err)
 	} else if len(scores) == 0 {
-		log.Println("Can't find online scores!")
+		if mode == osuapi.TeamMode {
+			log.Printf("Scoreboard: No team scores found for beatmap %q. Team mode requires osu! team membership; your team may have no scores matching the selected map or mods", beatMap.MD5)
+		} else {
+			log.Println("Can't find online scores!")
+		}
 	} else {
 		if isLazer {
 			for i := range scores {

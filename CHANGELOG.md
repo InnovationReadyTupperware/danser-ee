@@ -7,7 +7,7 @@
 ### Added
 
 - Added osu!lazer's `Score display mode` under Gameplay > Score, with `Standardised` (the default) and `Classic` values for the HUD, results, and osu!lazer scoreboard
-- Added a `Team` scoreboard mode for osu! team leaderboards
+- Added a `Team` scoreboard mode for osu! team leaderboards, requiring team membership and Authorization Code API mode
 
 ### Changed
 
