@@ -4,11 +4,21 @@
 
 # What's new in Danser Enterprise Edition 1.2.0 Alpha 1
 
+### Added
+
+- Added osu!lazer's `Score display mode` under Gameplay > Score, with `Standardised` (the default) and `Classic` values for the HUD, results, and osu!lazer scoreboard
+
+### Changed
+
+- Unmodified osu!stable replays now show their recorded combo, hit counts, accuracy, and score converted to the selected display mode when playback ends, even when judging the saved input frames produces a different result
+
 ### Fixed
 
 - Corrected July 2026 star-rating and PP calculations for fractional strain sections and long maps. Existing July-model catalog ratings are recalculated once while cached stars remain available
 - Strain graphs now show skill decay through breaks and keep peaks aligned with the map timeline at custom playback rates
 - Corrected slider counts and combo for single-slider maps using the October 2025 SR/PP model
+- Corrected osu!lazer score multipliers for Classic note lock, Hidden's approach-circle-only option, and custom playback rates. Classic applies a 0.96x score multiplier without note lock and 0.985x with it
+- osu!stable replay playback scores no longer include the automatically added Classic score penalty, and combo bonuses use osu!stable's integer division
 
 ---
 
@@ -35,23 +45,6 @@ These shared snapshot 3 changes are included in danser-ee, with several already 
 ### Launcher
 
 - Left clicks select controls without opening their context menus
-
-## 1.1.3 - 2026-09-29
-
-# What's new in Danser Enterprise Edition 1.1.3
-
-### Added
-
-- Added osu!lazer's `Score display mode` under Gameplay > Score, with `Standardised` (the default) and `Classic` values for the HUD, results, and osu!lazer scoreboard
-
-### Changed
-
-- Unmodified osu!stable replays now show their recorded combo, hit counts, accuracy, and score converted to the selected display mode when playback ends, even when judging the saved input frames produces a different result
-
-### Fixed
-
-- Corrected osu!lazer score multipliers for Classic note lock, Hidden's approach-circle-only option, and custom playback rates. Classic applies a 0.96x score multiplier without note lock and 0.985x with it
-- osu!stable replay playback scores no longer include the automatically added Classic score penalty, and combo bonuses use osu!stable's integer division
 
 ## 1.1.2 - 2026-09-24
 
