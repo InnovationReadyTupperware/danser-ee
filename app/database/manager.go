@@ -280,7 +280,7 @@ func Init() (err error) {
 		return err
 	}
 
-	return nil
+	return refreshJulyStarRatings(dbFile)
 }
 
 func LoadBeatmaps(skipDatabaseCheck bool, importListener ImportListener) []*beatmap.BeatMap {

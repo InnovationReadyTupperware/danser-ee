@@ -2,6 +2,7 @@ package skills
 
 import (
 	"math"
+	"slices"
 	"sort"
 
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu/performance/pp260706/preprocessing"
@@ -94,12 +95,13 @@ func (skill *VariableLengthSkill) backfillPeaks(current *preprocessing.Difficult
 }
 
 func (skill *VariableLengthSkill) saveCurrentPeak(sectionLength float64) {
-	peak := StrainPeak{Value: skill.currentSectionPeak, SectionLength: math.Round(sectionLength)}
+	peak := StrainPeak{Value: skill.currentSectionPeak, SectionLength: math.RoundToEven(sectionLength)}
 	index := sort.Search(len(skill.strainPeaks), func(i int) bool { return skill.strainPeaks[i].Value <= peak.Value })
 	skill.strainPeaks = append(skill.strainPeaks, StrainPeak{})
 	copy(skill.strainPeaks[index+1:], skill.strainPeaks[index:])
 	skill.strainPeaks[index] = peak
-	skill.totalLength += peak.SectionLength
+	// The reference retains fractional elapsed time while storing rounded peaks
+	skill.totalLength += sectionLength
 
 	for skill.totalLength > skill.maxStoredLength*skill.MaxSectionLength && len(skill.strainPeaks) > 0 {
 		last := len(skill.strainPeaks) - 1
@@ -109,8 +111,8 @@ func (skill *VariableLengthSkill) saveCurrentPeak(sectionLength float64) {
 }
 
 func (skill *VariableLengthSkill) GetCurrentStrainPeaks() []StrainPeak {
-	peaks := append([]StrainPeak(nil), skill.strainPeaks...)
-	finalPeak := StrainPeak{Value: skill.currentSectionPeak, SectionLength: math.Round(skill.currentSectionEnd - skill.currentSectionBegin)}
+	peaks := slices.Clone(skill.strainPeaks)
+	finalPeak := StrainPeak{Value: skill.currentSectionPeak, SectionLength: math.RoundToEven(skill.currentSectionEnd - skill.currentSectionBegin)}
 	index := sort.Search(len(peaks), func(i int) bool { return peaks[i].Value <= finalPeak.Value })
 	peaks = append(peaks, StrainPeak{})
 	copy(peaks[index+1:], peaks[index:])
