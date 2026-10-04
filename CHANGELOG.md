@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.2.0 - Unreleased
+## 1.2.0-alpha.1 - 2026-10-04
 
-# What's new in Danser Enterprise Edition 1.2.0
+# What's new in Danser Enterprise Edition 1.2.0 Alpha 1
 
 ### Fixed
 
