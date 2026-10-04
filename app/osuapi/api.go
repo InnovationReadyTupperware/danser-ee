@@ -51,8 +51,12 @@ func GetScores(beatmapId int64, legacyOnly bool, mode ScoreType, limit int, mods
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	buf, err := io.ReadAll(resp.Body)
+	return readScores(resp.Body)
+}
+
+func readScores(body io.ReadCloser) ([]Score, error) {
+	defer func() { _ = body.Close() }()
+	buf, err := io.ReadAll(body)
 	if err != nil {
 		return nil, err
 	}
