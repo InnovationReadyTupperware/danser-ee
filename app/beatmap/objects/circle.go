@@ -211,7 +211,7 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 
 	circles := []sprite.ISprite{circle.hitCircle, circle.hitCircleOverlay, circle.comboText}
 
-	fadeInStartTime := circle.addBodyFades(diff, circles)
+	fadeInStartTime := circle.addBodyFades(diff, circles, startTime, endTime)
 
 	if circle.SliderPointEnd {
 		return
@@ -253,11 +253,7 @@ func (circle *Circle) SetDifficulty(diff *difficulty.Difficulty) {
 	}
 }
 
-func (circle *Circle) addBodyFades(diff *difficulty.Difficulty, circles []sprite.ISprite) float64 {
-	startTime := circle.StartTime - diff.Preempt
-	if circle.SliderPoint {
-		startTime = circle.appearTime
-	}
+func (circle *Circle) addBodyFades(diff *difficulty.Difficulty, circles []sprite.ISprite, startTime, endTime float64) float64 {
 	fadeInStartTime := startTime
 	fadeInDuration := float64(diff.TimeFadeIn)
 	if diff.CheckModActive(difficulty.Hidden) {
@@ -271,7 +267,6 @@ func (circle *Circle) addBodyFades(diff *difficulty.Difficulty, circles []sprite
 		}
 	}
 
-	endTime := circle.StartTime
 	// Stable always fades hit circles before the miss deadline. Lazer keeps
 	// them visible until judgment unless Classic explicitly restores the
 	// legacy presentation setting carried in the replay.

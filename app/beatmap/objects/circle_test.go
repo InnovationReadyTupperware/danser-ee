@@ -23,7 +23,7 @@ func TestHiddenApproachOnlyBodyFadeUsesPreempt(t *testing.T) {
 			circle := testCircleWithHitSprites()
 			circle.StartTime = 3000
 			circle.hitCircle.SetAlpha(0)
-			circle.addBodyFades(diff, []sprite.ISprite{circle.hitCircle})
+			circle.addBodyFades(diff, []sprite.ISprite{circle.hitCircle}, 3000-diff.Preempt, 3000)
 			circle.hitCircle.Update(3000 - diff.Preempt*0.8)
 			if alpha := circle.hitCircle.GetAlpha(); math.Abs(alpha-0.5) > 1e-6 {
 				t.Fatalf("AR %g rate %g body alpha = %g at 20%% of preempt, want 0.5", ar, rate, alpha)
@@ -53,7 +53,7 @@ func TestHiddenApproachOnlySliderPointFadeOverrides(t *testing.T) {
 		circle.appearTime = 1000
 		circle.firstEndCircle = first
 		circle.hitCircle.SetAlpha(0)
-		circle.addBodyFades(diff, []sprite.ISprite{circle.hitCircle})
+		circle.addBodyFades(diff, []sprite.ISprite{circle.hitCircle}, circle.appearTime, circle.StartTime)
 		if first {
 			circle.hitCircle.Update(1000 + diff.Preempt/3 - 1)
 			if circle.hitCircle.GetAlpha() != 0 {
