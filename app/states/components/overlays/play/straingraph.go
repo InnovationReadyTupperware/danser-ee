@@ -63,29 +63,12 @@ func NewStrainGraph(beatMap *beatmap.BeatMap, peaks api.StrainPeaks, countFromZe
 		shapeRenderer: shape.NewRenderer(),
 		strains:       peaks,
 
-		trueStartTime: beatMap.HitObjects[min(0, len(beatMap.HitObjects)-1)].GetStartTime(),
-		trueEndTime:   beatMap.HitObjects[len(beatMap.HitObjects)-1].GetEndTime(),
-
-		strainStartTime: beatMap.HitObjects[min(1, len(beatMap.HitObjects)-1)].GetStartTime(),
-		strainEndTime:   beatMap.HitObjects[len(beatMap.HitObjects)-1].GetStartTime(),
-
 		screenWidth:   768 * settings.Graphics.GetAspectRatio(),
 		countFromZero: countFromZero,
 		countTrueEnd:  countTrueEnd,
 		samples:       samples,
 	}
-
-	graph.strainLength = graph.strainEndTime - graph.strainStartTime
-
-	graph.startTime = graph.trueStartTime
-	if countFromZero {
-		graph.startTime = min(graph.startTime, 0)
-	}
-
-	graph.endTime = graph.strainEndTime
-	if countTrueEnd {
-		graph.endTime = graph.trueEndTime
-	}
+	graph.setMapTimes(beatMap)
 
 	graph.baseLine = peaks.Baseline
 
@@ -99,6 +82,28 @@ func NewStrainGraph(beatMap *beatmap.BeatMap, peaks api.StrainPeaks, countFromZe
 	graph.rightSprite.SetCutOrigin(vector.CentreRight)
 
 	return graph
+}
+
+func (graph *StrainGraph) setMapTimes(beatMap *beatmap.BeatMap) {
+	if beatMap != nil && len(beatMap.HitObjects) > 0 {
+		objects := beatMap.HitObjects
+		graph.trueStartTime = objects[0].GetStartTime()
+		graph.trueEndTime = objects[len(objects)-1].GetEndTime()
+		graph.strainStartTime = objects[min(1, len(objects)-1)].GetStartTime()
+		graph.strainEndTime = objects[len(objects)-1].GetStartTime()
+	}
+
+	graph.strainLength = graph.strainEndTime - graph.strainStartTime
+
+	graph.startTime = graph.trueStartTime
+	if graph.countFromZero {
+		graph.startTime = min(graph.startTime, 0)
+	}
+
+	graph.endTime = graph.strainEndTime
+	if graph.countTrueEnd {
+		graph.endTime = graph.trueEndTime
+	}
 }
 
 func (graph *StrainGraph) SetTimes(start, end float64) {
@@ -124,12 +129,22 @@ func (graph *StrainGraph) generateCurve() curves.Curve {
 	// Number of strain sections to merge
 	// For example for a 5-minute map we will get 10 sections, so 4s because one section is 400ms
 	// It's also scaled with width of the strain graph so wider one shows more detailed graph
-	sectSize := max(int((graph.endTime-graph.startTime)/30000*(200/graph.size.X)), 1)
+	sectSize := max(int((graph.endTime-graph.startTime)/30000*(200/max(1, graph.size.X))), 1)
+	points := graph.curvePoints(sectSize)
+	graph.maxStrain = max(graph.maxStrain, 1e-6)
+	return curves.NewMonotoneCubic(points)
+}
 
+func (graph *StrainGraph) curvePoints(sectSize int) []vector.Vector2f {
 	var points []vector.Vector2f
+	graph.maxStrain = 0
+	timed := len(graph.strains.SampleTimes) == len(graph.strains.Total)
 
 	if graph.countFromZero && graph.trueStartTime > 0 { // Don't add intro if map starts before music
-		points = append(points, vector.NewVec2f(0, 0), vector.NewVec2f(float32(max(0, graph.trueStartTime-400)), 0))
+		points = append(points, vector.NewVec2f(0, 0))
+		if graph.trueStartTime > 400 {
+			points = append(points, vector.NewVec2f(float32(graph.trueStartTime-400), 0))
+		}
 	}
 
 	points = append(points, vector.NewVec2f(float32(graph.trueStartTime-0.001), float32(graph.strains.Total[0]-graph.baseLine))) //slight nudge to the left in case it's a 1 object map
@@ -147,14 +162,28 @@ func (graph *StrainGraph) generateCurve() curves.Curve {
 		}
 
 		graph.maxStrain = max(graph.maxStrain, lMaxStrain)
-		points = append(points, vector.NewVec2f(float32(graph.strainStartTime+(float64(i)/float64(max(1, sections)))*graph.strainLength), lMaxStrain))
+		time := graph.strainStartTime + (float64(i)/float64(max(1, sections)))*graph.strainLength
+		if timed {
+			// Merged peaks retain the endpoint of their last bucket, including
+			// a final partial bucket clipped to the last object's start time
+			time = mutils.Clamp(graph.strains.SampleTimes[maxI-1], graph.strainStartTime, graph.strainEndTime)
+		}
+		point := vector.NewVec2f(float32(time), lMaxStrain)
+		if timed && len(points) > 0 && point.X <= points[len(points)-1].X {
+			points[len(points)-1].Y = max(points[len(points)-1].Y, point.Y)
+		} else {
+			points = append(points, point)
+		}
 	}
 
 	if graph.countTrueEnd && graph.trueEndTime > graph.strainEndTime {
 		points = append(points, vector.NewVec2f(float32(graph.trueEndTime), float32(graph.strains.Total[len(graph.strains.Total)-1]-graph.baseLine)))
 	}
 
-	return curves.NewMonotoneCubic(points)
+	if len(points) == 1 {
+		points = append(points, points[0].AddS(1, 0))
+	}
+	return points
 }
 
 func (graph *StrainGraph) drawFBO(batch *batch.QuadBatch) {

@@ -30,6 +30,11 @@ func (skill *SpeedSkill) strainDecay(ms float64) float64 {
 	return math.Pow(0.3, ms/1000)
 }
 
+// StrainDecay returns the remaining strain after ms for chronological graphs
+func (skill *SpeedSkill) StrainDecay(ms float64) float64 {
+	return skill.strainDecay(ms)
+}
+
 func (skill *SpeedSkill) speedDifficulty(current *preprocessing.DifficultyObject) float64 {
 	if skill.diff.CheckModActive(difficulty.Relax) {
 		return 0

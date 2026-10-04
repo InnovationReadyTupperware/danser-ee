@@ -191,33 +191,34 @@ func (calc *DifficultyCalculator) CalculateStrainPeaks(bMap *beatmap.BeatMap, di
 	}
 
 	set := newSkillSet(diff, len(bMap.HitObjects))
-	startTime := diffObjects[0].StartTime
-	endTime := diffObjects[len(diffObjects)-1].StartTime
-	sectionCount := max(1, int(math.Ceil((endTime-startTime)/400))+1)
-
-	peaks.Aim = make([]float64, sectionCount)
-	peaks.Speed = make([]float64, sectionCount)
-	peaks.Flashlight = make([]float64, sectionCount)
-	reading := make([]float64, sectionCount)
+	aimSampler := graphSampler{decay: set.aim.StrainDecay}
+	speedSampler := graphSampler{decay: set.speed.StrainDecay}
+	readingSampler := graphSampler{decay: set.reading.StrainDecay}
+	flashlightSampler := graphSampler{decay: set.flashlight.StrainDecay}
 
 	for _, object := range diffObjects {
-		section := int((object.StartTime - startTime) / 400)
-		section = mutils.Clamp(section, 0, sectionCount-1)
-
 		aimStrain := set.aim.Process(object)
 		set.aimWithoutSliders.Process(object)
 		speedStrain := set.speed.Process(object)
 		readingStrain := set.reading.Process(object)
 		flashlightStrain := set.flashlight.Process(object)
 
-		peaks.Aim[section] = max(peaks.Aim[section], aimStrain)
-		peaks.Speed[section] = max(peaks.Speed[section], speedStrain)
-		peaks.Flashlight[section] = max(peaks.Flashlight[section], flashlightStrain)
-		reading[section] = max(reading[section], readingStrain)
+		aimSampler.add(object.StartTime, aimStrain)
+		speedSampler.add(object.StartTime, speedStrain)
+		readingSampler.add(object.StartTime, readingStrain)
+		flashlightSampler.add(object.StartTime, flashlightStrain)
 	}
 
+	peaks.Aim = aimSampler.finish()
+	peaks.Speed = speedSampler.finish()
+	peaks.Flashlight = flashlightSampler.finish()
+	reading := readingSampler.finish()
+	sectionCount := len(peaks.Aim)
+	peaks.SampleTimes = make([]float64, sectionCount)
+	firstEnd := math.Ceil(diffObjects[0].StartTime/graphSectionLength) * graphSectionLength
 	peaks.Total = make([]float64, sectionCount)
 	for i := range sectionCount {
+		peaks.SampleTimes[i] = (firstEnd + float64(i)*graphSectionLength) * diff.Speed
 		aimRating := calculateAimDifficultyRating(peaks.Aim[i])
 		speedRating := calculateDifficultyRating(peaks.Speed[i])
 		readingRating := calculateDifficultyRating(reading[i])

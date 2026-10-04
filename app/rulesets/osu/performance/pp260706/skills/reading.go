@@ -35,6 +35,11 @@ func (skill *ReadingSkill) strainDecay(ms float64) float64 {
 	return math.Pow(0.8, ms/1000)
 }
 
+// StrainDecay returns the remaining strain after ms for chronological graphs
+func (skill *ReadingSkill) StrainDecay(ms float64) float64 {
+	return skill.strainDecay(ms)
+}
+
 func (skill *ReadingSkill) readingDifficulty(current *preprocessing.DifficultyObject) float64 {
 	const (
 		skillMultiplier           = 2.5
