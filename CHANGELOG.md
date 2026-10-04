@@ -7,6 +7,7 @@
 ### Added
 
 - Added osu!lazer's `Score display mode` under Gameplay > Score, with `Standardised` (the default) and `Classic` values for the HUD, results, and osu!lazer scoreboard
+- Added a `Team` scoreboard mode for osu! team leaderboards
 
 ### Changed
 
@@ -17,7 +18,9 @@
 - Corrected July 2026 star-rating and PP calculations for fractional strain sections and long maps. Existing July-model catalog ratings are recalculated once while cached stars remain available
 - Strain graphs now show skill decay through breaks and keep peaks aligned with the map timeline at custom playback rates
 - Corrected slider counts and combo for single-slider maps using the October 2025 SR/PP model
-- Corrected osu!lazer score multipliers for Classic note lock, Hidden's approach-circle-only option, and custom playback rates. Classic applies a 0.96x score multiplier without note lock and 0.985x with it
+- osu!lazer score multipliers now follow the replay's scoring revision, including Flashlight size, Easy retries, Difficulty Adjust, Classic note lock, Hidden, and custom speed-mod rates. Older Lazer replays retain their original multiplier rules
+- Hidden's approach-circle-only option now gives circle bodies the same fade-in timing as regular Hidden
+- Slider ticks and other textures loaded during screenshot capture now appear in the saved frame
 - osu!stable replay playback scores no longer include the automatically added Classic score penalty, and combo bonuses use osu!stable's integer division
 
 ---
@@ -31,6 +34,8 @@ These shared snapshot 3 changes are included in danser-ee, with several already 
 - July 2026 SR/PP calculations are available alongside the October 2025 model and other supported historical versions (already introduced in danser-ee 1.1.0; this release (1.2.0-alpha.1) corrects calculation parity and strain graphs)
   - Existing `260321` and `26xxxx` selections migrate to `260706`; the October 2025 model remains available as `251020`
 - Hidden can hide only approach circles through its `Only fade approach circles` option (already introduced in danser-ee 1.1.0)
+- The scoreboard can show the player's osu! team leaderboard
+- Current osu!lazer score multipliers account for mod settings, with historical replay scoring preserved
 - Map intros can be skipped automatically with `Gameplay.AlwaysSkipIntro`
 - Generated cursors separate the hit times of overlapping circles after double-click objects
 - Custom speed-mod rates are limited to 0.1x through 10x
@@ -38,6 +43,7 @@ These shared snapshot 3 changes are included in danser-ee, with several already 
 ### Rendering and audio
 
 - Slider bodies render correctly on AMD Vega systems with affected OpenGL drivers
+- Screenshots include slider ticks even when their textures are first loaded during capture
 - Spinner bonus hitsounds use the active timing point's sample volume
 - Combo colors remain correct when a beatmap defines other colors alongside them
 - Beatmap colors can override the slider border, track, slider ball, and input-overlay text
