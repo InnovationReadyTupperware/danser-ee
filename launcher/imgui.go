@@ -92,31 +92,9 @@ func SetupImgui() {
 
 	//region texture
 
-	quicksandBytes, err := assets.GetBytes("assets/fonts/Quicksand-Bold.ttf")
-	if err != nil {
-		panic(err)
-	}
-
-	fontAwesomeBytes, err := assets.GetBytes("assets/fonts/Font Awesome 6 Free-Solid-900.otf")
-	if err != nil {
-		panic(err)
-	}
-
-	qsPtr := C.malloc(C.size_t(len(quicksandBytes)))
-	awPtr := C.malloc(C.size_t(len(fontAwesomeBytes)))
-
-	quicksandPtr := unsafe.Pointer(&quicksandBytes[0])
-	awesomePtr := unsafe.Pointer(&fontAwesomeBytes[0])
-
-	C.memcpy(qsPtr, quicksandPtr, C.size_t(len(quicksandBytes)))
-	C.memcpy(awPtr, awesomePtr, C.size_t(len(fontAwesomeBytes)))
-
-	runtime.KeepAlive(quicksandPtr)
-	runtime.KeepAlive(awesomePtr)
-
 	//TODO: switch from multiple fonts to own custom PushFont implementation that sets global scale for each font
-	Font = ImIO.Fonts().AddFontFromMemoryTTF(uintptr(qsPtr), int32(len(quicksandBytes)))
-	FontAw = ImIO.Fonts().AddFontFromMemoryTTF(uintptr(awPtr), int32(len(fontAwesomeBytes)))
+	Font = addFont("Quicksand-Bold.ttf", false)
+	FontAw = addFont("Font Awesome 6 Free-Solid-900.otf", false)
 
 	//endregion
 
@@ -158,6 +136,27 @@ func SetupImgui() {
 	gcontext.RegisterListener(func(event gcontext.CharEvent) {
 		ImIO.AddInputCharactersUTF8(event.Text)
 	})
+}
+
+// addFont transfers a native copy of the font data to ImGui's owning atlas
+func addFont(fileName string, merge bool) *imgui.Font {
+	fontBytes, err := assets.GetBytes("assets/fonts/" + fileName)
+	if err != nil {
+		panic(err)
+	}
+	if len(fontBytes) == 0 {
+		panic("Launcher: Empty font asset: " + fileName)
+	}
+	fontData := C.malloc(C.size_t(len(fontBytes)))
+	if fontData == nil {
+		panic("Launcher: Failed to allocate font data: " + fileName)
+	}
+	C.memcpy(fontData, unsafe.Pointer(&fontBytes[0]), C.size_t(len(fontBytes)))
+	runtime.KeepAlive(fontBytes)
+	config := imgui.NewFontConfig()
+	defer config.Destroy()
+	config.SetMergeMode(merge)
+	return ImIO.Fonts().AddFontFromMemoryTTFV(uintptr(fontData), int32(len(fontBytes)), 0, config, nil)
 }
 
 func sdlKeyToImGuiKey(keycode sdl.Keycode, scancode sdl.Scancode) imgui.Key {
