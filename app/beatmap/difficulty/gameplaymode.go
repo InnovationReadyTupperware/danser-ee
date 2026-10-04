@@ -37,10 +37,12 @@ func GameplayModeFromReplayVersion(osuVersion int) GameplayMode {
 // legacy replay decoder while leaving gameplay provenance separate.
 func (diff *Difficulty) SetModsFromReplay(replay *rplpa.Replay) {
 	if replay == nil {
+		diff.ScoreVersion = 0
 		diff.SetMods(None)
 		return
 	}
 
+	diff.ScoreVersion = replay.OsuVersion
 	var mods []rplpa.ModInfo
 	if replay.ScoreInfo != nil {
 		mods = make([]rplpa.ModInfo, 0, len(replay.ScoreInfo.Mods))

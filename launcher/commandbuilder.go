@@ -90,6 +90,9 @@ func (b *builder) setMap(bMap *beatmap.BeatMap) {
 	}
 
 	b.currentMap = bMap
+	b.sourceDiff.ScoreVersion = 0
+	b.baseDiff.ScoreVersion = 0
+	b.diff.ScoreVersion = 0
 
 	b.start = intParam{}
 
@@ -136,6 +139,7 @@ func (b *builder) setReplay(replay *rplpa.Replay) {
 	b.baseDiff.SetGameplayMode(gameplayMode)
 	b.diff.SetGameplayMode(gameplayMode)
 	b.sourceDiff.SetModsFromReplay(replay)
+	b.baseDiff.ScoreVersion = replay.OsuVersion
 	b.baseDiff.SetMods(b.sourceDiff.Mods)
 	b.diff.SetModsFromReplay(replay)
 
@@ -143,6 +147,9 @@ func (b *builder) setReplay(replay *rplpa.Replay) {
 
 func (b *builder) removeReplay() {
 	b.currentReplay = nil
+	b.sourceDiff.ScoreVersion = 0
+	b.baseDiff.ScoreVersion = 0
+	b.diff.ScoreVersion = 0
 	b.sourceDiff.RemoveMod(^difficulty.None)
 	b.sourceDiff.SetGameplayMode(difficulty.GameplayLazer)
 	b.baseDiff.SetGameplayMode(difficulty.GameplayLazer)

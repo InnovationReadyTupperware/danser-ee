@@ -47,6 +47,10 @@ type Difficulty struct {
 
 	Mods Modifier
 
+	// ScoreVersion selects replay-era score multipliers; zero uses current rules
+	// It is independent of gameplay provenance, PP models, and the ScoreV2 mod
+	ScoreVersion int32
+
 	gameplayMode GameplayMode
 
 	Hit50U  float64
@@ -418,69 +422,34 @@ func (diff *Difficulty) GetRadius() float32 {
 }
 
 func (diff *Difficulty) GetScoreMultiplier() float64 {
+	if diff.IsLazer() {
+		return diff.lazerScoreMultiplier()
+	}
 	scoreMods := diff.Mods &^ (HalfTime | Daycore | DoubleTime | Nightcore | Flashlight | Relax | Autopilot)
 	baseMultiplier := scoreMods.GetScoreMultiplier()
-
 	if diff.Mods.Active(Relax | Autopilot) {
-		if diff.IsLazer() {
-			baseMultiplier *= 0.1
+		baseMultiplier = 0
+	}
+	if diff.Speed > 1 {
+		if diff.Mods.Active(ScoreV2) {
+			baseMultiplier *= 1 + 0.40*(diff.Speed-1)
 		} else {
-			baseMultiplier = 0
+			baseMultiplier *= 1 + 0.24*(diff.Speed-1)
+		}
+	} else if diff.Speed < 1 {
+		if diff.Speed >= 0.75 {
+			baseMultiplier *= 0.3 + 0.7*(1-(1-diff.Speed)/0.25)
+		} else {
+			baseMultiplier *= max(0, 0.3*(1-(0.75-diff.Speed)/0.75))
 		}
 	}
-
-	if diff.IsLazer() {
-		if diff.Mods.Active(Hidden) {
-			hiddenMultiplier := 1.04
-			if hidden, ok := GetModConfig[HiddenSettings](diff); ok && hidden.OnlyFadeApproachCircles {
-				hiddenMultiplier -= 0.02
-			}
-			baseMultiplier *= hiddenMultiplier / 1.06
-		}
-		if diff.Mods.Active(Classic) {
-			if classic, ok := GetModConfig[ClassicSettings](diff); ok && classic.ClassicNoteLock {
-				baseMultiplier *= 0.985 / 0.96
-			}
-		}
-
-		if diff.Speed >= 1 {
-			rate := math.Trunc(diff.Speed*10) / 10
-			penalty := 0.0
-			if rate != 1 && rate != 1.5 {
-				penalty = 0.01
-			}
-			baseMultiplier *= 1 + (rate-1)*0.46 - penalty
-		} else {
-			baseMultiplier *= math.Trunc(diff.Speed*20)/20*1.4 - 0.5
-		}
-	} else {
-		if diff.Speed > 1 {
-			if diff.Mods.Active(ScoreV2) {
-				baseMultiplier *= 1 + (0.40 * (diff.Speed - 1))
-			} else {
-				baseMultiplier *= 1 + (0.24 * (diff.Speed - 1))
-			}
-		} else if diff.Speed < 1 {
-			if diff.Speed >= 0.75 {
-				baseMultiplier *= 0.3 + 0.7*(1-(1-diff.Speed)/0.25)
-			} else {
-				baseMultiplier *= max(0, 0.3*(1-(0.75-diff.Speed)/0.75))
-			}
-		}
-	}
-
 	if diff.CheckModActive(Flashlight) {
 		mult := 1.12
-
-		if fl, ok := GetModConfig[FlashlightSettings](diff); ok {
-			if fl != NewFlashlightSettings() {
-				mult = 1
-			}
+		if fl, ok := GetModConfig[FlashlightSettings](diff); ok && fl != NewFlashlightSettings() {
+			mult = 1
 		}
-
 		baseMultiplier *= mult
 	}
-
 	return baseMultiplier
 }
 

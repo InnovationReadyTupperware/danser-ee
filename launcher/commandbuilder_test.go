@@ -73,6 +73,28 @@ func TestSetReplayAddsClassicForStableReplay(t *testing.T) {
 	}
 }
 
+func TestReplayScoreVersionResetsForGeneratedPlayback(t *testing.T) {
+	for _, resetMap := range []bool{false, true} {
+		b := newBuilder()
+		b.setReplay(&rplpa.Replay{OsuVersion: 30000016})
+		for _, diff := range []*difficulty.Difficulty{b.sourceDiff, b.baseDiff, b.diff} {
+			if diff.ScoreVersion != 30000016 {
+				t.Fatal("launcher difficulty lost replay score revision")
+			}
+		}
+		if resetMap {
+			b.setMap(&beatmap.BeatMap{Diff: difficulty.NewDifficulty(5, 5, 5, 5)})
+		} else {
+			b.removeReplay()
+		}
+		for _, diff := range []*difficulty.Difficulty{b.sourceDiff, b.baseDiff, b.diff} {
+			if diff.ScoreVersion != 0 {
+				t.Fatalf("reset map %t retained score revision %d", resetMap, diff.ScoreVersion)
+			}
+		}
+	}
+}
+
 func TestSoloKnockoutArgumentsUseGeneratedParticipants(t *testing.T) {
 	oldMode := launcherConfig.CurrentMode
 	oldPMode := launcherConfig.CurrentPMode

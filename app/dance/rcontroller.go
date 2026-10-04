@@ -174,6 +174,7 @@ func (controller *ReplayController) SetBeatMap(beatMap *beatmap.BeatMap) {
 	if !localReplay && (settings.Knockout.AddDanser || beatMap.Diff.CheckModActive(difficulty.Autoplay)) {
 		control := NewSubControl()
 		control.diff = beatMap.Diff.Clone()
+		control.diff.ScoreVersion = 0
 		if len(candidates) == 0 {
 			// Standalone Autoplay uses the generated replay path. Keep the
 			// generated participant's difficulty in sync with the map after
