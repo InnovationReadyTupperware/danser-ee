@@ -13,6 +13,7 @@ const (
 	NormalMode ScoreType = iota
 	FriendsMode
 	CountryMode
+	TeamMode
 )
 
 func LookupBeatmap(checksum string) (*LookupResult, error) {
@@ -46,6 +47,23 @@ func GetScoresCheksum(checksum string, legacyOnly bool, mode ScoreType, limit in
 }
 
 func GetScores(beatmapId int64, legacyOnly bool, mode ScoreType, limit int, mods ...string) ([]Score, error) {
+	resp, err := makeRequest(scoreRequestPath(beatmapId, legacyOnly, mode, limit, mods...))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	sRes := &ScoresResult{}
+	if err = json.Unmarshal(buf, &sRes); err != nil {
+		return nil, err
+	}
+	return sRes.Scores, nil
+}
+
+func scoreRequestPath(beatmapId int64, legacyOnly bool, mode ScoreType, limit int, mods ...string) string {
 	vls := url.Values{}
 
 	prefix := "solo-"
@@ -59,6 +77,8 @@ func GetScores(beatmapId int64, legacyOnly bool, mode ScoreType, limit int, mods
 		vls.Set("type", "country")
 	case FriendsMode:
 		vls.Set("type", "friend")
+	case TeamMode:
+		vls.Set("type", "team")
 	}
 
 	if limit > -1 {
@@ -71,23 +91,7 @@ func GetScores(beatmapId int64, legacyOnly bool, mode ScoreType, limit int, mods
 		}
 	}
 
-	resp, err := makeRequest("beatmaps/" + strconv.FormatInt(beatmapId, 10) + "/" + prefix + "scores?" + vls.Encode())
-
-	if err != nil {
-		return nil, err
-	}
-
-	buf, err2 := io.ReadAll(resp.Body)
-	if err2 != nil {
-		return nil, err
-	}
-
-	sRes := &ScoresResult{}
-	if err = json.Unmarshal(buf, &sRes); err != nil {
-		return nil, err
-	}
-
-	return sRes.Scores, nil
+	return "beatmaps/" + strconv.FormatInt(beatmapId, 10) + "/" + prefix + "scores?" + vls.Encode()
 }
 
 func LookupUser(nickname string) (*User, error) {
