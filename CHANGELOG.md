@@ -28,9 +28,9 @@ These shared snapshot 3 changes are included in danser-ee, with several already 
 
 ### Gameplay
 
-- July 2026 SR/PP calculations are available alongside the October 2025 model and other supported historical versions
+- July 2026 SR/PP calculations are available alongside the October 2025 model and other supported historical versions (already introduced in danser-ee 1.1.0; this release (1.2.0-alpha.1) corrects calculation parity and strain graphs)
   - Existing `260321` and `26xxxx` selections migrate to `260706`; the October 2025 model remains available as `251020`
-- Hidden can hide only approach circles through its `Only fade approach circles` option
+- Hidden can hide only approach circles through its `Only fade approach circles` option (already introduced in danser-ee 1.1.0)
 - Map intros can be skipped automatically with `Gameplay.AlwaysSkipIntro`
 - Generated cursors separate the hit times of overlapping circles after double-click objects
 - Custom speed-mod rates are limited to 0.1x through 10x
