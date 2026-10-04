@@ -35,6 +35,11 @@ func (skill *AimSkill) strainDecay(ms float64) float64 {
 	return math.Pow(0.2, ms/1000)
 }
 
+// StrainDecay returns the remaining strain after ms for chronological graphs
+func (skill *AimSkill) StrainDecay(ms float64) float64 {
+	return skill.strainDecay(ms)
+}
+
 func (skill *AimSkill) calculateInitialStrain(time float64, current *preprocessing.DifficultyObject) float64 {
 	previous := current.Previous(0)
 	if previous == nil {

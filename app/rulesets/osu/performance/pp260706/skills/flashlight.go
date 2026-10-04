@@ -36,6 +36,11 @@ func (skill *Flashlight) strainDecay(ms float64) float64 {
 	return math.Pow(0.15, ms/1000)
 }
 
+// StrainDecay returns the remaining strain after ms for chronological graphs
+func (skill *Flashlight) StrainDecay(ms float64) float64 {
+	return skill.strainDecay(ms)
+}
+
 func (skill *Flashlight) calculateInitialStrain(time float64, current *preprocessing.DifficultyObject) float64 {
 	previous := current.Previous(0)
 	if previous == nil {

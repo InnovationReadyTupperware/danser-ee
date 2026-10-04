@@ -60,6 +60,10 @@ type StrainPeaks struct {
 	// version's star-rating formula. It is not necessarily a per-object
 	// CalculateStep star-rating history.
 	Total []float64
+
+	// SampleTimes contains bucket endpoints in beatmap milliseconds, aligned
+	// with Total. Nil retains historical calculators' evenly spaced graph layout
+	SampleTimes []float64
 }
 
 type PPv2Results struct {
