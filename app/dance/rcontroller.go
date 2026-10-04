@@ -254,8 +254,11 @@ func (controller *ReplayController) getCandidates() (candidates []*rplpa.Replay)
 			return
 		}
 
-		if !difficulty.Modifier(replayD.Mods).Compatible() || difficulty.Modifier(replayD.Mods).Active(difficulty.Target) {
-			log.Println("Excluding for incompatible mods:", replayD.Username)
+		diff := difficulty.NewDifficulty(1, 1, 1, 1)
+		diff.SetGameplayMode(difficulty.GameplayModeFromReplayVersion(int(replayD.OsuVersion)))
+		diff.SetModsFromReplay(replayD)
+		if incompatible := diff.GetIncompatibleCombo(); incompatible != difficulty.None {
+			log.Printf("ReplayController: Excluding replay %q for incompatible mods: %s", path, strings.Join(incompatible.StringFull(), ", "))
 			return
 		}
 

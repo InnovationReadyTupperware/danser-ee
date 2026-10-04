@@ -244,6 +244,10 @@ func (b *builder) getArgumentsChecked() (args []string, err error) {
 			return nil, fmt.Errorf("a replay and its beatmap must be selected")
 		}
 
+		if incompatible := b.diff.GetIncompatibleCombo(); incompatible != difficulty.None {
+			return nil, fmt.Errorf("incompatible replay mods: %s", strings.Join(incompatible.StringFull(), ", "))
+		}
+
 		args = append(args, "-replay", b.replayPath)
 		args = b.appendDirectMapPath(args)
 
@@ -285,6 +289,10 @@ func (b *builder) getArgumentsChecked() (args []string, err error) {
 			args = append(args, "-solo-knockout")
 		} else if currentMode == DanserReplay {
 			diffClone.AddMod(difficulty.Autoplay)
+		}
+
+		if incompatible := diffClone.GetIncompatibleCombo(); incompatible != difficulty.None {
+			return nil, fmt.Errorf("incompatible mods: %s", strings.Join(incompatible.StringFull(), ", "))
 		}
 
 		if diffClone.Mods != difficulty.None {

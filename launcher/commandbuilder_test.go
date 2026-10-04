@@ -431,3 +431,43 @@ func containsArgumentPair(args []string, name, value string) bool {
 
 	return false
 }
+
+func TestLauncherSuddenDeathArgumentsPreserveTailSetting(t *testing.T) {
+	oldMode, oldPMode := launcherConfig.CurrentMode, launcherConfig.CurrentPMode
+	t.Cleanup(func() { launcherConfig.CurrentMode, launcherConfig.CurrentPMode = oldMode, oldPMode })
+	launcherConfig.CurrentMode, launcherConfig.CurrentPMode = Play, Watch
+	b := newBuilder()
+	b.currentMap = &beatmap.BeatMap{MD5: "test-map"}
+	b.diff.SetMods(difficulty.SuddenDeath)
+	difficulty.SetModConfig(b.diff, difficulty.SuddenDeathSettings{FailOnSliderTail: true})
+	args, err := b.getArgumentsChecked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mods []rplpa.ModInfo
+	for i, arg := range args {
+		if arg == "-mods2" {
+			if err := json.Unmarshal([]byte(args[i+1]), &mods); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	child := difficulty.NewDifficulty(5, 5, 5, 5)
+	child.SetMods2(mods)
+	conf, ok := difficulty.GetModConfig[difficulty.SuddenDeathSettings](child)
+	if !ok || !conf.FailOnSliderTail {
+		t.Fatalf("child Sudden Death settings = %#v, %t", conf, ok)
+	}
+}
+
+func TestLauncherRejectsConflictsIntroducedByAutoplay(t *testing.T) {
+	oldMode, oldPMode := launcherConfig.CurrentMode, launcherConfig.CurrentPMode
+	t.Cleanup(func() { launcherConfig.CurrentMode, launcherConfig.CurrentPMode = oldMode, oldPMode })
+	launcherConfig.CurrentMode, launcherConfig.CurrentPMode = DanserReplay, Watch
+	b := newBuilder()
+	b.currentMap = &beatmap.BeatMap{MD5: "test-map"}
+	b.diff.SetMods(difficulty.Relax)
+	if _, err := b.getArgumentsChecked(); err == nil {
+		t.Fatal("launcher accepted Relax with its generated Autoplay mod")
+	}
+}

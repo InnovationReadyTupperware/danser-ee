@@ -273,7 +273,7 @@ func TestModifierCompatibilityMatchesLazerForSupportedMods(t *testing.T) {
 		{name: "hard rock and difficulty adjust", mods: HardRock | DifficultyAdjust, want: false},
 		{name: "hard rock and mirror", mods: HardRock | Mirror, want: false},
 		{name: "speed up and speed down", mods: DoubleTime | HalfTime, want: false},
-		{name: "sudden death and perfect", mods: SuddenDeath | Perfect, want: false},
+		{name: "perfect composite flags", mods: SuddenDeath | Perfect, want: true},
 		{name: "no fail and sudden death", mods: NoFail | SuddenDeath, want: false},
 		{name: "no fail and relax", mods: NoFail | Relax, want: true},
 		{name: "no fail and autopilot", mods: NoFail | Autopilot, want: true},

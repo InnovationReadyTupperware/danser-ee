@@ -37,45 +37,45 @@ func (m *modPopup) drawModMenu() {
 
 	if imgui.BeginTable("mfa", 6) {
 		m.drawRow("Reduction:", func() {
-			m.modCheckbox(difficulty.Easy, difficulty.HardRock|difficulty.DifficultyAdjust, difficulty.None)
+			m.modCheckbox(difficulty.Easy, difficulty.None)
 
-			m.modCheckbox(difficulty.NoFail, difficulty.SuddenDeath|difficulty.Perfect, difficulty.None)
+			m.modCheckbox(difficulty.NoFail, difficulty.None)
 
-			m.modCheckboxMulti(difficulty.HalfTime, difficulty.Daycore, difficulty.DoubleTime|difficulty.Nightcore, difficulty.None)
+			m.modCheckboxMulti(difficulty.HalfTime, difficulty.Daycore, difficulty.None)
 		})
 
 		m.drawRow("Increase:", func() {
-			m.modCheckbox(difficulty.HardRock, difficulty.Easy|difficulty.DifficultyAdjust|difficulty.Mirror, difficulty.None)
+			m.modCheckbox(difficulty.HardRock, difficulty.None)
 
-			m.modCheckboxMulti(difficulty.SuddenDeath, difficulty.Perfect, difficulty.NoFail, difficulty.None)
+			m.modCheckboxMulti(difficulty.SuddenDeath, difficulty.Perfect, difficulty.None)
 
-			m.modCheckboxMulti(difficulty.DoubleTime, difficulty.Nightcore, difficulty.HalfTime|difficulty.Daycore, difficulty.None)
+			m.modCheckboxMulti(difficulty.DoubleTime, difficulty.Nightcore, difficulty.None)
 
-			m.modCheckbox(difficulty.Hidden, difficulty.Traceable, difficulty.None)
+			m.modCheckbox(difficulty.Hidden, difficulty.None)
 
-			m.modCheckbox(difficulty.Flashlight, difficulty.None, difficulty.None)
+			m.modCheckbox(difficulty.Flashlight, difficulty.None)
 		})
 
 		m.drawRow("Special:", func() {
-			m.modCheckbox(difficulty.Relax, difficulty.Autoplay|difficulty.Autopilot, difficulty.None)
+			m.modCheckbox(difficulty.Relax, difficulty.None)
 
-			m.modCheckbox(difficulty.Autopilot, difficulty.Relax|difficulty.SpunOut|difficulty.Autoplay, difficulty.None)
+			m.modCheckbox(difficulty.Autopilot, difficulty.None)
 
-			m.modCheckbox(difficulty.SpunOut, difficulty.Autopilot|difficulty.Autoplay, difficulty.None)
+			m.modCheckbox(difficulty.SpunOut, difficulty.None)
 
-			m.modCheckbox(difficulty.DifficultyAdjust, difficulty.Easy|difficulty.HardRock, difficulty.None)
+			m.modCheckbox(difficulty.DifficultyAdjust, difficulty.None)
 
-			m.modCheckbox(difficulty.Mirror, difficulty.HardRock, difficulty.None)
+			m.modCheckbox(difficulty.Mirror, difficulty.None)
 		})
 
 		m.drawRow("Conversion:", func() {
-			m.modCheckbox(difficulty.ScoreV2, difficulty.Classic, difficulty.None)
+			m.modCheckbox(difficulty.ScoreV2, difficulty.None)
 
-			m.modCheckbox(difficulty.Classic, difficulty.ScoreV2, difficulty.None)
+			m.modCheckbox(difficulty.Classic, difficulty.None)
 		})
 
 		m.drawRow("Fun:", func() {
-			m.modCheckbox(difficulty.Traceable, difficulty.Hidden, difficulty.None)
+			m.modCheckbox(difficulty.Traceable, difficulty.None)
 		})
 
 		imgui.EndTable()
@@ -105,6 +105,7 @@ func (m *modPopup) drawModSettings() {
 	m.settingsDrawn = false
 	m.tryDrawSpeedSettings()
 	m.tryDrawEasySettings()
+	m.tryDrawFailSettings()
 	m.tryDrawHiddenSettings()
 	m.tryDrawClassicSettings()
 	m.tryDrawFlashlightSettings()
@@ -141,6 +142,17 @@ func (m *modPopup) tryDrawEasySettings() {
 
 		sliderIntReset2("Extra lives", 2, &conf.Retries, 0, 10, "%d")
 
+		difficulty.SetModConfig(m.bld.diff, conf)
+	})
+}
+
+func (m *modPopup) tryDrawFailSettings() {
+	if !m.bld.diff.IsLazer() || m.bld.diff.CheckModActive(difficulty.Perfect) {
+		return
+	}
+	m.drawSettingsBase(difficulty.SuddenDeath, func() {
+		conf, _ := difficulty.GetModConfig[difficulty.SuddenDeathSettings](m.bld.diff)
+		checkboxOption("Also fail when missing a slider tail", &conf.FailOnSliderTail)
 		difficulty.SetModConfig(m.bld.diff, conf)
 	})
 }
@@ -265,9 +277,10 @@ func (m *modPopup) drawRow(name string, work func()) {
 	imgui.TextUnformatted(name)
 }
 
-func (m *modPopup) modCheckbox(mod, incompat, required difficulty.Modifier) (ret bool) {
+func (m *modPopup) modCheckbox(mod, required difficulty.Modifier) (ret bool) {
 	imgui.TableNextColumn()
 
+	incompat := mod.GetIncompatibleMods(m.bld.diff.GetGameplayMode())
 	req := required == difficulty.None || m.bld.diff.CheckModActive(required)
 
 	if !req {
@@ -336,13 +349,13 @@ func (m *modPopup) modCheckbox(mod, incompat, required difficulty.Modifier) (ret
 	return
 }
 
-func (m *modPopup) modCheckboxMulti(mod1, mod2, incompat, required difficulty.Modifier) {
+func (m *modPopup) modCheckboxMulti(mod1, mod2, required difficulty.Modifier) {
 	if !m.bld.diff.CheckModActive(mod2) {
-		if m.modCheckbox(mod1, incompat, required) && !m.bld.diff.CheckModActive(mod1) {
+		if m.modCheckbox(mod1, required) && !m.bld.diff.CheckModActive(mod1) {
 			m.bld.baseDiff.AddMod(mod2)
 			m.bld.diff.AddMod(mod2)
 		}
 	} else {
-		m.modCheckbox(mod2, incompat, required)
+		m.modCheckbox(mod2, required)
 	}
 }

@@ -356,25 +356,102 @@ func (mods Modifier) Active(mod Modifier) bool {
 	return mods&mod > 0
 }
 
+// GetIncompatibleMods returns the modifiers excluded by one mod in mode
+// Classic changes Lazer settings, not the provenance used by this matrix
+func (mod Modifier) GetIncompatibleMods(mode GameplayMode) Modifier {
+	var incompatible Modifier
+	switch mod {
+	case Easy:
+		incompatible = HardRock | DifficultyAdjust
+	case HardRock:
+		incompatible = Easy | DifficultyAdjust | Mirror
+	case DifficultyAdjust:
+		incompatible = Easy | HardRock
+	case Mirror:
+		incompatible = HardRock
+	case NoFail:
+		incompatible = SuddenDeath | Perfect | Cinema
+	case SuddenDeath:
+		incompatible = NoFail | Perfect | Cinema
+	case Perfect:
+		incompatible = NoFail | SuddenDeath | Cinema
+	case DoubleTime:
+		incompatible = Nightcore | HalfTime | Daycore
+	case Nightcore:
+		incompatible = DoubleTime | HalfTime | Daycore
+	case HalfTime:
+		incompatible = Daycore | DoubleTime | Nightcore
+	case Daycore:
+		incompatible = HalfTime | DoubleTime | Nightcore
+	case Hidden:
+		incompatible = Traceable
+	case Traceable:
+		incompatible = Hidden
+	case Relax:
+		incompatible = Autoplay | Autopilot | Cinema
+	case Autopilot:
+		incompatible = Relax | SpunOut | Autoplay | TouchDevice | Cinema
+	case SpunOut:
+		incompatible = Autopilot | Autoplay | Cinema
+	case Autoplay:
+		incompatible = Relax | Autopilot | SpunOut | TouchDevice | Cinema
+	case TouchDevice:
+		incompatible = Autoplay | Autopilot | Cinema
+	case Cinema:
+		incompatible = NoFail | SuddenDeath | Perfect | Relax | Autoplay | Autopilot | SpunOut | TouchDevice
+	case Classic:
+		if mode.IsLazer() {
+			incompatible = ScoreV2
+		}
+	case ScoreV2:
+		if mode.IsLazer() {
+			incompatible = Classic
+		}
+	}
+
+	if mode == GameplayStable {
+		switch mod {
+		case NoFail, SuddenDeath, Perfect:
+			incompatible |= Relax | Autopilot
+		case Relax, Autopilot:
+			incompatible |= NoFail | SuddenDeath | Perfect
+		}
+	}
+	return incompatible
+}
+
+// GetIncompatibleComboForMode returns the first conflicting set of modifiers
+// Replay bitmasks encode NC, DC, and PF together with their underlying mods
+func (mods Modifier) GetIncompatibleComboForMode(mode GameplayMode) Modifier {
+	mods &^= reservedLazerModifier
+	if mods.Active(Target) {
+		return Target
+	}
+	if mods.Active(Nightcore) {
+		mods &^= DoubleTime
+	}
+	if mods.Active(Daycore) {
+		mods &^= HalfTime
+	}
+	if mods.Active(Perfect) {
+		mods &^= SuddenDeath
+	}
+	for i := range len(modsString) {
+		mod := Modifier(1 << i)
+		if incompatible := mods & mod.GetIncompatibleMods(mode); mods.Active(mod) && incompatible != None {
+			return mod | incompatible
+		}
+	}
+	return None
+}
+
+// GetIncompatibleCombo checks this difficulty using its gameplay provenance
+func (diff *Difficulty) GetIncompatibleCombo() Modifier {
+	return diff.Mods.GetIncompatibleComboForMode(diff.GetGameplayMode())
+}
+
+// Compatible checks modifiers using the default Lazer gameplay mode
+// Replay callers must instead validate a Difficulty with their source mode
 func (mods Modifier) Compatible() bool {
-	if mods == None {
-		return true
-	}
-
-	if mods.Active(Target) ||
-		(mods.Active(Easy) && mods.Active(HardRock|DifficultyAdjust)) ||
-		(mods.Active(HardRock) && mods.Active(DifficultyAdjust|Mirror)) ||
-		(mods.Active(DoubleTime|Nightcore) && mods.Active(HalfTime|Daycore)) ||
-		(mods.Active(SuddenDeath) && mods.Active(Perfect|NoFail)) ||
-		(mods.Active(Perfect) && mods.Active(NoFail)) ||
-		(mods.Active(Relax) && mods.Active(Autoplay|Autopilot)) ||
-		(mods.Active(Autopilot) && mods.Active(SpunOut|Autoplay|TouchDevice)) ||
-		(mods.Active(Autoplay) && mods.Active(SpunOut|TouchDevice)) ||
-		(mods.Active(Cinema) && mods.Active(NoFail|SuddenDeath|Perfect|Relax|Autoplay|Autopilot|SpunOut|TouchDevice)) ||
-		(mods.Active(Traceable) && mods.Active(Hidden)) ||
-		(mods.Active(ScoreV2) && mods.Active(Classic)) {
-		return false
-	}
-
-	return true
+	return mods.GetIncompatibleComboForMode(GameplayLazer) == None
 }

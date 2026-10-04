@@ -256,6 +256,7 @@ func run() {
 		}
 
 		modsParsed := difficulty2.ParseMods(*mods)
+		modGameplayMode := difficulty2.GameplayLazer
 		var modsNew []rplpa.ModInfo = nil
 
 		if *replay != "" {
@@ -280,17 +281,25 @@ func run() {
 			*md5 = rp.BeatmapMD5
 			*id = -1
 			modsParsed = difficulty2.Modifier(rp.Mods)
+			modGameplayMode = difficulty2.GameplayModeFromReplayVersion(int(rp.OsuVersion))
 
 			if rp.ScoreInfo != nil && rp.ScoreInfo.Mods != nil && len(rp.ScoreInfo.Mods) > 0 {
 				modsNew = make([]rplpa.ModInfo, 0, len(rp.ScoreInfo.Mods))
 
 				for _, mod := range rp.ScoreInfo.Mods {
-					modsNew = append(modsNew, *mod)
+					if mod != nil {
+						modsNew = append(modsNew, *mod)
+					}
 				}
 			}
 
 			*knockout = true
 			settings.REPLAY = *replay
+		}
+
+		if *mods != "" {
+			modsParsed = difficulty2.ParseMods(*mods)
+			modsNew = nil
 		}
 
 		if *mods2 != "" {
@@ -309,8 +318,8 @@ func run() {
 			modsParsed = tempDiff.Mods
 		}
 
-		if !modsParsed.Compatible() {
-			panic("Incompatible mods selected!")
+		if incompatible := modsParsed.GetIncompatibleComboForMode(modGameplayMode); incompatible != difficulty2.None {
+			panic(fmt.Errorf("Incompatible mods selected: %s", strings.Join(incompatible.StringFull(), ", ")))
 		}
 
 		closeAfterSettingsLoad := false
@@ -687,6 +696,12 @@ func run() {
 			beatMap.Diff.SetMods2(modsNew)
 		} else {
 			beatMap.Diff.SetMods(modsParsed)
+		}
+
+		// Validate again after CLI difficulty and speed overrides add mods
+		if incompatible := beatMap.Diff.Mods.GetIncompatibleComboForMode(modGameplayMode); incompatible != difficulty2.None {
+			startupErr = fmt.Errorf("Gameplay: incompatible mods: %s", strings.Join(incompatible.StringFull(), ", "))
+			return
 		}
 
 		beatmap.ParseTimingPointsAndPauses(beatMap)

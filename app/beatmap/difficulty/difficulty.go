@@ -205,6 +205,10 @@ func (diff *Difficulty) AddMod(mods Modifier) {
 		diff.modSettings[rfType[EasySettings]()] = NewEasySettings()
 	}
 
+	if mods.Active(SuddenDeath) {
+		diff.modSettings[rfType[SuddenDeathSettings]()] = NewSuddenDeathSettings()
+	}
+
 	if mods.Active(Hidden) {
 		diff.modSettings[rfType[HiddenSettings]()] = NewHiddenSettings()
 	}
@@ -253,6 +257,10 @@ func (diff *Difficulty) RemoveMod(mods Modifier) {
 		delete(diff.modSettings, rfType[EasySettings]())
 	}
 
+	if mods.Active(SuddenDeath) {
+		delete(diff.modSettings, rfType[SuddenDeathSettings]())
+	}
+
 	if mods.Active(Hidden) {
 		delete(diff.modSettings, rfType[HiddenSettings]())
 	}
@@ -295,6 +303,10 @@ func (diff *Difficulty) SetMods2(mods []rplpa.ModInfo) {
 
 			if mod.Active(Easy) {
 				diff.modSettings[rfType[EasySettings]()] = parseConfig(NewEasySettings(), mInfo.Settings)
+			}
+
+			if mod.Active(SuddenDeath) {
+				diff.modSettings[rfType[SuddenDeathSettings]()] = parseConfig(NewSuddenDeathSettings(), mInfo.Settings)
 			}
 
 			if mod.Active(Hidden) {

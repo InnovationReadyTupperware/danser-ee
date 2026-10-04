@@ -19,6 +19,7 @@ func init() {
 		DoubleTime:       rfType[SpeedSettings](),
 		Nightcore:        rfType[SpeedSettings](),
 		Easy:             rfType[EasySettings](),
+		SuddenDeath:      rfType[SuddenDeathSettings](),
 		Hidden:           rfType[HiddenSettings](),
 		Classic:          rfType[ClassicSettings](),
 		Flashlight:       rfType[FlashlightSettings](),
@@ -77,6 +78,20 @@ func NewEasySettings() EasySettings {
 }
 
 func (s EasySettings) postLoad() EasySettings {
+	return s
+}
+
+// SuddenDeathSettings controls the optional Lazer slider-tail failure
+type SuddenDeathSettings struct {
+	FailOnSliderTail bool `json:"fail_on_slider_tail"`
+}
+
+// NewSuddenDeathSettings keeps slider-tail failure disabled by default
+func NewSuddenDeathSettings() SuddenDeathSettings {
+	return SuddenDeathSettings{}
+}
+
+func (s SuddenDeathSettings) postLoad() SuddenDeathSettings {
 	return s
 }
 

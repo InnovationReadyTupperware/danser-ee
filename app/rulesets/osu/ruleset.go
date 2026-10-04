@@ -553,7 +553,22 @@ func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult Judge
 		return
 	}
 
-	if (subSet.player.diff.Mods.Active(difficulty.SuddenDeath|difficulty.Perfect) && judgementResult.ComboResult == Reset) ||
+	if subSet.player.diff.IsLazer() {
+		if subSet.player.diff.CheckModActive(difficulty.Perfect) {
+			relevant := judgementResult.HitResult.AffectsAccLazer() || judgementResult.HitResult.AffectsCombo() ||
+				judgementResult.MaxResult.AffectsAccLazer() || judgementResult.MaxResult.AffectsCombo()
+			if relevant && judgementResult.HitResult&^Additions != judgementResult.MaxResult&^Additions {
+				subSet.sdpfFail = true
+			}
+		} else if subSet.player.diff.CheckModActive(difficulty.SuddenDeath) {
+			conf, _ := difficulty.GetModConfig[difficulty.SuddenDeathSettings](subSet.player.diff)
+			missedTail := judgementResult.IsSliderTail() && !judgementResult.HitResult.IsHit()
+			if (judgementResult.HitResult.AffectsCombo() && !judgementResult.HitResult.IsHit()) ||
+				(conf.FailOnSliderTail && missedTail) {
+				subSet.sdpfFail = true
+			}
+		}
+	} else if (subSet.player.diff.Mods.Active(difficulty.SuddenDeath|difficulty.Perfect) && judgementResult.ComboResult == Reset) ||
 		(subSet.player.diff.Mods.Active(difficulty.Perfect) && (judgementResult.HitResult&BaseHitsM > 0 && judgementResult.HitResult&BaseHitsM != Hit300)) {
 		if judgementResult.HitResult&BaseHitsM > 0 {
 			judgementResult.HitResult = Miss
@@ -589,10 +604,13 @@ func (set *OsuRuleSet) SendResult(cursor *graphics.Cursor, judgementResult Judge
 
 	set.processGekiKatu(subSet, &judgementResult)
 
-	if subSet.sdpfFail {
+	if subSet.sdpfFail && !subSet.player.diff.IsLazer() {
 		subSet.hp.Increase(-100000, true)
 	} else {
 		subSet.hp.AddResult(judgementResult)
+		if subSet.sdpfFail {
+			set.failInternal(subSet.player)
+		}
 	}
 
 	if set.hitListener != nil {
@@ -791,7 +809,7 @@ func (set *OsuRuleSet) PostHit(time int64, object HitObject, player *difficultyP
 
 func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 	subSet := set.cursors[player.cursor]
-	if subSet == nil || player.failurePolicy == FailurePolicySuppress {
+	if subSet == nil || player.failurePolicy == FailurePolicySuppress || set.catchUp {
 		return
 	}
 
@@ -799,6 +817,10 @@ func (set *OsuRuleSet) failInternal(player *difficultyPlayer) {
 	// depend on replay completion: osu!lazer still blocks failure after a
 	// ReplayPlayer has consumed its final frame.
 	if player.diff.CheckModActive(difficulty.NoFail | difficulty.Cinema) {
+		return
+	}
+
+	if !subSet.replayEnded && !player.diff.IsLazer() && player.diff.CheckModActive(difficulty.Relax|difficulty.Autopilot) {
 		return
 	}
 
