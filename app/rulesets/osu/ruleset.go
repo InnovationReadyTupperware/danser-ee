@@ -90,6 +90,8 @@ type difficultyPlayer struct {
 // difficultyCacheKey keeps Lazer and Stable difficulty attributes separate.
 // Their masked modifiers can be identical even though circle radius and
 // other mode-dependent calculations are intentionally different.
+// ScoreVersion is omitted because these entries contain SR/PP attributes,
+// not replay-era mod score factors; scoring remains participant-specific
 type difficultyCacheKey struct {
 	mode difficulty.GameplayMode
 	mods string

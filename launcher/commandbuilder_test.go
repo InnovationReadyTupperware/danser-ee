@@ -2,6 +2,9 @@ package launcher
 
 import (
 	"encoding/json"
+	"flag"
+	"math"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,6 +13,74 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 	"github.com/innovationreadytupperware/danser-ee/app/beatmap/difficulty"
 )
+
+func TestReplayOverrideArgumentsRetainFileScoreRevision(t *testing.T) {
+	oldMode, oldPMode := launcherConfig.CurrentMode, launcherConfig.CurrentPMode
+	t.Cleanup(func() {
+		launcherConfig.CurrentMode, launcherConfig.CurrentPMode = oldMode, oldPMode
+	})
+	launcherConfig.CurrentMode, launcherConfig.CurrentPMode = Replay, Watch
+	for _, version := range []int32{20250101, 30000016, 30000017} {
+		replay := &rplpa.Replay{OsuVersion: version, Mods: uint32(difficulty.Hidden)}
+		data, err := rplpa.WriteReplay(replay)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "replay with spaces.osr")
+		if err = os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		b := newBuilder()
+		b.currentMap = &beatmap.BeatMap{MD5: "test-map"}
+		b.replayPath = path
+		b.setReplay(replay)
+		b.diff.SetMods(difficulty.HardRock)
+		args, err := b.getArgumentsChecked()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Read the file and override carried by the launcher's actual arguments
+		// The child resolves score provenance from this file, not from mods JSON
+		flags := flag.NewFlagSet("replay-child", flag.ContinueOnError)
+		flags.Bool("nodbcheck", false, "")
+		flags.Bool("noupdatecheck", false, "")
+		flags.String("beatmap-path", "", "")
+		replayPath := flags.String("replay", "", "")
+		modsJSON := flags.String("mods2", "", "")
+		if err = flags.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		data, err = os.ReadFile(*replayPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := rplpa.ParseReplay(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var override []rplpa.ModInfo
+		if err = json.Unmarshal([]byte(*modsJSON), &override); err != nil {
+			t.Fatal(err)
+		}
+		child := difficulty.NewDifficulty(5, 5, 5, 5)
+		child.SetGameplayMode(difficulty.GameplayModeFromReplayVersion(int(decoded.OsuVersion)))
+		child.SetModsFromReplay(decoded)
+		child.SetMods2(override)
+		if !child.IsLazer() {
+			child.AddMod(difficulty.Classic)
+		}
+		want := 1.06
+		switch version {
+		case 20250101:
+			want *= 0.96
+		case 30000017:
+			want = 1.09
+		}
+		if child.ScoreVersion != version || math.Abs(child.GetScoreMultiplier()-want) > 1e-12 {
+			t.Fatalf("version %d child revision=%d multiplier=%g, want %g", version, child.ScoreVersion, child.GetScoreMultiplier(), want)
+		}
+	}
+}
 
 func TestKnockoutArgumentsIncludeSelectedReplays(t *testing.T) {
 	oldMode := launcherConfig.CurrentMode
