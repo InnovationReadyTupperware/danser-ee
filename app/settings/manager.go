@@ -13,6 +13,8 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/framework/env"
 	"github.com/innovationreadytupperware/danser-ee/framework/files"
 	"github.com/innovationreadytupperware/danser-ee/framework/goroutines"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 )
 
 var currentConfig *Config
@@ -21,6 +23,12 @@ var filePath string
 var watcher *fsnotify.Watcher
 
 var reloadListeners []func()
+
+const (
+	settingsReloadDelay   = 200 * time.Millisecond
+	settingsReloadRetries = 4
+	settingsRetryDelay    = 100 * time.Millisecond
+)
 
 func initSettings() {
 	if err := os.MkdirAll(env.ConfigDir(), 0755); err != nil {
@@ -69,77 +77,164 @@ func LoadSettings(version string) bool {
 	currentConfig.attachToGlobals()
 
 	if !RECORD {
-		setupWatcher(filePath)
+		if err := setupWatcher(filePath); err != nil {
+			log.Printf("SettingsManager: Warning: live reload unavailable for %q: %v", filePath, err)
+			goroutines.CallNonBlockMain(func() {
+				platform.ShowMessageBox(gcontext.SDLWindow(), platform.MessageBoxWarning,
+					fmt.Sprintf("Live settings reload is unavailable for %s:\n\n%v\n\nRestart danser to apply settings changes.", filePath, err), false)
+			})
+		}
 	}
 
 	return newFile
 }
 
 func LoadPatch() {
-	stripped := strings.TrimSpace(JsonPatch)
+	if err := applySettingsPatch(currentConfig, JsonPatch); err != nil {
+		panic(err)
+	}
+}
+
+func applySettingsPatch(config *Config, patch string) error {
+	stripped := strings.TrimSpace(patch)
 
 	if stripped != "" {
-		if err := json.Unmarshal([]byte(stripped), currentConfig); err != nil {
-			panic(fmt.Errorf("SettingsManager: Failed to parse the patch! Please re-check the sPatch argument for mistakes and ensure that quotation marks are escaped. Error: %s", err))
+		if err := json.Unmarshal([]byte(stripped), config); err != nil {
+			return fmt.Errorf("SettingsManager: Failed to parse the patch! Please re-check the sPatch argument for mistakes and ensure that quotation marks are escaped: %w", err)
+		}
+	}
+	return nil
+}
+
+func setupWatcher(file string) error {
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return fmt.Errorf("resolve settings path: %w", err)
+	}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("create settings watcher: %w", err)
+	}
+	// Watch the directory so atomic file replacements still trigger reloads.
+	if err := w.Add(filepath.Dir(abs)); err != nil {
+		_ = w.Close()
+		return fmt.Errorf("watch settings directory: %w", err)
+	}
+	watcher = w
+	goroutines.Run(func() { watchSettingsFile(w, abs) })
+	return nil
+}
+
+func watchSettingsFile(w *fsnotify.Watcher, path string) {
+	var timer *time.Timer
+	var pending <-chan time.Time
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+
+	warningShown := false
+	for {
+		select {
+		case event, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			if !strings.EqualFold(filepath.Clean(event.Name), path) ||
+				event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename|fsnotify.Remove) == 0 {
+				continue
+			}
+			if timer == nil {
+				timer = time.NewTimer(settingsReloadDelay)
+			} else {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(settingsReloadDelay)
+			}
+			pending = timer.C
+		case <-pending:
+			pending = nil
+			config, err := loadSettingsWithRetry(path)
+			goroutines.CallNonBlockMain(func() {
+				if watcher != w {
+					return
+				}
+				handleSettingsReload(config, err, &warningShown, func(err error) {
+					platform.ShowMessageBox(gcontext.SDLWindow(), platform.MessageBoxWarning,
+						fmt.Sprintf("Could not reload settings from %s:\n\n%v\n\nThe previous settings remain active. Fix the file to retry.", path, err), false)
+				})
+			})
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("SettingsManager: Warning: watcher for %q: %v", path, err)
 		}
 	}
 }
 
-func setupWatcher(file string) {
-	var err error
-
-	watcher, err = fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	goroutines.Run(func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					log.Println("SettingsManager: Detected", file, "modification, reloading...")
-
-					time.Sleep(time.Millisecond * 200)
-
-					sFile, _ := os.Open(event.Name)
-
-					currentConfig, err = LoadConfig(sFile)
-					if err != nil {
-						panic(err)
-					}
-
-					sFile.Close()
-
-					currentConfig.Save("", false)
-
-					LoadPatch()
-
-					currentConfig.attachToGlobals()
-
-					for _, f := range reloadListeners {
-						f()
-					}
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-
-				log.Println("error:", err)
-			}
+func loadSettingsWithRetry(path string) (*Config, error) {
+	var lastErr error
+	for attempt := range settingsReloadRetries {
+		config, err := readSettingsCandidate(path)
+		if err == nil {
+			return config, nil
 		}
-	})
+		lastErr = err
+		if attempt < settingsReloadRetries-1 {
+			time.Sleep(settingsRetryDelay)
+		}
+	}
+	return nil, fmt.Errorf("read settings %q: %w", path, lastErr)
+}
 
-	abs, _ := filepath.Abs(file)
-
-	err = watcher.Add(abs)
+func readSettingsCandidate(path string) (*Config, error) {
+	file, err := os.Open(path)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
+	}
+	// This is a read-only file; a close error cannot lose buffered writes.
+	//noinspection GoUnhandledErrorResult
+	defer file.Close()
+	return LoadConfig(file)
+}
+
+// applySettingsReload runs on the gameplay thread so configuration and listeners
+// observe one complete update after parsing, patching, and saving succeed.
+func applySettingsReload(config *Config, readErr error) error {
+	if readErr != nil {
+		return readErr
+	}
+	if err := config.SaveChecked("", false); err != nil {
+		return fmt.Errorf("save reloaded settings: %w", err)
+	}
+	// CLI patches affect the running session, not the saved profile.
+	if err := applySettingsPatch(config, JsonPatch); err != nil {
+		return err
+	}
+	currentConfig = config
+	config.attachToGlobals()
+	for _, f := range reloadListeners {
+		f()
+	}
+	return nil
+}
+
+func handleSettingsReload(config *Config, readErr error, warningShown *bool, warn func(error)) {
+	err := applySettingsReload(config, readErr)
+	if err == nil {
+		*warningShown = false
+		return
+	}
+	log.Printf("SettingsManager: Warning: could not reload settings; keeping previous settings: %v", err)
+	if !*warningShown {
+		*warningShown = true
+		warn(err)
 	}
 }
 

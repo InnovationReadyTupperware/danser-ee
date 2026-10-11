@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -80,6 +81,12 @@ func LoadConfig(file *os.File) (*Config, error) {
 	config.normalizeCursorDance()
 	config.migrateCursorDance()
 	config.normalizeCursorDance()
+	if config.Gameplay.HitCounter == nil {
+		return nil, fmt.Errorf("SettingsManager: Invalid %s: Gameplay.HitCounter must not be null", file.Name())
+	}
+	if config.Gameplay.HitCounter.Color != nil && len(config.Gameplay.HitCounter.Color) == 0 {
+		return nil, fmt.Errorf("SettingsManager: Invalid %s: Gameplay.HitCounter.Color must not be empty", file.Name())
+	}
 	config.migrateHitCounterColors()
 	config.migrateBlendWeights()
 	config.migratePPVersion()
@@ -545,7 +552,7 @@ func (config *Config) SaveChecked(path string, forceSave bool) error {
 			return fmt.Errorf("create settings directory: %w", err)
 		}
 
-		if err = os.WriteFile(path, data, 0644); err != nil {
+		if err = writeSettingsFile(path, data); err != nil {
 			return fmt.Errorf("write settings: %w", err)
 		}
 
@@ -554,6 +561,38 @@ func (config *Config) SaveChecked(path string, forceSave bool) error {
 	}
 
 	return nil
+}
+
+// writeSettingsFile publishes a complete profile in one rename so live reload
+// never sees a partially written JSON file from the launcher.
+func writeSettingsFile(path string, data []byte) error {
+	mode := os.FileMode(0o644)
+	if existing, err := os.Stat(path); err == nil {
+		mode = existing.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect existing settings file: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+	if err := tmp.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 func (config *Config) GetCompressedString() string {

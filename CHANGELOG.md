@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0-beta.2 - 2026-10-11
+
+# What's new in Danser Enterprise Edition 1.2.0 Beta 2
+
+### Fixed
+
+- Settings changes made while danser is running now apply without interrupting gameplay. If a settings file is invalid or temporarily unavailable, danser keeps the current settings, warns you once, and automatically applies the changes after the file is corrected
+- Fixed a crash when reloading a profile with invalid hit-counter settings, such as an empty list of hit colors
+
 ## 1.2.0-beta.1 - 2026-10-05
 
 # What's new in Danser Enterprise Edition 1.2.0 Beta 1
