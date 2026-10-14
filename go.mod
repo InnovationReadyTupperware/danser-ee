@@ -1,29 +1,29 @@
 module github.com/innovationreadytupperware/danser-ee
 
-go 1.27.1
+go 1.27.2
 
 require (
-	github.com/AllenDang/cimgui-go v1.6.0
+	github.com/AllenDang/cimgui-go v1.6.1
 	github.com/EdlinOrg/prominentcolor v1.0.0
-	github.com/Microsoft/go-winio v0.6.2
+	github.com/Microsoft/go-winio v0.6.4
 	github.com/Zyko0/go-sdl3 v0.1.1
-	github.com/dustin/go-humanize v1.0.1
+	github.com/dustin/go-humanize v1.1.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276
 	github.com/go-gl/mathgl v1.2.0
 	github.com/hugolgst/rich-go v0.0.0-20240715122152-74618cc1ace2
 	github.com/itchio/lzma v0.0.0-20190703113020-d3e24e3e3d49
-	github.com/mattn/go-sqlite3 v1.14.50
-	github.com/olekukonko/tablewriter v1.1.4
-	github.com/shirou/gopsutil/v4 v4.26.7
+	github.com/mattn/go-sqlite3 v1.14.52
+	github.com/olekukonko/tablewriter v1.1.5
+	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/spf13/cast v1.10.0
 	github.com/wieku/rplpa v1.0.2
-	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa
-	golang.org/x/image v0.45.0
-	golang.org/x/mod v0.39.0
-	golang.org/x/oauth2 v0.36.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/text v0.41.0
+	golang.org/x/exp v0.0.0-20261013213113-2ab7f3cbc5fb
+	golang.org/x/image v0.47.0
+	golang.org/x/mod v0.42.0
+	golang.org/x/oauth2 v0.37.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/text v0.43.0
 )
 
 require (
@@ -32,7 +32,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/ebitengine/purego v0.10.2 // indirect
+	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect

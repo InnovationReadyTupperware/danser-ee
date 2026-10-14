@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.2.0-beta.3 - 2026-10-15
+
+### Changed
+
+- Updated the bundled BASSmix to 2.4.13 and refreshed the BASS FX build
+- Updated the bundled SDL3 runtime for Windows to 3.4.18
+- Refreshed the Go toolchain and dependencies
+
+### Fixed
+
+- danser no longer exits when the operating system refuses to load the window icon
+
+---
+
+# danser 0.12.1 changes carried forward
+
+These shared changes from [danser 0.12.1](https://github.com/Wieku/danser-go/releases/tag/0.12.1) are included in danser-ee. Upstream ships it as a hotfix pass over 0.12.0.
+
+### General
+
+- Updated the Go toolchain to 1.27.2 and refreshed the dependency set
+- danser no longer exits when the platform refuses the window icon. Linux systems running Wayland were the reported case; the failure is logged and the window continues without it
+
+#### Audio
+
+- The bundled BASSmix and BASS FX libraries now match the builds upstream ships in 0.12.1. The BASS core and its header were already current in this fork
+- Upstream's 50 ms recording-delay revert needs no change here. danser-ee already clocks offline renders from delivered mixer output, so no recording-specific offset is applied
+
+Happy dansing!
+
 ## 1.2.0-beta.2 - 2026-10-11
 
 # What's new in Danser Enterprise Edition 1.2.0 Beta 2
@@ -47,7 +77,7 @@ These shared changes from [danser 0.12.0](https://github.com/Wieku/danser-go/rel
 
 - Moved from GLFW to SDL3, allowing Linux recordings and screenshots without a desktop or display server
 - Updated SR/PP to the July 2026 rework
-- Refreshed the Go toolchain and dependencies; danser-ee uses Go 1.27.1
+- Refreshed the Go toolchain and dependencies; danser-ee uses Go 1.27.2
 - Fixed slider-rendering crashes on affected AMD Vega OpenGL drivers
 
 ### Danser
@@ -170,6 +200,8 @@ These shared snapshot 3 changes are included in danser-ee, with several already 
 - Spinner bonus hitsounds use the active timing point's sample volume
 - Combo colors remain correct when a beatmap defines other colors alongside them
 - Beatmap colors can override the slider border, track, slider ball, and input-overlay text
+
+Happy dansing!
 
 ### Launcher
 

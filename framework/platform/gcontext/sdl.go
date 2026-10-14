@@ -499,27 +499,41 @@ func loadIconsSDL(name string) {
 
 	var toDispose []*texture.Pixmap
 
-	for i, size := range iconSizes {
-		pxMap, _ := assets.GetPixmap("assets/textures/" + strings.Replace(name, "*", strconv.Itoa(size), 1) + ".png")
-
-		icon, err := sdl.CreateSurfaceFrom(size, size, sdl.PIXELFORMAT_RGBA32, pxMap.Data, size*4)
-
+	for _, size := range iconSizes {
+		pxMap, err := assets.GetPixmap("assets/textures/" + strings.Replace(name, "*", strconv.Itoa(size), 1) + ".png")
 		if err != nil {
-			panic(err)
+			log.Printf("SDL: skipping %dpx window icon: %v", size, err)
+			continue
 		}
 
-		if i == 0 {
+		icon, err := sdl.CreateSurfaceFrom(size, size, sdl.PIXELFORMAT_RGBA32, pxMap.Data, size*4)
+		if err != nil {
+			pxMap.Dispose()
+			log.Printf("SDL: skipping %dpx window icon: %v", size, err)
+			continue
+		}
+
+		// The first size that loads becomes the primary icon, so an earlier
+		// failure must not leave later alternatives without a primary surface
+		if mainIcon == nil {
 			mainIcon = icon
 		} else if err = mainIcon.AddAlternateImage(icon); err != nil {
-			panic(err)
+			// A failed alternate is cosmetic and unreachable in practice;
+			// leaving the surface to SDL beats risking a double free here
+			log.Printf("SDL: skipping %dpx window icon: %v", size, err)
 		}
 
 		toDispose = append(toDispose, pxMap)
 	}
 
+	if mainIcon == nil {
+		return
+	}
+
 	err := sdlWindow.SetIcon(mainIcon)
 	if err != nil {
-		panic(err)
+		// A missing window icon is cosmetic and must not abort startup
+		log.Printf("SDL: failed to set window icon: %v", err)
 	}
 
 	for _, pxMap := range toDispose {
