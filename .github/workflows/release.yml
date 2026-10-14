@@ -209,6 +209,10 @@ jobs:
           pattern: danser-*
           path: artifacts
           merge-multiple: true
+      - name: Check release notes helper
+        run: |
+          set -euo pipefail
+          bash scripts/test-release-notes.sh
       - name: Create release
         id: create_release
         env:

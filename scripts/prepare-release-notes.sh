@@ -110,6 +110,12 @@ if ! grep -q '[^[:space:]]' "$body_file"; then
   exit 1
 fi
 
+# Changelog sections open with a blank line under the version heading, which
+# would double the spacing under the generated notes heading. Drop leading
+# blank lines, tolerating CRLF endings, so exactly one remains.
+awk '!started { line = $0; sub(/\r$/, "", line); if (line ~ /^[ \t]*$/) next } { started = 1; print }' \
+  "$body_file" > "$body_file.trimmed" && mv "$body_file.trimmed" "$body_file"
+
 if ! git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1; then
   printf 'release notes comparison requires a Git repository: %s\n' "$repo_root" >&2
   exit 1
@@ -152,6 +158,53 @@ if [[ -z "$repository_url" ]]; then
   repository_url="https://github.com/InnovationReadyTupperware/danser-ee"
 fi
 repository_url="${repository_url%/}"
+
+# Release notes open with the curated changelog heading, which the changelog no
+# longer carries. Prerelease identifiers become a short label so 1.5.0-beta.2
+# reads as "1.5.0 Beta 2"; build metadata is release engineering noise and is
+# left out of the heading.
+release_stage_label() {
+  local identifier=$1
+
+  # A few identifiers have a conventional rendering that simple capitalization
+  # gets wrong, and the fork's own version fixtures use rc.
+  case "${identifier,,}" in
+  rc) printf 'RC' ;;
+  *) printf '%s' "${identifier^}" ;;
+  esac
+}
+
+release_display_version() {
+  local version=$1
+  local core prerelease identifier label
+  local -a identifiers
+
+  version="${version%%+*}"
+
+  if [[ "$version" == *-* ]]; then
+    core="${version%%-*}"
+    prerelease="${version#*-}"
+  else
+    core="$version"
+    prerelease=""
+  fi
+
+  if [[ -z "$prerelease" ]]; then
+    printf '%s' "$core"
+    return
+  fi
+
+  IFS='.' read -r -a identifiers <<< "$prerelease"
+
+  label=""
+  for identifier in "${identifiers[@]}"; do
+    label+="$(release_stage_label "$identifier") "
+  done
+
+  printf '%s %s' "$core" "${label% }"
+}
+
+printf "# What's new in Danser Enterprise Edition %s\n\n" "$(release_display_version "$version")"
 
 # SemVer build metadata is valid in the tag but the plus sign must be escaped
 # in a URL path component.

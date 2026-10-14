@@ -14,7 +14,7 @@
 
 ---
 
-# danser 0.12.1 changes carried forward
+# Danser 0.12.1 changes carried forward
 
 These shared changes from [danser 0.12.1](https://github.com/Wieku/danser-go/releases/tag/0.12.1) are included in danser-ee. Upstream ships it as a hotfix pass over 0.12.0.
 
@@ -32,16 +32,12 @@ Happy dansing!
 
 ## 1.2.0-beta.2 - 2026-10-11
 
-# What's new in Danser Enterprise Edition 1.2.0 Beta 2
-
 ### Fixed
 
 - Settings changes made while danser is running now apply without interrupting gameplay. If a settings file is invalid or temporarily unavailable, danser keeps the current settings, warns you once, and automatically applies the changes after the file is corrected
 - Fixed a crash when reloading a profile with invalid hit-counter settings, such as an empty list of hit colors
 
 ## 1.2.0-beta.1 - 2026-10-05
-
-# What's new in Danser Enterprise Edition 1.2.0 Beta 1
 
 ### Added
 
@@ -67,7 +63,7 @@ Happy dansing!
 
 ---
 
-# danser 0.12.0 changes carried forward
+# Danser 0.12.0 changes carried forward
 
 These shared changes from [danser 0.12.0](https://github.com/Wieku/danser-go/releases/tag/0.12.0) are included in danser-ee, with many already shipped in earlier releases. Lazer gameplay remains the default here.
 
@@ -155,8 +151,6 @@ Happy dansing!
 
 ## 1.2.0-alpha.1 - 2026-10-04
 
-# What's new in Danser Enterprise Edition 1.2.0 Alpha 1
-
 ### Added
 
 - Added osu!lazer's `Score display mode` under Gameplay > Score, with `Standardised` (the default) and `Classic` values for the HUD, results, and osu!lazer scoreboard
@@ -178,7 +172,7 @@ Happy dansing!
 
 ---
 
-# danser 0.12.0 snapshot 3 changes carried forward
+# Danser 0.12.0 snapshot 3 changes carried forward
 
 These shared snapshot 3 changes are included in danser-ee, with several already shipped in earlier releases.
 
@@ -209,15 +203,11 @@ Happy dansing!
 
 ## 1.1.2 - 2026-09-24
 
-# What's new in Danser Enterprise Edition 1.1.2
-
 ### Fixed
 
 - Fixed crashes while rendering slider bodies on AMD Vega systems with affected OpenGL drivers
 
 ## 1.1.1 - 2026-09-13
-
-# What's new in Danser Enterprise Edition 1.1.1
 
 ### Added
 
@@ -230,8 +220,6 @@ Happy dansing!
 - Launcher recording progress now recognizes newer FFmpeg recorder startup messages
 
 ## 1.1.0 - 2026-09-12
-
-# What's new in Danser Enterprise Edition 1.1.0
 
 ### Highlights
 
@@ -281,15 +269,11 @@ Happy dansing!
 
 ## 1.1.0-alpha.3 - 2026-09-12
 
-# What's new in Danser Enterprise Edition 1.1.0 Alpha 3
-
 ### Fixed
 
 - The About dialog keeps its title and controls visible while its content scrolls
 
 ## 1.1.0-alpha.2 - 2026-09-10
-
-# What's new in Danser Enterprise Edition 1.1.0 Alpha 2
 
 ### Added
 
@@ -315,8 +299,6 @@ Happy dansing!
 
 ## 1.1.0-alpha.1 - 2026-09-08
 
-# What's new in Danser Enterprise Edition 1.1.0 Alpha 1
-
 ### Added
 
 - Added osu!lazer's `Only fade approach circles` customization for the Hidden mod
@@ -333,8 +315,6 @@ Happy dansing!
 
 ## 1.0.1 - 2026-09-08
 
-# What's new in Danser Enterprise Edition 1.0.1
-
 ### Fixed
 
 - Combo color normalization no longer renders the wrong color
@@ -342,8 +322,6 @@ Happy dansing!
 - Combo colors no longer shift by one on maps whose first object isn't a new combo
 
 ## 1.0.0 - 2026-09-05
-
-# What's new in Danser Enterprise Edition 1.0.0
 
 ### Highlights
 
@@ -458,7 +436,7 @@ Happy dansing!
 
 ---
 
-# danser 0.12.0 snapshot changes carried forward
+# Danser 0.12.0 snapshot changes carried forward
 
 ### BIGGEST CHANGE: osu!lazer Compatibility, PP Updates, and SDL
 

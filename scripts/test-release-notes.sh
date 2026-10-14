@@ -39,6 +39,36 @@ assert_not_contains() {
   fi
 }
 
+assert_first_line() {
+  local file=$1
+  local expected=$2
+  if [[ "$(head -n 1 "$file")" != "$expected" ]]; then
+    printf 'expected %s to start with: %s\n' "$file" "$expected" >&2
+    exit 1
+  fi
+}
+
+# The helper emits the heading, exactly one blank line, then the body. Pin that
+# spacing so a regression in the leading-blank trim fails here instead of
+# shipping slack formatting. A CRLF changelog leaves a bare CR on that blank
+# line, so strip it before comparing.
+assert_single_blank_after_heading() {
+  local file=$1
+  local second third
+  second="$(sed -n '2p' "$file")"
+  third="$(sed -n '3p' "$file")"
+  second="${second%$'\r'}"
+  if [[ -n "$second" || -z "$third" ]]; then
+    printf 'expected exactly one blank line between heading and body in %s\n' "$file" >&2
+    exit 1
+  fi
+}
+
+write_fixture_crlf() {
+  local content=$1
+  printf '%s\n' "$content" | sed 's/$/\r/' > "$repo_root/CHANGELOG.md"
+}
+
 expect_failure() {
   if RELEASE_REPO_ROOT="$repo_root" REPOSITORY_URL="https://example.invalid/danser-ee" \
     "$@" >/dev/null 2>&1; then
@@ -91,6 +121,8 @@ if [[ "$(grep -Fc 'Full Changelog:' "$output_file")" != '1' ]]; then
   printf 'expected exactly one Full Changelog footer\n' >&2
   exit 1
 fi
+assert_first_line "$output_file" "# What's new in Danser Enterprise Edition 0.12.0"
+assert_single_blank_after_heading "$output_file"
 
 explicit_output="$test_root/explicit-notes.md"
 git -C "$repo_root" tag 0.10.0
@@ -107,6 +139,49 @@ metadata_output="$test_root/metadata-notes.md"
 RELEASE_REPO_ROOT="$repo_root" REPOSITORY_URL="https://example.invalid/danser-ee" \
   bash "$helper" 1.0.0+build.1 0.11.0 > "$metadata_output"
 assert_contains "$metadata_output" 'Full Changelog: [0.11.0...1.0.0+build.1](https://example.invalid/danser-ee/compare/0.11.0...1.0.0%2Bbuild.1)'
+assert_first_line "$metadata_output" "# What's new in Danser Enterprise Edition 1.0.0"
+
+write_fixture '# Changelog
+
+## 1.5.0-beta.2 - 2026-10-15
+
+- Prerelease notes.
+
+## 2.0.0-alpha.1 - 2026-11-14
+
+- Alpha notes.'
+prerelease_output="$test_root/prerelease-notes.md"
+RELEASE_REPO_ROOT="$repo_root" REPOSITORY_URL="https://example.invalid/danser-ee" \
+  bash "$helper" 1.5.0-beta.2 0.11.0 > "$prerelease_output"
+assert_first_line "$prerelease_output" "# What's new in Danser Enterprise Edition 1.5.0 Beta 2"
+assert_contains "$prerelease_output" '- Prerelease notes.'
+assert_not_contains "$prerelease_output" '- Alpha notes.'
+if [[ "$(grep -Fc "# What's new in Danser Enterprise Edition" "$prerelease_output")" != '1' ]]; then
+  printf 'expected exactly one release heading\n' >&2
+  exit 1
+fi
+
+write_fixture '# Changelog
+
+## 1.5.0-rc.1 - 2026-10-15
+
+- Release candidate notes.'
+rc_output="$test_root/rc-notes.md"
+RELEASE_REPO_ROOT="$repo_root" REPOSITORY_URL="https://example.invalid/danser-ee" \
+  bash "$helper" 1.5.0-rc.1 0.11.0 > "$rc_output"
+assert_first_line "$rc_output" "# What's new in Danser Enterprise Edition 1.5.0 RC 1"
+
+write_fixture_crlf '# Changelog
+
+## 1.5.0-beta.2 - 2026-10-15
+
+- CRLF notes.'
+crlf_output="$test_root/crlf-notes.md"
+RELEASE_REPO_ROOT="$repo_root" REPOSITORY_URL="https://example.invalid/danser-ee" \
+  bash "$helper" 1.5.0-beta.2 0.11.0 > "$crlf_output"
+assert_first_line "$crlf_output" "# What's new in Danser Enterprise Edition 1.5.0 Beta 2"
+assert_contains "$crlf_output" '- CRLF notes.'
+assert_single_blank_after_heading "$crlf_output"
 
 expect_failure env RELEASE_REPO_ROOT="$repo_root" CHANGELOG_FILE="$test_root/missing.md" \
   bash "$helper" 0.12.0 0.11.0
