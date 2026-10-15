@@ -36,7 +36,7 @@
 
 ## What's different from danser-go?
 
-If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience while continuing development as its own fork.
+If you already know `danser-go`, `danser-ee` should feel immediately familiar. It keeps the core danser experience while continuing development as its own fork. See the [changelog](CHANGELOG.md) for release-by-release updates.
 
 ### A few of the bigger changes:
 
@@ -44,14 +44,14 @@ If you already know `danser-go`, `danser-ee` should feel immediately familiar. I
 - **Launcher startup and large song libraries are much more responsive.** Catalog updates no longer block normal launcher startup, and song search and scrolling no longer stutter on large libraries.
 - **Audio timing and recording sync are substantially more accurate.**
 - **High-FPS gameplay is much smoother.**
-- **More osu!lazer customization.** Choose Standardised or Classic score display, normalize combo colors, and control slider hit animations separately.
+- **More osu!lazer customization.** Choose Standardised (the default) or Classic score display, normalize combo colors, and control slider hit animations separately.
 
 <details>
-<summary><strong>Detailed comparison with danser-go 0.12.0</strong></summary>
+<summary><strong>Detailed comparison with danser-go 0.12.1</strong></summary>
 
-Here's how `danser-ee` compares with [danser-go 0.12.0](https://github.com/Wieku/danser-go/tree/0.12.0).
+Here's how `danser-ee` compares with [danser-go 0.12.1](https://github.com/Wieku/danser-go/tree/0.12.1).
 
-| Area                           | danser-ee                                                                                                                        | danser-go 0.12.0                                                                                                        |
+| Area                           | danser-ee                                                                                                                        | danser-go 0.12.1                                                                                                        |
 |--------------------------------|----------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
 | CLI no-argument behavior       | ✅ Helpful usage, no rickroll                                                                                                    | ❌ Surprise rickroll                                                                                                    |
 | Gameplay behavior              | Lazer gameplay behavior by default. Replays recorded in osu!stable automatically receive the Classic mod, just like in osu!lazer | `LZ` mod used to opt into Lazer-oriented behavior                                                                       |
@@ -76,7 +76,7 @@ Here's how `danser-ee` compares with [danser-go 0.12.0](https://github.com/Wieku
 | Recording motion blur          | Samples are centered on the encoded frame timeline without black startup history                                                 | ❌ Trailing shutter with black startup history                                                                          |
 | Solo knockout                  | ✅ Replay-free knockout with generated, fully scored participants                                                                | -                                                                                                                       |
 
-<small><em>Scope note: This comparison is against danser-go 0.12.0. It reflects the behavior observed there and the changes currently implemented in danser-ee. The approaches shown here are not necessarily the only or best possible solutions, and both projects may continue to evolve. The table is intended to document meaningful differences in good faith, not to claim final authority over how they should be solved.</em></small>
+<small><em>Scope note: This comparison is against danser-go 0.12.1. It reflects the behavior observed there and the changes currently implemented in danser-ee. The approaches shown here are not necessarily the only or best possible solutions, and both projects may continue to evolve. The table is intended to document meaningful differences in good faith, not to claim final authority over how they should be solved.</em></small>
 
 </details>
 
