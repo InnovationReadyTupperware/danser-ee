@@ -52,7 +52,7 @@ These shared changes from [danser 0.12.0](https://github.com/Wieku/danser-go/rel
 
 - Moved from GLFW to SDL3, allowing Linux recordings and screenshots without a desktop or display server
 - Updated SR/PP to the July 2026 rework
-- Fixed slider-rendering crashes on affected AMD Vega OpenGL drivers
+- Fixed slider-rendering crashes on affected AMD Vega OpenGL drivers (@timelessnesses)
 
 ### Danser
 
@@ -205,7 +205,7 @@ These shared changes from [danser 0.12.0](https://github.com/Wieku/danser-go/rel
 - Moved from GLFW to SDL3, allowing Linux recordings and screenshots without a desktop or display server
 - Updated SR/PP to the July 2026 rework
 - Refreshed the Go toolchain and dependencies; danser-ee uses Go 1.27.2
-- Fixed slider-rendering crashes on affected AMD Vega OpenGL drivers
+- Fixed slider-rendering crashes on affected AMD Vega OpenGL drivers (@timelessnesses)
 
 ### Danser
 
@@ -318,7 +318,7 @@ These shared snapshot 3 changes are included in danser-ee, with several already 
 
 ### Rendering and audio
 
-- Slider bodies render correctly on AMD Vega systems with affected OpenGL drivers
+- Slider bodies render correctly on AMD Vega systems with affected OpenGL drivers (@timelessnesses)
 - Screenshots include slider ticks even when their textures are first loaded during capture
 - Spinner bonus hitsounds use the active timing point's sample volume
 - Combo colors remain correct when a beatmap defines other colors alongside them
@@ -334,7 +334,7 @@ Happy dansing!
 
 ### Fixed
 
-- Fixed crashes while rendering slider bodies on AMD Vega systems with affected OpenGL drivers
+- Fixed crashes while rendering slider bodies on AMD Vega systems with affected OpenGL drivers (@timelessnesses)
 
 ## 1.1.1 - 2026-09-13
 
