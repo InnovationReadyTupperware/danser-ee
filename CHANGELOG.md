@@ -1,5 +1,138 @@
 # Changelog
 
+## 1.2.0 - 2026-10-15
+
+### Highlights
+
+- osu!stable ScoreV1 replays with unchanged mods now show their recorded results at the end of playback, even when judging the saved input produces a different score
+- Added osu!lazer's `Score display mode` setting, defaulting to `Standardised`
+- The in-game scoreboard can now show your osu! team leaderboard
+- Sudden Death and Perfect follow osu!lazer's failure rules, with an optional Sudden Death setting for missed slider tails
+- Corrected July 2026 star-rating and PP calculations on long maps and improved strain graphs at custom playback speeds
+- Editing settings while danser is running no longer interrupts gameplay if a profile is temporarily invalid or unavailable
+
+### Added
+
+- Added `Score display mode` under Gameplay > Score, with `Standardised` (the default) and `Classic` options for Lazer scores and converted Stable replay results
+- Added `Team` to the scoreboard modes. It requires membership in an osu! team and Authorization Code API mode
+- Added `Also fail when missing a slider tail` to Sudden Death's settings for osu!lazer gameplay. It is disabled by default and can also be set with `fail_on_slider_tail` in SD's `-mods2` settings
+
+### Changed
+
+- osu!stable ScoreV1 replays with unchanged mods now show the combo, hit counts, accuracy, and score saved in the replay once playback ends
+- Mod selection and replay validation now follow the gameplay rules of the replay's source client across the launcher and CLI
+  - osu!lazer allows Relax or Autopilot with No Fail, Sudden Death, or Perfect. These failure mods remain incompatible with one another, and osu!stable replays keep their original restrictions
+  - The launcher, CLI, and replay loader consistently reject incompatible combinations, including Difficulty Adjust with Easy or Hard Rock
+- Updated to Go 1.27.2, refreshed dependencies and bundled BASSmix/BASS FX, and updated the Windows SDL3 runtime to 3.4.18
+
+### Fixed
+
+- Lazer Perfect now fails on judgments below the best possible result, including missed slider parts. Sudden Death follows Lazer combo-breaking judgments without changing the recorded hit result
+- Valid Perfect replays are no longer rejected when their saved mod flags also include Sudden Death. Lazer replay validation now reads structured mod settings as well as legacy flags
+- The CLI now respects `-mods` overrides when loading a replay and validates combinations produced by difficulty overrides
+- Historical osu!lazer replays now use score multipliers from their original scoring revision, including mod settings for Flashlight, Easy, Difficulty Adjust, Classic, Hidden, and custom playback rates
+- July 2026 SR/PP calculations now retain fractional strain correctly. Your affected maps get updated star ratings automatically
+- Strain graphs now preserve skill decay through breaks and align peaks with the map timeline at custom playback rates
+- October 2025 SR/PP calculations now count sliders correctly on maps that begin with a slider, including maps containing just one slider
+- osu!stable replay scoring no longer applies the automatically added Classic penalty, and combo bonuses use osu!stable's integer division
+- Cursor dance no longer skips sliders added while resolving overlapping-object conflicts or assigning random slider dance
+- Hidden's approach-circle-only option now fades circle bodies in at the same time as regular Hidden
+- Hit circles, slider heads, and slider tails now fade out quickly when `Hit animations` is disabled without losing their skin's usual visual effects
+- Screenshots and recordings now include slider ticks and other textures first loaded during output capture
+- Reloading a missing or invalid settings profile now keeps the last working settings and applies edits after the file becomes valid again, without interrupting gameplay
+- A failure to set the operating system's window icon no longer prevents danser from starting
+
+# Danser 0.12.0 and 0.12.1 changes carried forward
+
+These shared changes from [danser 0.12.0](https://github.com/Wieku/danser-go/releases/tag/0.12.0) and [danser 0.12.1](https://github.com/Wieku/danser-go/releases/tag/0.12.1) are included in danser-ee. Many were already shipped in earlier danser-ee releases. Lazer gameplay remains the default here.
+
+### BIGGEST CHANGES: SDL3, Headless Rendering and SR/PP Updates
+
+### General
+
+- Moved from GLFW to SDL3, allowing Linux recordings and screenshots without a desktop or display server
+- Updated SR/PP to the July 2026 rework
+- Fixed slider-rendering crashes on affected AMD Vega OpenGL drivers
+
+### Danser
+
+#### Recording
+
+- Fixed missing slider ticks in screenshots
+- Removed Software AV1 preset `13`
+
+#### Audio
+
+- Updated BASS FX to fix jitter during HT/DT watch and play sessions
+- Spinner bonus hitsounds now use the timing point's volume
+
+#### Mods
+
+- Fixed single-object maps freezing Lazer gameplay
+- Added Hidden's `Only fade approach circles` setting
+- Updated mod compatibility for Lazer. danser-ee still rejects DA with EZ or HR
+- Relax and Autopilot can fail in Lazer gameplay
+- Updated Lazer's Sudden Death and Perfect failure rules
+- Added Sudden Death's optional slider-tail failure in Lazer gameplay
+- Fixed SpunOut in Lazer plays
+- Fixed hit circles appearing again with Traceable
+- Limited custom speed-mod rates to 0.1x through 10x
+
+#### Cursordance
+
+- Added `CursorDance.Resolve2BAfterTAG` to resolve 2B conflicts after assigning objects to TAG cursors
+- Improved handling of 2B patterns
+- Fixed generated playback missing on slowed maps
+- Fixed generated playback missing circles or slider heads that share a spinner's start time
+- Fixed Half Time spinner dance running too slowly
+
+#### Objects and Skins
+
+- Added `Objects.HitAnimations`. Turning it off gives hit circles, slider heads, and slider tails a short 60 ms fade, as in osu!lazer
+- Added `Objects.Sliders.DrawReverseArrows` to control reverse arrows separately from slider-end circles
+- Fixed combo colors on beatmaps that also define other colors
+- Added beatmap slider and input-overlay colors when `Skin.UseBeatmapColors` is enabled
+
+#### HUD
+
+- Added Reading PP to the newest calculator's component display
+- Added `Team` to `Gameplay.ScoreBoard.Mode` (@Zeefoe). This requires team membership and Authorization Code API mode
+- Added `mapId` and `setId` to custom statistics templates (@sbrstrkkdwmdr)
+- Added `Gameplay.AimErrorMeter.UseFallbackSkin` for aim feedback with instafade skins
+
+#### Gameplay
+
+- Added `Gameplay.AlwaysSkipIntro` to skip intros without selecting the launcher option or passing a flag
+
+#### Scoring (General)
+
+Both the October 2025 and July 2026 SR/PP reworks are available. The newest model includes Reading, revised aim and speed calculations, and updated miss penalties.
+
+- New profiles default to July 2026 (`260706`)
+- Existing `latest` selections remain on October 2025 (`251020` / `2025 Q4 update`)
+- Previous development selections `260321` and `26xxxx` migrate to July 2026 (`260706`)
+- The earlier `250306` / `2025 Q1 update` model remains selectable
+- Replays wait until their saved frames run out before failing, subject to replay failure settings and Autoplay's existing exception
+
+#### Scoring (Lazer)
+
+- Updated score multipliers for mod settings while keeping the correct scoring revision for older replays
+- Updated judgment windows to match osu!lazer
+
+#### Beatmaps
+
+- Fixed extreme timing-point values freezing [this map](https://osu.ppy.sh/beatmapsets/417106#osu/1267372)
+- Improved circular slider arcs, including the missing sliders on [this map](https://osu.ppy.sh/beatmapsets/2132035#osu/4484651)
+- Fixed Lazer slider ticks when inherited timing points precede the first regular timing point
+
+### 0.12.1 follow-up
+
+- Updated to Go 1.27.2 and refreshed dependencies
+- Updated the bundled BASSmix to 2.4.13 and refreshed the BASS FX build
+- Fixed startup failing when the platform refuses the window icon, reported on Linux systems using Wayland
+
+Happy dansing!
+
 ## 1.2.0-beta.3 - 2026-10-15
 
 ### Changed
