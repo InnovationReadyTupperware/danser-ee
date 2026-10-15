@@ -12,8 +12,6 @@
 
 - danser no longer exits when the operating system refuses to load the window icon
 
----
-
 # Danser 0.12.1 changes carried forward
 
 These shared changes from [danser 0.12.1](https://github.com/Wieku/danser-go/releases/tag/0.12.1) are included in danser-ee. Upstream ships it as a hotfix pass over 0.12.0.
@@ -22,6 +20,8 @@ These shared changes from [danser 0.12.1](https://github.com/Wieku/danser-go/rel
 
 - Updated the Go toolchain to 1.27.2 and refreshed the dependency set
 - danser no longer exits when the platform refuses the window icon. Linux systems running Wayland were the reported case; the failure is logged and the window continues without it
+
+### Danser
 
 #### Audio
 
@@ -60,8 +60,6 @@ Happy dansing!
 - Replay validation now checks structured Lazer mods and their settings instead of relying only on the legacy mod flags
 - The CLI now honors `-mods` overrides when loading a replay and checks combinations created by difficulty overrides
 - Cursor dance no longer skips sliders pushed beyond the original queue length while resolving 2B conflicts or applying random slider dance
-
----
 
 # Danser 0.12.0 changes carried forward
 
@@ -169,8 +167,6 @@ Happy dansing!
 - Hidden's approach-circle-only option now gives circle bodies the same fade-in timing as regular Hidden
 - Slider ticks and other textures loaded during screenshot capture now appear in the saved frame
 - osu!stable replay playback scores no longer include the automatically added Classic score penalty, and combo bonuses use osu!stable's integer division
-
----
 
 # Danser 0.12.0 snapshot 3 changes carried forward
 
@@ -433,8 +429,6 @@ Happy dansing!
 ### Removed
 
 - Removed the old `LZ` mod and the `Gameplay.Mods.ShowLazerMod` and `Gameplay.LazerClassicScore` settings in favor of the Classic mod
-
----
 
 # Danser 0.12.0 snapshot changes carried forward
 
