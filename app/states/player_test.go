@@ -75,6 +75,42 @@ func TestReplayControllerOverlayFollowsPlaybackMode(t *testing.T) {
 	}
 }
 
+func TestCursorAdditiveAllowed(t *testing.T) {
+	tests := []struct {
+		name               string
+		hasKnockoutOverlay bool
+		activePlayers      int
+		players            int
+		divides            int
+		tag                int
+		mode               settings.KnockoutCursorBlendingMode
+		want               bool
+	}{
+		{name: "normal solo", players: 1, divides: 1, tag: 1},
+		{name: "normal multiplayer", players: 50, divides: 1, tag: 1, want: true},
+		{name: "normal mirrored solo", players: 1, divides: 4, tag: 1, want: true},
+		{name: "normal TAG", players: 1, divides: 1, tag: 2, want: true},
+		{name: "normal ignores knockout preference", players: 50, divides: 1, tag: 1, mode: settings.KnockoutCursorBlendingDisabled, want: true},
+		{name: "automated knockout with score overlay", players: 1, divides: 1, tag: 1, mode: settings.KnockoutCursorBlendingAlways},
+		{name: "knockout full field", hasKnockoutOverlay: true, activePlayers: 50, players: 50, divides: 1, tag: 1, want: true},
+		{name: "knockout final survivor", hasKnockoutOverlay: true, activePlayers: 1, players: 50, divides: 1, tag: 1},
+		{name: "knockout last survivor mirrored", hasKnockoutOverlay: true, activePlayers: 1, players: 50, divides: 4, tag: 1, want: true},
+		{name: "knockout all eliminated", hasKnockoutOverlay: true, players: 50, divides: 1, tag: 1},
+		{name: "knockout revived pair", hasKnockoutOverlay: true, activePlayers: 2, players: 50, divides: 1, tag: 1, want: true},
+		{name: "knockout always even without survivors", hasKnockoutOverlay: true, players: 50, divides: 1, tag: 1, mode: settings.KnockoutCursorBlendingAlways, want: true},
+		{name: "knockout always last survivor", hasKnockoutOverlay: true, activePlayers: 1, players: 50, divides: 1, tag: 1, mode: settings.KnockoutCursorBlendingAlways, want: true},
+		{name: "knockout disabled", hasKnockoutOverlay: true, activePlayers: 50, players: 50, divides: 1, tag: 1, mode: settings.KnockoutCursorBlendingDisabled},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := cursorAdditiveAllowed(test.hasKnockoutOverlay, test.activePlayers, test.players, test.divides, test.tag, test.mode)
+			if got != test.want {
+				t.Fatalf("cursorAdditiveAllowed() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestShouldTrimBeatmapForPlaybackIncludesStandaloneAutomatedPlayback(t *testing.T) {
 	previousPlay := settings.PLAY
 	previousKnockout := settings.KNOCKOUT

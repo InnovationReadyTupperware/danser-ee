@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1 - Unreleased
+
+### Added
+
+- Added `Cursor blending` under Knockout, with Adaptive (default), Always additive, and Disabled options that respect the global cursor blending setting
+
+### Changed
+
+- Knockout's default Adaptive blending now turns off additive cursor blending when only one cursor remains visible, while accounting for mirrored copies and revived players
+
 ## 1.2.0 - 2026-10-15
 
 ### Highlights

@@ -18,6 +18,7 @@ func initKnockout() *knockout {
 		ShowJudgments:       false,
 		MinCursorSize:       3.0,
 		MaxCursorSize:       7.0,
+		CursorBlendingMode:  KnockoutCursorBlendingAdaptive,
 		AddDanser:           false,
 		DanserName:          "danser",
 	}
@@ -65,6 +66,8 @@ type knockout struct {
 	//Maximum cursor size (when there is only 1 player left)
 	MaxCursorSize float64 `min:"1" max:"20"`
 
+	CursorBlendingMode KnockoutCursorBlendingMode `label:"Cursor blending" combo:"0|Adaptive,1|Always additive,2|Disabled" tooltip:"Controls additive cursor blending during knockout. Adaptive uses the number of visible cursors, including mirrored copies. Requires Cursor > Additive blending."`
+
 	SmokeEnabled bool `label:"Show cursor smoke in knockout mode"`
 
 	// Self explanatory
@@ -73,6 +76,29 @@ type knockout struct {
 }
 
 type KnockoutMode int
+
+// KnockoutCursorBlendingMode selects how knockout cursors are composited.
+type KnockoutCursorBlendingMode int
+
+const (
+	// These values are stored in settings profiles and must remain stable.
+	KnockoutCursorBlendingAdaptive KnockoutCursorBlendingMode = 0
+	KnockoutCursorBlendingAlways   KnockoutCursorBlendingMode = 1
+	KnockoutCursorBlendingDisabled KnockoutCursorBlendingMode = 2
+)
+
+// UseAdditiveBlending resolves the user's knockout blending preference for the
+// number of cursor instances drawn, including copies in mirror collages.
+func (mode KnockoutCursorBlendingMode) UseAdditiveBlending(cursorInstances int) bool {
+	switch mode {
+	case KnockoutCursorBlendingAlways:
+		return true
+	case KnockoutCursorBlendingDisabled:
+		return false
+	default:
+		return cursorInstances > 1
+	}
+}
 
 const (
 	// Players get knocked out when they lose a combo to a miss or slider break

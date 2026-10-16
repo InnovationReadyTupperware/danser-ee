@@ -324,8 +324,11 @@ func (cursor *Cursor) UpdateRenderer() {
 	cursor.renderer.UpdateRenderer()
 }
 
-func BeginCursorRender() {
-	useAdditive = settings.Cursor.AdditiveBlending && (settings.PLAYERS > 1 || settings.DIVIDES > 1 || settings.TAG > 1) && !settings.Skin.Cursor.UseSkinCursor
+// BeginCursorRender starts the cursor rendering pass. The caller decides
+// whether to use additive blending based on the visible cursor instances;
+// the global cursor setting and skin-cursor override still take precedence.
+func BeginCursorRender(allowAdditive bool) {
+	useAdditive = allowAdditive && settings.Cursor.AdditiveBlending && !settings.Skin.Cursor.UseSkinCursor
 
 	if useAdditive {
 		cursorSpaceFbo.Bind()

@@ -196,13 +196,6 @@ func NewKnockoutOverlay(controller dance.KnockoutController) *KnockoutOverlay {
 	controller.GetRuleset().SetListener(overlay.hitReceived)
 
 	sortFunc := func(number int64, instantSort bool) {
-		alive := 0
-		for _, g := range overlay.playersArray {
-			if !g.hasBroken {
-				alive++
-			}
-		}
-
 		if settings.Knockout.LiveSort {
 			cond := strings.ToLower(settings.Knockout.SortBy)
 
@@ -235,7 +228,7 @@ func NewKnockoutOverlay(controller dance.KnockoutController) *KnockoutOverlay {
 			}
 		}
 
-		discord.UpdateKnockout(alive, len(overlay.playersArray))
+		discord.UpdateKnockout(overlay.ActiveCursorCount(), len(overlay.playersArray))
 	}
 
 	controller.GetRuleset().SetEndListener(func(time int64, number int64) {
@@ -500,14 +493,6 @@ func (overlay *KnockoutOverlay) DrawNormal(batch *batch.QuadBatch, colors []colo
 
 	scl := 384.0 * (1080.0 / 900.0 * 0.9) / (51)
 
-	alive := 0
-	for _, r := range overlay.controller.GetReplays() {
-		player := overlay.players[r.Name]
-		if !player.hasBroken {
-			alive++
-		}
-	}
-
 	for i := 0; i < len(overlay.deathBubbles); i++ {
 		batch.ResetTransform()
 		bubble := overlay.deathBubbles[i]
@@ -561,7 +546,7 @@ func (overlay *KnockoutOverlay) DrawNormal(batch *batch.QuadBatch, colors []colo
 
 	minSize := settings.Knockout.MinCursorSize
 	maxSize := settings.Knockout.MaxCursorSize
-	settings.Cursor.CursorSize = minSize + (maxSize-minSize)*math.Pow(1-math.Sin(float64(alive)/max(51, float64(settings.PLAYERS))*math.Pi/2), 3)
+	settings.Cursor.CursorSize = minSize + (maxSize-minSize)*math.Pow(1-math.Sin(float64(overlay.ActiveCursorCount())/max(51, float64(settings.PLAYERS))*math.Pi/2), 3)
 
 	batch.SetScale(1, 1)
 }
@@ -751,6 +736,18 @@ func (overlay *KnockoutOverlay) DrawHUD(batch *batch.QuadBatch, colors []color2.
 
 func (overlay *KnockoutOverlay) IsBroken(cursor *graphics.Cursor) bool {
 	return overlay.players[overlay.names[cursor]].hasBroken
+}
+
+// ActiveCursorCount counts cursors that will be drawn. Unlike alivePlayers,
+// this count includes players revived at the end of a map.
+func (overlay *KnockoutOverlay) ActiveCursorCount() int {
+	active := 0
+	for _, player := range overlay.playersArray {
+		if !player.hasBroken {
+			active++
+		}
+	}
+	return active
 }
 
 func (overlay *KnockoutOverlay) updateBreaks(time float64) {

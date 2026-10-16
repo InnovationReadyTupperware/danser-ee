@@ -692,6 +692,16 @@ func shouldTrimBeatmapForPlayback(automatedPlayback bool) bool {
 	return settings.PLAY || !settings.KNOCKOUT || settings.SOLOKNOCKOUT || automatedPlayback
 }
 
+func cursorAdditiveAllowed(hasKnockoutOverlay bool, activePlayers, players, divides, tag int, mode settings.KnockoutCursorBlendingMode) bool {
+	// Some automated playback sessions set KNOCKOUT but use a ScoreOverlay.
+	if hasKnockoutOverlay {
+		return mode.UseAdditiveBlending(activePlayers * divides)
+	}
+
+	// Preserve the original rule for playback, TAG, and cursor dance.
+	return players > 1 || divides > 1 || tag > 1
+}
+
 func trimBeatmapToWindow(beatMap *beatmap.BeatMap, scrub, end float64) bool {
 	removed := false
 
@@ -1213,7 +1223,14 @@ func (player *Player) DrawMain(float64) {
 
 		player.batch.SetAdditive(false)
 
-		graphics.BeginCursorRender()
+		knockoutOverlay, hasKnockoutOverlay := player.overlay.(*overlays.KnockoutOverlay)
+		activePlayers := 0
+		if hasKnockoutOverlay {
+			activePlayers = knockoutOverlay.ActiveCursorCount()
+		}
+		graphics.BeginCursorRender(cursorAdditiveAllowed(
+			hasKnockoutOverlay, activePlayers, settings.PLAYERS, settings.DIVIDES, settings.TAG, settings.Knockout.CursorBlendingMode,
+		))
 
 		for j := 0; j < settings.DIVIDES; j++ {
 			player.batch.SetCamera(cursorCameras[j])
