@@ -211,7 +211,25 @@ func (beatMap *BeatMap) FinalizePoints() {
 }
 
 func (beatMap *BeatMap) LoadCustomSamples() {
-	audio.LoadBeatmapSamples(beatMap.getPathCache().GetMap())
+	// IgnoreBeatmapSamples can change during playback. Preload the authored
+	// samples so turning beatmap hitsounds back on requires no disk I/O.
+	// Named hit sounds live in the beatmap root. Explicit filenames can name
+	// nested files, so resolve only the files authored by hit objects.
+	root := filepath.Join(settings.General.GetSongsDir(), beatMap.Dir)
+	paths, _ := files.SearchFiles(root, "*", 0)
+	rootSamples := make(map[string]string, len(paths))
+	for _, path := range paths {
+		rootSamples[strings.ToLower(filepath.Base(path))] = path
+	}
+
+	audio.LoadBeatmapSamples(rootSamples, beatMap.getPathCache().GetFile)
+	var referenced []string
+	for _, obj := range beatMap.HitObjects {
+		if provider, ok := obj.(interface{ GetCustomSampleFilenames() []string }); ok {
+			referenced = append(referenced, provider.GetCustomSampleFilenames()...)
+		}
+	}
+	audio.PreloadBeatmapFileSamples(referenced)
 }
 
 func (beatMap *BeatMap) UpdatePlayStats() {

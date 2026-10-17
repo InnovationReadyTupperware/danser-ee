@@ -1,6 +1,7 @@
 package states
 
 import (
+	"errors"
 	"math"
 	"testing"
 
@@ -9,8 +10,100 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/app/graphics"
 	"github.com/innovationreadytupperware/danser-ee/app/rulesets/osu"
 	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/effects"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
 )
+
+func TestBloomEffectInitializesOnlyWhenEnabledAndReusesGPUResources(t *testing.T) {
+	player := &Player{activeMSAA: 4}
+	created := &effects.BloomEffect{}
+	callCount := 0
+	create := func(width, height, samples int) (*effects.BloomEffect, error) {
+		callCount++
+		if width != int(settings.Graphics.GetWidth()) || height != int(settings.Graphics.GetHeight()) || samples != 4 {
+			t.Errorf("bloom dimensions/samples = %dx%d/%d", width, height, samples)
+		}
+		return created, nil
+	}
+
+	if err := player.ensureBloomEffect(false, create); err != nil {
+		t.Fatal(err)
+	}
+	if callCount != 0 || player.bloomEffect != nil {
+		t.Fatal("disabled bloom allocated an effect")
+	}
+
+	if err := player.ensureBloomEffect(true, create); err != nil {
+		t.Fatal(err)
+	}
+	if callCount != 1 || player.bloomEffect != created {
+		t.Fatal("first bloom enable did not allocate its effect")
+	}
+
+	if err := player.ensureBloomEffect(false, create); err != nil {
+		t.Fatal(err)
+	}
+	if err := player.ensureBloomEffect(true, create); err != nil {
+		t.Fatal(err)
+	}
+	if callCount != 1 || player.bloomEffect != created {
+		t.Fatal("bloom disable/re-enable allocated replacement resources")
+	}
+}
+
+func TestBloomFailedLiveEnableWaitsForToggleBeforeRetry(t *testing.T) {
+	player := &Player{activeMSAA: 4}
+	previousEnabled := settings.Playfield.Bloom.Enabled
+	t.Cleanup(func() { settings.Playfield.Bloom.Enabled = previousEnabled })
+	settings.Playfield.Bloom.Enabled = true
+
+	failure := errors.New("GPU allocation failed")
+	attempts := 0
+	create := func(int, int, int) (*effects.BloomEffect, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, failure
+		}
+		return &effects.BloomEffect{}, nil
+	}
+
+	if active, err := player.bloomForFrame(true, create); active || !errors.Is(err, failure) {
+		t.Fatalf("first enable = active %t, error %v; want allocation failure", active, err)
+	}
+	if !settings.Playfield.Bloom.Enabled {
+		t.Fatal("failed bloom allocation changed the user's enabled setting")
+	}
+	// A settings reload can attach a fresh config with Bloom.Enabled=true.
+	// That should not retry allocation or produce another error dialog.
+	for range 4 {
+		if active, err := player.bloomForFrame(true, create); active || err != nil {
+			t.Fatalf("enabled reload = active %t, error %v; want suppressed bloom", active, err)
+		}
+	}
+	if attempts != 1 {
+		t.Fatalf("reloaded enabled settings caused %d attempts, want 1", attempts)
+	}
+
+	if active, err := player.bloomForFrame(false, create); active || err != nil {
+		t.Fatalf("disabling bloom = active %t, error %v", active, err)
+	}
+	if active, err := player.bloomForFrame(true, create); !active || err != nil {
+		t.Fatalf("retry after toggle = active %t, error %v", active, err)
+	}
+	if attempts != 2 || player.bloomEffect == nil {
+		t.Fatalf("retry = %d attempts, bloom effect %v; want two attempts and a valid effect", attempts, player.bloomEffect)
+	}
+	allocated := player.bloomEffect
+	if active, err := player.bloomForFrame(false, create); active || err != nil {
+		t.Fatalf("disabling after recovery = active %t, error %v", active, err)
+	}
+	if active, err := player.bloomForFrame(true, create); !active || err != nil {
+		t.Fatalf("re-enabling after recovery = active %t, error %v", active, err)
+	}
+	if attempts != 2 || player.bloomEffect != allocated {
+		t.Fatal("bloom re-enable allocated GPU resources instead of reusing them")
+	}
+}
 
 type generatedCursorPolicyTestController struct {
 	cursor *graphics.Cursor

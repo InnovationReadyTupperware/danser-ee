@@ -41,6 +41,8 @@ type Background struct {
 	blurredTexture texture.Texture
 	forceRedraw    bool
 	loadGeneration atomic.Uint64
+	allowBlur      bool
+	blurAttempted  bool
 
 	blurActive bool
 
@@ -60,16 +62,11 @@ func NewBackgroundWithoutBlur(loadDefault bool) *Background {
 	return newBackground(loadDefault, false)
 }
 
-func newBackground(loadDefault, allocateBlur bool) *Background {
+func newBackground(loadDefault, allowBlur bool) *Background {
 	bg := new(Background)
 	bg.blurVal = -1
-	if allocateBlur {
-		var err error
-		bg.blur, err = effects.NewBlurEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
-		if err != nil {
-			log.Printf("Background: Warning: blur disabled because render targets could not be created: %v", err)
-		}
-	}
+	bg.allowBlur = allowBlur
+	bg.initializeBlur(effects.NewBlurEffect)
 	bg.blurActive = settings.Playfield.Background.Blur.Enabled && bg.blur != nil
 
 	if loadDefault {
@@ -96,6 +93,29 @@ func newBackground(loadDefault, allocateBlur bool) *Background {
 	}
 
 	return bg
+}
+
+// initializeBlur runs on the GL thread during construction or after blur is
+// enabled. A failed allocation is retried only after blur is switched off and
+// on again, avoiding repeated GPU work on each frame.
+func (bg *Background) initializeBlur(create func(int, int) (*effects.BlurEffect, error)) {
+	if !bg.allowBlur {
+		return
+	}
+	if !settings.Playfield.Background.Blur.Enabled {
+		bg.blurAttempted = false
+		return
+	}
+	if bg.blurAttempted || bg.blur != nil {
+		return
+	}
+
+	bg.blurAttempted = true
+	var err error
+	bg.blur, err = create(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()))
+	if err != nil {
+		log.Printf("Background: Warning: blur disabled because render targets could not be created: %v", err)
+	}
 }
 
 func (bg *Background) SetBeatmap(beatMap *beatmap.BeatMap, loadDefault, loadStoryboards bool) {
@@ -230,6 +250,7 @@ func (bg *Background) Draw(time float64, batch *batch.QuadBatch, blurVal, bgAlph
 		return
 	}
 
+	bg.initializeBlur(effects.NewBlurEffect)
 	batch.Begin()
 
 	needsRedraw := bg.forceRedraw || (bg.storyboard != nil && bg.storyboard.HasVisuals()) || !bg.blurActive || (settings.Playfield.Background.Triangles.Enabled && !settings.Playfield.Background.Triangles.DrawOverBlur)

@@ -176,24 +176,27 @@ type launcher struct {
 	configManiMode ConfigMode
 	configPrevName string
 
-	newCloneName       string
-	refreshRate        float32
-	configEditOpened   bool
-	danserRunning      bool
-	danserStartPending bool
-	startTimer         *time.Timer
-	recordProgress     float32
-	recordStatus       string
-	recordStatusSpeed  string
-	recordStatusETA    string
-	showProgressBar    bool
+	newCloneName      string
+	refreshRate       float32
+	configEditOpened  bool
+	danserRunning     bool
+	gameplayHandedOff bool
+	pendingStart      *pendingDanserStart
+	recordProgress    float32
+	recordStatus      string
+	recordStatusSpeed string
+	recordStatusETA   string
+	showProgressBar   bool
 
-	triangleSpeed     *animation.Glider
-	encodeInProgress  bool
-	encodeStart       time.Time
-	processSupervisor *processSupervisor
-	closeAfterDanser  bool
-	popupStack        []iPopup
+	triangleSpeed            *animation.Glider
+	encodeInProgress         bool
+	encodeStart              time.Time
+	processSupervisor        *processSupervisor
+	closeAfterDanser         bool
+	popupStack               []iPopup
+	processCancelDialog      *popupDialog
+	processCancelDialogRun   *managedProcess
+	processCancelDialogExits bool
 
 	selectWindow *songSelectPopup
 	audioReady   bool
@@ -868,7 +871,7 @@ func (l *launcher) drawImgui() {
 
 	resetPopupHierarchyInfo()
 
-	lock := l.danserRunning || l.danserStartPending
+	lock := l.danserRunning || l.pendingStart != nil
 
 	if lock {
 		imgui.PushItemFlag(imgui.ItemFlags(imgui.ItemFlagsDisabled), true)
@@ -886,7 +889,7 @@ func (l *launcher) drawImgui() {
 
 	imgui.PushStyleVarVec2(imgui.StyleVarWindowPadding, vec2(5, 5))
 
-	l.drawMain()
+	l.drawMain(lock)
 
 	imgui.PopStyleVar()
 
@@ -901,7 +904,7 @@ func (l *launcher) drawImgui() {
 	DrawImgui()
 }
 
-func (l *launcher) drawMain() {
+func (l *launcher) drawMain(locked bool) {
 	w := contentRegionMax().X
 
 	imgui.PushFont(Font, 24)
@@ -955,6 +958,11 @@ func (l *launcher) drawMain() {
 		l.selectWindow.update()
 	}
 
+	// Modals must remain interactive while the child process locks the
+	// underlying launcher controls.
+	if locked {
+		imgui.PopItemFlag()
+	}
 	for i := 0; i < len(l.popupStack); i++ {
 		p := l.popupStack[i]
 		p.draw()
@@ -965,6 +973,9 @@ func (l *launcher) drawMain() {
 			l.popupStack = l.popupStack[:last]
 			i--
 		}
+	}
+	if locked {
+		imgui.PushItemFlag(imgui.ItemFlags(imgui.ItemFlagsDisabled), true)
 	}
 
 	imgui.PopFont()
@@ -1684,13 +1695,13 @@ func (l *launcher) drawLowerPanel() {
 	centerTable("dansebutton", w/2.5, func() {
 		imgui.PushFont(Font, 48)
 		{
-			dRun := l.danserRunning && launcherConfig.CurrentPMode == Record
+			dRun := l.pendingStart != nil || l.danserRunning
 
 			s := l.bld.launchDisabled()
 
 			if dRun {
 				// drawImgui disables the entire interface while a child is
-				// running. Temporarily remove that outer flag only for CANCEL.
+				// running. Temporarily remove that outer flag for the stop button.
 				imgui.PopItemFlag()
 			} else if s {
 				imgui.PushItemFlag(imgui.ItemFlags(imgui.ItemFlagsDisabled), true)
@@ -1698,30 +1709,30 @@ func (l *launcher) drawLowerPanel() {
 
 			name := "danse!"
 			if dRun {
-				name = "CANCEL"
+				name = "Stop"
+			}
+			if l.pendingStart != nil {
+				name = "Cancel"
 			}
 
 			if imgui.ButtonV(name, vec2(bW, fHwS)) {
 				if dRun {
-					if l.processSupervisor != nil && showMessage(mQuestion, "Do you really want to cancel?") {
-						l.processSupervisor.stop()
-					}
+					l.requestProcessCancellation(false)
 				} else if launcherConfig.CurrentPMode == Screenshot &&
 					screenshotTimeNeedsConfiguration(l.bld, launcherConfig.CurrentMode) {
 					l.openOutputSettingsDialog(true)
 				} else {
+					clickedAt := time.Now()
 					if l.selectWindow != nil {
 						l.selectWindow.stopPreview()
 					}
 
-					log.Println(l.bld.getArguments())
+					l.animateTriangleLaunch()
 
-					l.triangleSpeed.AddEventS(l.triangleSpeed.GetTime(), l.triangleSpeed.GetTime()+1000, 50, 1)
-
-					if launcherConfig.CurrentPMode != Watch {
-						l.startDanser()
+					if launcherConfig.CurrentPMode == Watch {
+						l.scheduleDanserStart(clickedAt)
 					} else {
-						l.scheduleDanserStart()
+						l.startDanser(clickedAt)
 					}
 				}
 			}
@@ -1735,6 +1746,21 @@ func (l *launcher) drawLowerPanel() {
 			imgui.PopFont()
 		}
 	})
+}
+
+// animateTriangleLaunch briefly accelerates the background triangles before
+// easing back to normal speed. Replace any queued animation after a canceled
+// launch, so a stale deceleration cannot interrupt a new launch.
+func (l *launcher) animateTriangleLaunch() {
+	if l.triangleSpeed == nil {
+		return
+	}
+	l.triangleSpeed.Reset()
+	start := l.triangleSpeed.GetTime()
+	rampEnd := start + float64(triangleLaunchRampDuration/time.Millisecond)
+	end := start + float64(triangleLaunchAnimationDuration/time.Millisecond)
+	l.triangleSpeed.AddEventEase(start, rampEnd, triangleLaunchPeakSpeed, easing.InQuad)
+	l.triangleSpeed.AddEventSEase(rampEnd, end, triangleLaunchPeakSpeed, 1, easing.OutCubic)
 }
 
 func (l *launcher) openOutputSettingsDialog(focusScreenshotTime bool) {

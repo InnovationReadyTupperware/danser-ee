@@ -1,6 +1,90 @@
 package common
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/innovationreadytupperware/danser-ee/app/settings"
+	"github.com/innovationreadytupperware/danser-ee/framework/graphics/effects"
+)
+
+func TestBackgroundBlurCreatedWhenEnabled(t *testing.T) {
+	previousEnabled := settings.Playfield.Background.Blur.Enabled
+	t.Cleanup(func() { settings.Playfield.Background.Blur.Enabled = previousEnabled })
+	settings.Playfield.Background.Blur.Enabled = false
+
+	bg := &Background{allowBlur: true}
+	created := 0
+	create := func(_, _ int) (*effects.BlurEffect, error) {
+		created++
+		return &effects.BlurEffect{}, nil
+	}
+
+	bg.initializeBlur(create)
+	if created != 0 || bg.blur != nil {
+		t.Fatal("disabled blur allocated a render target")
+	}
+
+	settings.Playfield.Background.Blur.Enabled = true
+	bg.initializeBlur(create)
+	if created != 1 || bg.blur == nil {
+		t.Fatal("enabling blur did not allocate its render targets")
+	}
+
+	settings.Playfield.Background.Blur.Enabled = false
+	bg.initializeBlur(create)
+	settings.Playfield.Background.Blur.Enabled = true
+	bg.initializeBlur(create)
+	if created != 1 {
+		t.Fatalf("blur was allocated %d times, want once", created)
+	}
+}
+
+func TestBackgroundBlurDisabledForLauncher(t *testing.T) {
+	previousEnabled := settings.Playfield.Background.Blur.Enabled
+	t.Cleanup(func() { settings.Playfield.Background.Blur.Enabled = previousEnabled })
+	settings.Playfield.Background.Blur.Enabled = true
+
+	bg := &Background{}
+	bg.initializeBlur(func(_, _ int) (*effects.BlurEffect, error) {
+		t.Fatal("launcher background must not allocate blur")
+		return nil, nil
+	})
+}
+
+func TestBackgroundBlurFailureRetryRequiresOffOnToggle(t *testing.T) {
+	previousEnabled := settings.Playfield.Background.Blur.Enabled
+	t.Cleanup(func() { settings.Playfield.Background.Blur.Enabled = previousEnabled })
+	settings.Playfield.Background.Blur.Enabled = true
+
+	bg := &Background{allowBlur: true}
+	attempts := 0
+	create := func(_, _ int) (*effects.BlurEffect, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, errors.New("test render target failure")
+		}
+		return &effects.BlurEffect{}, nil
+	}
+	bg.initializeBlur(create)
+	for range 4 {
+		bg.initializeBlur(create)
+	}
+	if attempts != 1 || bg.blur != nil {
+		t.Fatalf("blur failure produced %d attempts and blur %v, want one attempt and nil blur", attempts, bg.blur)
+	}
+	settings.Playfield.Background.Blur.Enabled = false
+	bg.initializeBlur(create)
+	settings.Playfield.Background.Blur.Enabled = true
+	bg.initializeBlur(create)
+	if attempts != 2 || bg.blur == nil {
+		t.Fatalf("blur re-enable produced %d attempts and blur %v, want a successful second attempt", attempts, bg.blur)
+	}
+	bg.initializeBlur(create)
+	if attempts != 2 {
+		t.Fatalf("working blur allocated %d times, want once after recovery", attempts)
+	}
+}
 
 func TestNDCToPixels(t *testing.T) {
 	tests := []struct {

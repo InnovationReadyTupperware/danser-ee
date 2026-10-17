@@ -25,6 +25,8 @@ const (
 	launcherCatalogErrorEvent
 	launcherBeatmapChangedEvent
 	launcherProcessStartedEvent
+	launcherProcessSplashReadyEvent
+	launcherProcessHandoffTimeoutEvent
 	launcherProcessEncodingStartedEvent
 	launcherProcessEncodingFinishedEvent
 	launcherProcessProgressEvent
@@ -63,10 +65,7 @@ func (l *launcher) shutdown() {
 	}
 
 	l.shutdownOnce.Do(func() {
-		if l.startTimer != nil {
-			l.startTimer.Stop()
-			l.startTimer = nil
-		}
+		l.cancelPendingDanserStart()
 		if l.runtimeCancel != nil {
 			l.runtimeCancel()
 		}
@@ -203,6 +202,8 @@ func (l *launcher) applyEvent(event launcherEvent) {
 		l.showBeatmapAlert = qpc.GetMilliTimeF() + delay
 		l.beatmapDirUpdated = true
 	case launcherProcessStartedEvent,
+		launcherProcessSplashReadyEvent,
+		launcherProcessHandoffTimeoutEvent,
 		launcherProcessEncodingStartedEvent,
 		launcherProcessEncodingFinishedEvent,
 		launcherProcessProgressEvent,
@@ -241,7 +242,7 @@ func (l *launcher) handleDrop(event gcontext.DropEvent) {
 			paths = append(paths, name)
 		}
 	}
-	if len(paths) == 0 || l.danserRunning {
+	if len(paths) == 0 || l.danserRunning || l.pendingStart != nil {
 		return
 	}
 
@@ -263,26 +264,15 @@ func (l *launcher) handleDrop(event gcontext.DropEvent) {
 }
 
 func (l *launcher) handleCloseRequest() {
-	if l.danserStartPending {
-		if l.startTimer != nil {
-			l.startTimer.Stop()
-			l.startTimer = nil
-		}
-		l.danserStartPending = false
-		gcontext.SetShouldClose(true)
+	if l.pendingStart != nil {
+		l.requestProcessCancellation(true)
 		return
 	}
-
 	if l.processSupervisor == nil || !l.processSupervisor.running() {
 		gcontext.SetShouldClose(true)
 		return
 	}
 
 	gcontext.SetShouldClose(false)
-	if !showMessage(mQuestion, "Recording is in progress, do you want to exit?") {
-		return
-	}
-
-	l.closeAfterDanser = true
-	l.processSupervisor.stop()
+	l.requestProcessCancellation(true)
 }

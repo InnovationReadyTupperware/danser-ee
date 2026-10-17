@@ -43,6 +43,12 @@ type sampleBank struct {
 	beatmap       [sampleSetCount][hitSoundCount]map[int]*bass.Sample
 	customPaths   map[string]string
 	customSamples map[string]*bass.Sample
+	customMisses  map[string]struct{}
+	invalidPaths  map[string]struct{}
+	// resolveFile is only set between LoadBeatmapSamples and
+	// PreloadBeatmapFileSamples. All filesystem lookups and decoding happen
+	// during that startup window; gameplay uses the populated sample cache.
+	resolveFile func(string) (string, error)
 }
 
 var bank sampleBank
@@ -314,20 +320,43 @@ func resolveBeatmapFileSample(filename string) *bass.Sample {
 	bank.mu.Lock()
 	defer bank.mu.Unlock()
 
+	if _, missing := bank.customMisses[key]; missing {
+		return nil
+	}
+
 	path := bank.customPaths[key]
 	if path == "" {
 		path = bank.customPaths[strings.TrimSuffix(key, filepath.Ext(key))]
 	}
+	if path == "" && bank.resolveFile != nil {
+		path = resolveCustomFilePath(key, bank.resolveFile)
+		if path != "" {
+			if bank.customPaths == nil {
+				bank.customPaths = make(map[string]string)
+			}
+			bank.customPaths[key] = path
+		}
+	}
 	if path == "" {
+		bank.cacheCustomMiss(key)
 		return nil
 	}
 
 	if sample := bank.customSamples[path]; sample != nil {
 		return sample
 	}
+	if _, invalid := bank.invalidPaths[path]; invalid {
+		bank.cacheCustomMiss(key)
+		return nil
+	}
 
 	sample := bass.NewSample(path)
 	if sample == nil {
+		if bank.invalidPaths == nil {
+			bank.invalidPaths = make(map[string]struct{})
+		}
+		bank.invalidPaths[path] = struct{}{}
+		bank.cacheCustomMiss(key)
 		return nil
 	}
 	if bank.customSamples == nil {
@@ -336,6 +365,42 @@ func resolveBeatmapFileSample(filename string) *bass.Sample {
 	bank.customSamples[path] = sample
 
 	return sample
+}
+
+// cacheCustomMiss is called while holding bank.mu. Invalid or missing
+// authored samples must not cause repeated file I/O in gameplay.
+func (bank *sampleBank) cacheCustomMiss(key string) {
+	if bank.customMisses == nil {
+		bank.customMisses = make(map[string]struct{})
+	}
+	bank.customMisses[key] = struct{}{}
+}
+
+// resolveCustomFilePath uses the same sorted-key, last-writer precedence as
+// LoadBeatmapSamples for names with multiple extensions or nested aliases.
+func resolveCustomFilePath(key string, resolve func(string) (string, error)) string {
+	key = strings.ToLower(key)
+	lookup := func(name string) string {
+		candidates := []string{name + ".mp3", name + ".ogg", name + ".wav"}
+		if supportedSampleExtension(name) != "" {
+			candidates = append(candidates, name)
+		}
+		slices.Sort(candidates)
+		for i := len(candidates) - 1; i >= 0; i-- {
+			if path, err := resolve(candidates[i]); err == nil && path != "" {
+				return path
+			}
+		}
+		return ""
+	}
+
+	if path := lookup(key); path != "" {
+		return path
+	}
+	if base := strings.TrimSuffix(key, filepath.Ext(key)); base != key {
+		return lookup(base)
+	}
+	return ""
 }
 
 func normalizeSampleSet(sampleSet int) int {
@@ -571,9 +636,15 @@ func SetLoopRate(channel *bass.SampleChannel, rate float64) {
 
 // LoadBeatmapSamples replaces the map-specific sample bank. Keys are parsed
 // case-insensitively and sorted before loading so duplicate malformed names
-// have deterministic last-writer behavior.
-func LoadBeatmapSamples(fileMap map[string]string) {
+// have deterministic last-writer behavior. The optional resolver handles
+// explicit filenames outside the root inventory without walking every folder.
+func LoadBeatmapSamples(fileMap map[string]string, resolveFile ...func(string) (string, error)) {
 	ClearBeatmapSamples()
+	if len(resolveFile) > 0 {
+		bank.mu.Lock()
+		bank.resolveFile = resolveFile[0]
+		bank.mu.Unlock()
+	}
 
 	keys := make([]string, 0, len(fileMap))
 	for name := range fileMap {
@@ -585,13 +656,7 @@ func LoadBeatmapSamples(fileMap map[string]string) {
 		fileName := strings.TrimSpace(originalName)
 		lowerName := strings.ToLower(filepath.ToSlash(filepath.Clean(fileName)))
 
-		extension := ""
-		for _, candidate := range []string{".wav", ".mp3", ".ogg"} {
-			if strings.HasSuffix(lowerName, candidate) {
-				extension = candidate
-				break
-			}
-		}
+		extension := supportedSampleExtension(lowerName)
 		if extension == "" {
 			continue
 		}
@@ -654,6 +719,38 @@ func LoadBeatmapSamples(fileMap map[string]string) {
 	}
 }
 
+// PreloadBeatmapFileSamples resolves and decodes every explicitly referenced
+// sample during gameplay loading. The runtime only reads the resulting cache:
+// even missing or invalid files must not trigger filesystem or BASS work when
+// a hit is judged. Calling with nil also finalizes the file lookup phase.
+func PreloadBeatmapFileSamples(filenames []string) {
+	seen := make(map[string]struct{}, len(filenames))
+	for _, name := range filenames {
+		key := strings.ToLower(filepath.ToSlash(filepath.Clean(strings.TrimSpace(name))))
+		if key == "" || key == "." {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		resolveBeatmapFileSample(name)
+	}
+
+	bank.mu.Lock()
+	bank.resolveFile = nil
+	bank.mu.Unlock()
+}
+
+func supportedSampleExtension(name string) string {
+	for _, candidate := range []string{".wav", ".mp3", ".ogg"} {
+		if strings.HasSuffix(name, candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
 func splitBeforeDigit(name string) []string {
 	for i, character := range name {
 		if unicode.IsDigit(character) {
@@ -692,6 +789,9 @@ func ClearBeatmapSamples() {
 	}
 	bank.customPaths = nil
 	bank.customSamples = nil
+	bank.customMisses = nil
+	bank.invalidPaths = nil
+	bank.resolveFile = nil
 	bank.mu.Unlock()
 
 	seen := make(map[*bass.Sample]struct{}, len(samples))

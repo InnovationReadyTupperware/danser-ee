@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.1 - Unreleased
+## 1.2.1 - 2026-10-17
 
 ### Added
 
@@ -9,6 +9,16 @@
 ### Changed
 
 - Knockout's default Adaptive blending now turns off additive cursor blending when only one cursor remains visible, while accounting for mirrored copies and revived players
+- Clicking `danse!` in Watch or Play now ramps the background triangles to 25× speed in 60 ms, then eases them back to normal over the rest of a 600 ms animation. Just like before, the launcher waits for the gameplay loading screen before minimizing
+- Active sessions now show `Stop` instead of `CANCEL`, while pending launches show `Cancel`
+- Stopping a running Watch or Play session, recording, or screenshot capture now requires confirmation in the launcher's in-app popup dialog instead of an external dialog
+- Pending Watch and Play launches can now be canceled immediately from the launcher without a confirmation dialog
+
+### Performance
+
+- Gameplay loading now skips preparing bloom and background blur effects when they are disabled, and avoids calculating font spacing for every character pair in advance
+- Custom hitsound loading no longer recursively scans beatmap subfolders, reducing loading work for maps with nested assets
+- Explicitly referenced custom hitsounds, including files in subfolders, are now preloaded before gameplay to avoid first-hit disk reads and audio decoding
 
 ## 1.2.0 - 2026-10-15
 

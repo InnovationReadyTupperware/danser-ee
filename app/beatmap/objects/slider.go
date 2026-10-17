@@ -122,6 +122,12 @@ type Slider struct {
 	movementFallback      bool
 }
 
+// GetCustomSampleFilenames includes edge-specific samples. The trailing
+// hitSample filename on the slider itself is ignored by gameplay.
+func (slider *Slider) GetCustomSampleFilenames() []string {
+	return slider.sampleFiles
+}
+
 func NewSlider(data []string) *Slider {
 	if len(data) < 8 {
 		return nil

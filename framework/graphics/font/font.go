@@ -2,7 +2,12 @@ package font
 
 import (
 	"math"
+	"sync"
 	"unicode"
+
+	fontpkg "golang.org/x/image/font"
+	"golang.org/x/image/font/sfnt"
+	"golang.org/x/image/math/fixed"
 
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/batch"
 	"github.com/innovationreadytupperware/danser-ee/framework/graphics/texture"
@@ -35,7 +40,10 @@ type Font struct {
 	atlas       *texture.TextureAtlas
 	glyphs      map[rune]*glyphData
 	initialSize float64
-	kernTable   map[rune]map[rune]float64
+	sfntFont    *sfnt.Font
+	glyphIndex  map[rune]sfnt.GlyphIndex
+	kernMu      sync.RWMutex
+	kernCache   map[[2]rune]float64
 	biggest     float64
 	Overlap     float64
 	ascent      float64
@@ -45,6 +53,43 @@ type Font struct {
 	drawBg   bool
 	bgBorder float64
 	bgColor  color2.Color
+}
+
+// kerning caches only the pairs text actually uses. The parsed font and glyph
+// indices are immutable after loading; each miss gets its own sfnt buffer.
+func (font *Font) kerning(previous, current rune) float64 {
+	if font.sfntFont == nil {
+		return 0 // Texture fonts have no kerning data
+	}
+
+	pair := [2]rune{previous, current}
+	font.kernMu.RLock()
+	kern, cached := font.kernCache[pair]
+	font.kernMu.RUnlock()
+	if cached {
+		return kern
+	}
+
+	font.kernMu.Lock()
+	defer font.kernMu.Unlock()
+	if kern, cached = font.kernCache[pair]; cached {
+		return kern
+	}
+
+	previousIndex, previousOK := font.glyphIndex[previous]
+	currentIndex, currentOK := font.glyphIndex[current]
+	if !previousOK || !currentOK {
+		font.kernCache[pair] = 0
+		return 0
+	}
+
+	var buffer sfnt.Buffer
+	// Match opentype.Face.Kern: use UnitsPerEm, not the rasterized font size
+	if amount, err := font.sfntFont.Kern(&buffer, previousIndex, currentIndex, fixed.Int26_6(font.sfntFont.UnitsPerEm()), fontpkg.HintingFull); err == nil {
+		kern = float64(amount) / 64
+	}
+	font.kernCache[pair] = kern // Zero-valued pairs must also be cached
+	return kern
 }
 
 func (font *Font) drawInternal(renderer *batch.QuadBatch, x, y, width, size, rotation float64, text string, monospaced bool, color color2.Color) {
@@ -68,17 +113,20 @@ func (font *Font) drawInternal(renderer *batch.QuadBatch, x, y, width, size, rot
 	cos := math.Cos(rotation)
 	sin := math.Sin(rotation)
 
-	for i, c := range text {
+	var previous rune
+	var hasPrevious bool
+	for _, c := range text {
 		char := font.glyphs[c]
 		if char == nil {
+			previous, hasPrevious = c, true
 			continue
 		}
 
-		if i > 0 && font.kernTable != nil && !(monospaced && (unicode.IsDigit(c) || unicode.IsDigit(rune(text[i-1])))) {
-			advance += font.kernTable[rune(text[i-1])][c]
+		if hasPrevious && !(monospaced && (unicode.IsDigit(c) || unicode.IsDigit(previous))) {
+			advance += font.kerning(previous, c)
 		}
 
-		if i > 0 {
+		if hasPrevious {
 			advance -= font.Overlap
 		}
 
@@ -100,6 +148,7 @@ func (font *Font) drawInternal(renderer *batch.QuadBatch, x, y, width, size, rot
 		} else {
 			advance += char.advance
 		}
+		previous, hasPrevious = c, true
 	}
 }
 
@@ -116,17 +165,20 @@ func (font *Font) getWidthInternal(size float64, text string, monospaced bool) f
 
 	scale := size / font.initialSize
 
-	for i, c := range text {
+	var previous rune
+	var hasPrevious bool
+	for _, c := range text {
 		char := font.glyphs[c]
 		if char == nil {
+			previous, hasPrevious = c, true
 			continue
 		}
 
-		if i > 0 && font.kernTable != nil && !(monospaced && (unicode.IsDigit(c) || unicode.IsDigit(rune(text[i-1])))) {
-			advance += font.kernTable[rune(text[i-1])][c]
+		if hasPrevious && !(monospaced && (unicode.IsDigit(c) || unicode.IsDigit(previous))) {
+			advance += font.kerning(previous, c)
 		}
 
-		if i > 0 {
+		if hasPrevious {
 			advance -= font.Overlap
 		}
 
@@ -135,6 +187,7 @@ func (font *Font) getWidthInternal(size float64, text string, monospaced bool) f
 		} else {
 			advance += char.advance
 		}
+		previous, hasPrevious = c, true
 	}
 
 	return advance * scale

@@ -107,16 +107,26 @@ func printCLIUsage() {
 }
 
 func run() {
+	startupProbe := profiler.NewStartupProbe("Gameplay")
 	defer func() {
 		if err := recover(); err != nil {
 			stackTrace := goroutines.GetStackTrace(4)
 			closeHandler(err, stackTrace)
 		}
 	}()
+	defer startupProbe.Dump()
 
 	var startupErr error
 
 	goroutines.CallMain(func() {
+		defer func() {
+			if err := recover(); err != nil {
+				// Startup work runs on the GL thread. A fatal failure there
+				// can terminate the process before run's defer can log timings.
+				startupProbe.Dump()
+				panic(err)
+			}
+		}()
 		id := flag.Int64("id", -1, "Specify the beatmap id. Overrides other beatmap search flags")
 
 		md5 := flag.String("md5", "", "Specify the beatmap md5 hash. Overrides other beatmap search flags")
@@ -186,6 +196,7 @@ func run() {
 		sPatch := flag.String("sPatch", "", "Patches the currently loaded settings")
 
 		flag.Parse()
+		startupProbe.Mark("arguments")
 
 		// The GUI binary routes no-argument launches to the launcher. The CLI
 		// binary reaches this package directly, so provide a useful next step
@@ -355,6 +366,7 @@ func run() {
 			settings.LoadPatch()
 			log.Println("Current config:", settings.GetCompressedString())
 		}
+		startupProbe.Mark("settings")
 
 		player = nil
 		var beatMap *beatmap.BeatMap = nil
@@ -452,6 +464,7 @@ func run() {
 
 			database.Close()
 		}
+		startupProbe.Mark("beatmap-selection")
 
 		assets.Init(build.IsDev())
 
@@ -569,6 +582,7 @@ func run() {
 		}
 
 		log.Println("Window created!")
+		startupProbe.Mark("window")
 
 		err = gcontext.GLInit(*gldebug)
 		if err != nil {
@@ -584,6 +598,7 @@ func run() {
 			}
 			screenFBO = candidate
 		}
+		startupProbe.Mark("graphics-context")
 
 		if !settings.RECORD {
 			discord.Connect()
@@ -596,6 +611,7 @@ func run() {
 		file, _ := assets.Open("assets/fonts/Quicksand-Bold.ttf")
 		font.LoadFont(file)
 		file.Close()
+		startupProbe.Mark("loading-font")
 
 		batch = batch2.NewQuadBatch()
 		batch.Begin()
@@ -610,12 +626,19 @@ func run() {
 
 		batch.End()
 		gcontext.SwapBuffers()
+		startupProbe.Mark("loading-screen-present")
+		if !settings.RECORD {
+			// The launcher waits for this exact readiness message before
+			// minimizing, keeping its window visible during child startup.
+			log.Println("Gameplay: loading screen presented")
+		}
 
 		gcontext.SetSwapInterval(1)
 		lastVSync = true
 
 		bass.Init(settings.RECORD)
 		audio.LoadSamples()
+		startupProbe.Mark("audio-system")
 
 		if settings.PLAY || !settings.KNOCKOUT || settings.SOLOKNOCKOUT || automatedPlayback {
 			if modsNew == nil {
@@ -706,12 +729,13 @@ func run() {
 
 		beatmap.ParseTimingPointsAndPauses(beatMap)
 		beatmap.ParseObjects(beatMap, false, true)
-		beatMap.LoadCustomSamples()
+		startupProbe.Mark("beatmap-objects")
 		player, startupErr = states.NewPlayer(beatMap, automatedPlayback, activeMSAA)
 		if startupErr != nil {
 			startupErr = fmt.Errorf("Gameplay: initialize player: %w", startupErr)
 			return
 		}
+		startupProbe.Mark("player-ready")
 
 		if !settings.RECORD {
 			gcontext.Restore()
@@ -734,7 +758,7 @@ func run() {
 			panic(err)
 		}
 	} else {
-		mainLoopNormal()
+		mainLoopNormal(startupProbe)
 	}
 }
 
@@ -984,7 +1008,7 @@ func mainLoopSS() error {
 	return nil
 }
 
-func mainLoopNormal() {
+func mainLoopNormal(startupProbe *profiler.StartupProbe) {
 	var renderErr error
 	var finishLatencyScheduling func() error
 	probe := profiler.NewStageProbe("MainLoop", "events", "draw", "screenshot", "swap", "limit")
@@ -1076,6 +1100,9 @@ func mainLoopNormal() {
 		profiler.StartGroup("App.mainLoopNormal", profiler.PSwapBuffers)
 
 		gcontext.SwapBuffers()
+		if startupProbe != nil {
+			startupProbe.Mark("first-gameplay-present")
+		}
 		sample.Mark()
 
 		profiler.EndGroup()
@@ -1095,6 +1122,10 @@ func mainLoopNormal() {
 		profiler.EndGroup()
 
 		probe.Commit(sample)
+		if startupProbe != nil {
+			startupProbe.Dump()
+			startupProbe = nil
+		}
 	}, func() {
 		if finishLatencyScheduling == nil {
 			return

@@ -88,7 +88,7 @@ func (f *FileMap) GetFile(path string) (string, error) {
 
 // GetMap explicitly builds a complete recursive cache and returns it. Callers
 // should use GetFile when they need only one asset; this method remains for
-// consumers such as custom beatmap sample loading that need every file.
+// consumers that explicitly need to enumerate every file.
 func (f *FileMap) GetMap() map[string]string {
 	if f == nil {
 		return nil

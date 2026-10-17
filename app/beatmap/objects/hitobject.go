@@ -87,6 +87,15 @@ type HitObject struct {
 	audioSubmissionDisabled bool
 }
 
+// GetCustomSampleFilenames lists explicit files that must be loaded before
+// gameplay. Sliders override this to include all authored edge samples.
+func (hitObject *HitObject) GetCustomSampleFilenames() []string {
+	if hitObject.BasicHitSound.Filename == "" {
+		return nil
+	}
+	return []string{hitObject.BasicHitSound.Filename}
+}
+
 func (hitObject *HitObject) Update(_ float64) bool { return true }
 
 func (hitObject *HitObject) SetTiming(_ *Timings, _ int, _ bool) {}

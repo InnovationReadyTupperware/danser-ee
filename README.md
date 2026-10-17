@@ -111,7 +111,7 @@ The `ee` stands for **Enterprise Edition** - intentionally grandiose naming for 
 
 2. **Extract the whole ZIP to its own directory.**
 
-   Keep the extracted contents together. The release package contains danser alongside the runtime files, assets, and bundled tools it needs, so copying out only the executable is not supported.
+   Run danser from the extracted directory so it can find its bundled runtime files, assets, and tools.
 
 3. **Start danser.**
 
@@ -252,8 +252,27 @@ go build ./...
 ```
 
 > [!NOTE]
-> Use `dist-win.sh` or `dist-linux.sh` for release packages. A normal development
-> build does not assemble the launcher and bundled runtime files.
+> Use `dist-win.sh` or `dist-linux.sh` to assemble release packages with the
+> launcher, runtime files, and bundled assets.
+
+<details>
+<summary><strong>Startup diagnostics</strong></summary>
+
+To see where gameplay startup time goes, set `DANSER_STARTUP_PROBE=1`.
+Danser writes `StartupProbe:` timings to `danser.log`, covering beatmap
+selection, the loading screen, audio and object loading, and player setup.
+Each entry shows the time since startup and since the previous checkpoint.
+Player setup gets its own detailed breakdown, and interactive runs also
+measure the time to the first gameplay frame.
+
+On PowerShell:
+
+```powershell
+$env:DANSER_STARTUP_PROBE = '1'
+.\danser-ee.exe <arguments>
+```
+
+</details>
 
 <details>
 <summary><strong>Frame pacing diagnostics</strong></summary>

@@ -44,6 +44,7 @@ import (
 	"github.com/innovationreadytupperware/danser-ee/framework/math/mutils"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/scaling"
 	"github.com/innovationreadytupperware/danser-ee/framework/math/vector"
+	"github.com/innovationreadytupperware/danser-ee/framework/platform"
 	"github.com/innovationreadytupperware/danser-ee/framework/platform/gcontext"
 	"github.com/innovationreadytupperware/danser-ee/framework/profiler"
 	"github.com/innovationreadytupperware/danser-ee/framework/qpc"
@@ -55,7 +56,10 @@ type Player struct {
 	font        *font.Font
 	bMap        *beatmap.BeatMap
 	bloomEffect *effects.BloomEffect
-	activeMSAA  int
+	// Failed live allocation is suppressed until the effect is switched off.
+	// Reloading an unchanged enabled setting must not repeat the error dialog.
+	bloomUnavailable bool
+	activeMSAA       int
 
 	lastTime         int64
 	lastDrawDuration time.Duration
@@ -189,6 +193,8 @@ type Player struct {
 // standalone generated replay playback, which is internally routed through the
 // knockout controller but still owns the seek-time object window.
 func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int) (*Player, error) {
+	startupProbe := profiler.NewStartupProbe("Player")
+	defer startupProbe.Dump()
 	player := new(Player)
 	player.automatedPlayback = automatedPlayback
 	player.activeMSAA = activeMSAA
@@ -212,6 +218,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 	} else {
 		player.batch = batch2.NewQuadBatch()
 	}
+	startupProbe.Mark("textures-and-batch")
 
 	player.font = font.GetFont("Quicksand Bold")
 
@@ -235,6 +242,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 
 		player.musicPlayer = track
 	}
+	startupProbe.Mark("music-track")
 
 	var err error
 	player.Epi, err = utils.LoadTextureToAtlas(graphics.Atlas, "assets/textures/warning.png")
@@ -259,8 +267,15 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 		}
 	}
 
+	// Resolve and decode the samples for the actual playback window, including
+	// explicit nested files, before any gameplay update can submit a hit.
+	// Load after trimming so short clips don't decode unused hit sounds.
+	beatMap.LoadCustomSamples()
+	startupProbe.Mark("custom-samples")
+
 	player.background = common.NewBackground(true)
 	player.background.SetBeatmap(beatMap, true, true)
+	startupProbe.Mark("background-and-storyboard")
 
 	player.mainCamera = camera2.NewCamera()
 	player.mainCamera.SetOsuViewport(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), settings.Playfield.Scale, true, settings.Playfield.OsuShift)
@@ -291,6 +306,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 	graphics.Camera = player.mainCamera
 
 	player.bMap.Reset()
+	startupProbe.Mark("beatmap-reset")
 
 	if settings.PLAY {
 		player.controller = dance.NewPlayerController()
@@ -322,10 +338,12 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 		player.controller.SetBeatMap(player.bMap)
 		player.controller.InitCursors()
 	}
+	startupProbe.Mark("controllers-and-overlays")
 
 	player.lastTime = -1
 
 	player.objectContainer = containers.NewHitObjectContainer(beatMap)
+	startupProbe.Mark("follow-points")
 
 	player.Scl = 1
 	player.fadeOut = 1.0
@@ -540,14 +558,15 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 	player.coin.SetMap(beatMap, player.musicPlayer)
 
 	player.coin.SetScale(0.25 * min(settings.Graphics.GetWidthF(), settings.Graphics.GetHeightF()))
+	startupProbe.Mark("timeline-and-logo")
 
 	player.drawStats = frame.NewFrameStats()
 
-	player.bloomEffect, err = effects.NewBloomEffect(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), activeMSAA)
-	if err != nil {
+	if err = player.ensureBloomEffect(settings.Playfield.Bloom.Enabled, effects.NewBloomEffect); err != nil {
 		player.Dispose()
 		return nil, fmt.Errorf("initialize bloom effect: %w", err)
 	}
+	startupProbe.Mark("bloom")
 	player.background.Update(player.progressMsF, settings.Graphics.GetWidthF()/2, settings.Graphics.GetHeightF()/2)
 
 	player.updateStats = frame.NewFrameStats()
@@ -570,6 +589,7 @@ func NewPlayer(beatMap *beatmap.BeatMap, automatedPlayback bool, activeMSAA int)
 			log.Println(fmt.Sprintf("Online offset loaded: %.0fms", player.onlineOffset))
 		}
 	}
+	startupProbe.Mark("remaining-setup-and-online-offset")
 
 	if settings.RECORD {
 		return player, nil
@@ -1109,6 +1129,40 @@ func (player *Player) applyPlaybackRate(tempo, pitch, relativeFrequency float64)
 	player.publishAudioClock()
 }
 
+// ensureBloomEffect runs only on the GL thread, during startup or immediately
+// before the first bloom draw after a live settings change. Keep the allocated
+// effect across disable/re-enable transitions to avoid repeated GPU setup.
+func (player *Player) ensureBloomEffect(enabled bool, create func(int, int, int) (*effects.BloomEffect, error)) error {
+	if !enabled || player.bloomEffect != nil {
+		return nil
+	}
+
+	effect, err := create(int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), player.activeMSAA)
+	if err != nil {
+		return err
+	}
+	player.bloomEffect = effect
+	return nil
+}
+
+// bloomForFrame attempts allocation at most once per enabled interval. A
+// settings reload that keeps bloom enabled cannot repeat a failed allocation;
+// switching bloom off and back on allows a new attempt.
+func (player *Player) bloomForFrame(requested bool, create func(int, int, int) (*effects.BloomEffect, error)) (bool, error) {
+	if !requested {
+		player.bloomUnavailable = false
+		return false, nil
+	}
+	if player.bloomUnavailable {
+		return false, nil
+	}
+	if err := player.ensureBloomEffect(true, create); err != nil {
+		player.bloomUnavailable = true
+		return false, err
+	}
+	return true, nil
+}
+
 func (player *Player) DrawMain(float64) {
 	sample := player.drawProbe.Begin()
 	profiler.StartGroup("Player.DrawMain", profiler.PDraw)
@@ -1181,7 +1235,12 @@ func (player *Player) DrawMain(float64) {
 		scale2 = 1
 	}
 
-	bloomEnabled := settings.Playfield.Bloom.Enabled
+	bloomEnabled, bloomErr := player.bloomForFrame(settings.Playfield.Bloom.Enabled, effects.NewBloomEffect)
+	if bloomErr != nil {
+		message := fmt.Sprintf("Graphics: Failed to enable bloom for %dx%d (%dx MSAA): %v", int(settings.Graphics.GetWidth()), int(settings.Graphics.GetHeight()), player.activeMSAA, bloomErr)
+		log.Print(message)
+		platform.ShowErrorDialog(gcontext.SDLWindow(), message+"\n\nTurn Bloom off and back on in settings to retry.")
+	}
 
 	if bloomEnabled {
 		player.bloomEffect.SetThreshold(settings.Playfield.Bloom.Threshold)
@@ -1511,7 +1570,7 @@ func (player *Player) drawDebug() {
 
 			drawWithBackground("VSync: %t", settings.Graphics.VSync)
 			drawWithBackground("Blur: %t", settings.Playfield.Background.Blur.Enabled)
-			drawWithBackground("Bloom: %t", settings.Playfield.Bloom.Enabled)
+			drawWithBackground("Bloom: %t", settings.Playfield.Bloom.Enabled && !player.bloomUnavailable)
 
 			msaa := "OFF"
 			if player.activeMSAA > 0 {

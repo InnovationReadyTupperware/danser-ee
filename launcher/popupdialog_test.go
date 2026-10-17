@@ -38,6 +38,34 @@ func TestPopupDialogActionAppearances(t *testing.T) {
 	if !destructive.destructive {
 		t.Fatal("destructivePopupDialogAction() destructive = false, want true")
 	}
+	if destructive.appearance != popupDialogActionFilled {
+		t.Fatal("default destructive action should retain its filled style")
+	}
+
+}
+
+func TestPopupDialogHorizontalActionOrder(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		options    []popupDialogOption
+		wantLabels [2]string
+	}{
+		{"default dismiss first", nil, [2]string{"Keep playing", "Stop game"}},
+		{"confirmation primary first", []popupDialogOption{withPopupDialogPrimaryActionFirst()}, [2]string{"Stop game", "Keep playing"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := append([]popupDialogOption{
+				withPopupDialogPrimaryAction(newPopupDialogAction("Stop game", nil)),
+				withPopupDialogDismissAction(newPopupDialogAction("Keep playing", nil)),
+			}, test.options...)
+			dialog := newPopupDialog("order", "Stop?", options...)
+			for i, action := range dialog.horizontalActionOrder() {
+				if action == nil || action.label != test.wantLabels[i] {
+					t.Fatalf("button at position %d = %v, want %q", i, action, test.wantLabels[i])
+				}
+			}
+		})
+	}
 }
 
 func TestPopupDialogConditionalClose(t *testing.T) {

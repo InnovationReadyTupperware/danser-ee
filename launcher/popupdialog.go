@@ -61,6 +61,13 @@ const (
 	popupDialogActionOutlined
 )
 
+type popupDialogActionOrder uint8
+
+const (
+	popupDialogDismissFirst popupDialogActionOrder = iota
+	popupDialogPrimaryFirst
+)
+
 type popupDialogAction struct {
 	label       string
 	onClick     func()
@@ -106,6 +113,7 @@ type popupDialog struct {
 	primaryAction *popupDialogAction
 	dismissAction *popupDialogAction
 	extraAction   *popupDialogAction
+	actionOrder   popupDialogActionOrder
 
 	tone       popupDialogTone
 	properties popupDialogProperties
@@ -159,6 +167,12 @@ func outlinedPopupDialogAction(label string, onClick func()) popupDialogAction {
 
 func destructivePopupDialogAction(label string, onClick func()) popupDialogAction {
 	action := newPopupDialogAction(label, onClick)
+	action.destructive = true
+	return action
+}
+
+func outlinedDestructivePopupDialogAction(label string, onClick func()) popupDialogAction {
+	action := outlinedPopupDialogAction(label, onClick)
 	action.destructive = true
 	return action
 }
@@ -229,6 +243,14 @@ func withPopupDialogTone(tone popupDialogTone) popupDialogOption {
 func withPopupDialogDismissAction(action popupDialogAction) popupDialogOption {
 	return func(dialog *popupDialog) {
 		dialog.dismissAction = new(action)
+	}
+}
+
+// Fluent-style confirmation dialogs place the action before the safe dismissal.
+// Other dialogs retain the default dismiss-first arrangement.
+func withPopupDialogPrimaryActionFirst() popupDialogOption {
+	return func(dialog *popupDialog) {
+		dialog.actionOrder = popupDialogPrimaryFirst
 	}
 }
 
@@ -622,19 +644,34 @@ func (d *popupDialog) drawActions(palette popupDialogPalette) {
 		imgui.SetCursorPosX(startX + available - rightWidth)
 	}
 
-	if d.dismissAction != nil {
-		if d.drawActionButton(*d.dismissAction, "dismiss", dismissWidth, palette) {
-			d.activateActionAt(*d.dismissAction, time.Now())
+	drawnRight := false
+	for _, action := range d.horizontalActionOrder() {
+		if action == nil {
+			continue
 		}
-		if d.primaryAction != nil {
+		if drawnRight {
 			imgui.SameLineV(0, popupDialogActionGap)
 		}
-	}
-	if d.primaryAction != nil && d.drawActionButton(*d.primaryAction, "primary", primaryWidth, palette) {
-		d.activateActionAt(*d.primaryAction, time.Now())
+		idSuffix, width := "dismiss", dismissWidth
+		if action == d.primaryAction {
+			idSuffix, width = "primary", primaryWidth
+		}
+		if d.drawActionButton(*action, idSuffix, width, palette) {
+			d.activateActionAt(*action, time.Now())
+		}
+		drawnRight = true
 	}
 
 	imgui.PopStyleVar()
+}
+
+// horizontalActionOrder controls the actual left-to-right button rendering.
+// Missing actions are skipped by drawActions without introducing gaps.
+func (d *popupDialog) horizontalActionOrder() [2]*popupDialogAction {
+	if d.actionOrder == popupDialogPrimaryFirst {
+		return [2]*popupDialogAction{d.primaryAction, d.dismissAction}
+	}
+	return [2]*popupDialogAction{d.dismissAction, d.primaryAction}
 }
 
 func (d *popupDialog) drawVerticalActions(available float32, palette popupDialogPalette) {
@@ -678,7 +715,7 @@ func (d *popupDialog) drawActionButton(
 ) bool {
 	label := action.label + "##popup-dialog-" + d.name + "-" + idSuffix
 	if action.appearance == popupDialogActionOutlined {
-		return d.drawOutlinedActionButton(label, width, palette)
+		return d.drawOutlinedActionButton(label, width, palette, action.destructive)
 	}
 
 	base := popupDialogBlendColor(palette.button, palette.buttonHovered, 0.55)
@@ -704,7 +741,7 @@ func (d *popupDialog) drawActionButton(
 	return pressed
 }
 
-func (d *popupDialog) drawOutlinedActionButton(label string, width float32, palette popupDialogPalette) bool {
+func (d *popupDialog) drawOutlinedActionButton(label string, width float32, palette popupDialogPalette, destructive bool) bool {
 	base := palette.button
 	base.W *= 0.35
 	hovered := palette.buttonHovered
@@ -713,12 +750,26 @@ func (d *popupDialog) drawOutlinedActionButton(label string, width float32, pale
 	active.W *= 0.7
 	border := palette.border
 	border.W = max(border.W, float32(0.65))
+	textColor := palette.text
+	if destructive {
+		// Blend the red with the theme's text color for contrast in both light
+		// and dark themes. Keep the fill restrained even on hover and press.
+		accent := popupDialogBlendColor(palette.text, vec4(0.92, 0.23, 0.27, 1), 0.78)
+		textColor = accent
+		border = accent
+		border.W = 0.9
+		base.W = 0.08
+		hovered = accent
+		hovered.W = 0.15
+		active = accent
+		active.W = 0.25
+	}
 
 	imgui.PushStyleVarFloat(imgui.StyleVarFrameBorderSize, 1)
 	imgui.PushStyleColorVec4(imgui.ColButton, base)
 	imgui.PushStyleColorVec4(imgui.ColButtonHovered, hovered)
 	imgui.PushStyleColorVec4(imgui.ColButtonActive, active)
-	imgui.PushStyleColorVec4(imgui.ColText, palette.text)
+	imgui.PushStyleColorVec4(imgui.ColText, textColor)
 	imgui.PushStyleColorVec4(imgui.ColBorder, border)
 	pressed := imgui.ButtonV(label, vec2(width, popupDialogButtonHeight))
 	imgui.PopStyleColorV(5)

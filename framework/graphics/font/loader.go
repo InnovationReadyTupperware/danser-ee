@@ -33,7 +33,9 @@ func LoadFont(reader io.Reader) *Font {
 	fnt.flip = true
 	fnt.initialSize = 128.0
 	fnt.glyphs = make(map[rune]*glyphData)
-	fnt.kernTable = make(map[rune]map[rune]float64)
+	fnt.sfntFont = ttf
+	fnt.glyphIndex = make(map[rune]sfnt.GlyphIndex)
+	fnt.kernCache = make(map[[2]rune]float64)
 
 	fnt.atlas = texture.NewTextureAtlasCC(1024, 5, color2.NewLA(1, 0))
 	fnt.atlas.SetManualMipmapping(true)
@@ -58,6 +60,7 @@ func LoadFont(reader io.Reader) *Font {
 
 	for i := rune(0); i <= unicode.MaxRune; i++ {
 		if idx, _ := ttf.GlyphIndex(buff, i); idx > 0 {
+			fnt.glyphIndex[i] = idx
 			b, gAdv, _ := fc.GlyphBounds(i)
 			w, h := (b.Max.X - b.Min.X).Ceil(), (b.Max.Y - b.Min.Y).Ceil()
 
@@ -108,17 +111,9 @@ func LoadFont(reader io.Reader) *Font {
 
 	fnt.atlas.GenerateMipmaps()
 
-	for i, g := range fnt.glyphs {
+	for _, g := range fnt.glyphs {
 		//Calculate real offset based on ascent calculated above
 		g.offsetY = fnt.ascent - g.offsetY
-
-		fnt.kernTable[i] = make(map[rune]float64)
-
-		for j := range fnt.glyphs {
-			if krn := fc.Kern(i, j); krn != 0 {
-				fnt.kernTable[i][j] = float64(krn) / 64
-			}
-		}
 	}
 
 	fnt.biggest = fnt.glyphs['5'].advance

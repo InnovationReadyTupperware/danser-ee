@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/innovationreadytupperware/danser-ee/app/beatmap"
 	"github.com/innovationreadytupperware/danser-ee/build"
 	"github.com/innovationreadytupperware/danser-ee/framework/env"
 	"github.com/innovationreadytupperware/danser-ee/framework/platform"
@@ -24,8 +25,31 @@ import (
 )
 
 type managedProcess struct {
-	cancel context.CancelFunc
-	done   chan struct{}
+	ctx               context.Context
+	cancel            context.CancelFunc
+	done              chan struct{}
+	mode              Mode
+	outputMode        PMode
+	launchRequestedAt time.Time
+}
+
+// Give Watch launches a short visual lead-in. The final 150ms of triangle
+// deceleration overlaps child startup rather than delaying process creation.
+const (
+	triangleLaunchAnimationDuration = 600 * time.Millisecond
+	triangleLaunchRampDuration      = 60 * time.Millisecond
+	triangleLaunchPeakSpeed         = 25.0
+	watchLaunchGracePeriod          = 450 * time.Millisecond
+)
+
+// pendingDanserStart is accessed only by the launcher frame/event thread.
+// The timer goroutine posts an event carrying this exact request identity.
+type pendingDanserStart struct {
+	clickedAt   time.Time
+	mode        Mode
+	outputMode  PMode
+	selectedMap *beatmap.BeatMap
+	timer       *time.Timer
 }
 
 // processSupervisor owns the complete child-process lifecycle. In particular,
@@ -53,6 +77,8 @@ type processResult struct {
 	outputMode  PMode
 	showFile    bool
 	started     bool
+	startedAt   time.Time
+	observedAt  time.Time
 	encoding    bool
 	resultFile  string
 	diagnostics string
@@ -73,6 +99,15 @@ func (s *processSupervisor) running() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.active != nil
+}
+
+func (s *processSupervisor) currentRun() *managedProcess {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active
 }
 
 func (s *processSupervisor) stop() {
@@ -104,7 +139,7 @@ func (s *processSupervisor) close() {
 	}
 }
 
-func (s *processSupervisor) start(executable string, args []string, mode Mode, outputMode PMode, showFile bool) error {
+func (s *processSupervisor) start(executable string, args []string, mode Mode, outputMode PMode, showFile bool, requestedAt time.Time) error {
 	if s == nil || s.owner == nil {
 		return fmt.Errorf("launcher process supervisor is not initialized")
 	}
@@ -113,7 +148,7 @@ func (s *processSupervisor) start(executable string, args []string, mode Mode, o
 	// through stop before waiting for the child, so no long-lived context needs
 	// to be stored on the supervisor or launcher structs.
 	ctx, cancel := context.WithCancel(context.Background())
-	run := &managedProcess{cancel: cancel, done: make(chan struct{})}
+	run := &managedProcess{ctx: ctx, cancel: cancel, done: make(chan struct{}), mode: mode, outputMode: outputMode, launchRequestedAt: requestedAt}
 
 	s.mu.Lock()
 	if s.active != nil {
@@ -183,6 +218,7 @@ func (s *processSupervisor) execute(ctx context.Context, run *managedProcess, ex
 	}
 
 	result.started = true
+	result.startedAt = time.Now()
 	s.owner.postEventContext(ctx, launcherEvent{
 		kind: launcherProcessStartedEvent,
 		process: processResult{
@@ -191,11 +227,12 @@ func (s *processSupervisor) execute(ctx context.Context, run *managedProcess, ex
 			outputMode: result.outputMode,
 			showFile:   result.showFile,
 			started:    true,
+			startedAt:  result.startedAt,
 		},
 	})
 
 	output := make(chan processOutput, 1)
-	go scanProcessOutput(ctx, s.owner, readPipe, output)
+	go scanProcessOutput(ctx, s.owner, run, result.outputMode, result.startedAt, readPipe, output)
 
 	waitErr := cmd.Wait()
 	// Wait does not own writePipe because it is wrapped by MultiWriter. Close
@@ -219,10 +256,21 @@ type processOutput struct {
 	diagnostics string
 }
 
-func scanProcessOutput(ctx context.Context, owner *launcher, reader io.Reader, output chan<- processOutput) {
+const (
+	gameplayWindowCreatedLog = "Window created!"
+	gameplaySplashReadyLog   = "Gameplay: loading screen presented"
+	gameplayHandoffTimeout   = 5 * time.Second
+)
+
+func scanProcessOutput(ctx context.Context, owner *launcher, run *managedProcess, outputMode PMode, spawnedAt time.Time, reader io.Reader, output chan<- processOutput) {
 	state := processOutput{startedAt: time.Now()}
 	diagnostics := newDiagnosticTail()
+	var handoffTimer *time.Timer
+	splashSeen := false
 	defer func() {
+		if handoffTimer != nil {
+			handoffTimer.Stop()
+		}
 		if recovered := recover(); recovered != nil {
 			diagnostics.add(fmt.Sprintf("output scanner panic: %v", recovered))
 		}
@@ -243,6 +291,28 @@ func scanProcessOutput(ctx context.Context, owner *launcher, reader io.Reader, o
 	for scanner.Scan() {
 		line := scanner.Text()
 		diagnostics.add(line)
+
+		if outputMode == Watch {
+			if strings.HasSuffix(line, gameplaySplashReadyLog) && !splashSeen {
+				splashSeen = true
+				if handoffTimer != nil {
+					handoffTimer.Stop()
+				}
+				owner.postEventContext(ctx, launcherEvent{
+					kind:    launcherProcessSplashReadyEvent,
+					process: processResult{run: run, outputMode: outputMode, startedAt: spawnedAt, observedAt: time.Now()},
+				})
+			} else if strings.HasSuffix(line, gameplayWindowCreatedLog) && handoffTimer == nil && !splashSeen {
+				// A legacy child may not emit the splash signal. Start the fallback
+				// only after it has created its SDL window.
+				handoffTimer = time.AfterFunc(gameplayHandoffTimeout, func() {
+					owner.postEventContext(ctx, launcherEvent{
+						kind:    launcherProcessHandoffTimeoutEvent,
+						process: processResult{run: run, outputMode: outputMode, startedAt: spawnedAt, observedAt: time.Now()},
+					})
+				})
+			}
+		}
 
 		if strings.Contains(line, "Launcher: Open settings") {
 			owner.postEventContext(ctx, launcherEvent{kind: launcherProcessOpenSettingsEvent})
@@ -367,12 +437,61 @@ func (tail *diagnosticTail) string() string {
 	return strings.Join(tail.lines, "\n")
 }
 
-func (l *launcher) startDanser() {
+func (l *launcher) scheduleDanserStart(clickedAt time.Time) {
+	if l.danserRunning || l.pendingStart != nil {
+		return
+	}
+
+	pending := &pendingDanserStart{
+		clickedAt:   clickedAt,
+		mode:        launcherConfig.CurrentMode,
+		outputMode:  launcherConfig.CurrentPMode,
+		selectedMap: l.bld.currentMap,
+	}
+	l.pendingStart = pending
+	pending.timer = time.AfterFunc(watchLaunchGracePeriod, func() {
+		// No launcher state is read on this goroutine. Even if Stop loses a race,
+		// the event-thread identity check rejects canceled or superseded starts.
+		l.postEvent(launcherEvent{
+			kind: launcherStartupTaskEvent,
+			task: func() {
+				l.launchPendingDanserStart(pending)
+			},
+		})
+	})
+}
+
+func (l *launcher) cancelPendingDanserStart() {
+	if l.pendingStart == nil {
+		return
+	}
+	if l.pendingStart.timer != nil {
+		l.pendingStart.timer.Stop()
+	}
+	l.pendingStart = nil
+}
+
+func (l *launcher) launchPendingDanserStart(pending *pendingDanserStart) {
+	if pending == nil || l.pendingStart != pending {
+		return
+	}
+	l.cancelPendingDanserStart()
+	if launcherConfig.CurrentMode != pending.mode || launcherConfig.CurrentPMode != pending.outputMode ||
+		l.bld.currentMap != pending.selectedMap {
+		log.Println("Launcher: Warning: Selected launch changed during triangle animation; skipping gameplay start")
+		if l.triangleSpeed != nil {
+			l.triangleSpeed.Reset()
+			l.triangleSpeed.AddEvent(l.triangleSpeed.GetTime(), l.triangleSpeed.GetTime()+500, 1)
+		}
+		return
+	}
+	l.startDanser(pending.clickedAt)
+}
+
+func (l *launcher) startDanser(clickedAt time.Time) {
 	if l.processSupervisor == nil || l.danserRunning {
 		return
 	}
-	l.danserStartPending = false
-	l.startTimer = nil
 
 	executable := os.Args[0]
 	if build.IsRelease() {
@@ -388,6 +507,7 @@ func (l *launcher) startDanser() {
 		showMessage(mError, "danser failed to start: %s", err)
 		return
 	}
+	log.Println("Launcher: Starting danser with arguments:", args)
 	l.recordProgress = 0
 	l.recordStatus = "Preparing..."
 	l.recordStatusSpeed = ""
@@ -395,36 +515,14 @@ func (l *launcher) startDanser() {
 	l.encodeInProgress = false
 	l.showProgressBar = launcherConfig.CurrentPMode == Record
 	l.danserRunning = true
+	l.gameplayHandedOff = false
 
-	if err := l.processSupervisor.start(executable, args, launcherConfig.CurrentMode, launcherConfig.CurrentPMode, launcherConfig.ShowFileAfter); err != nil {
+	if err := l.processSupervisor.start(executable, args, launcherConfig.CurrentMode, launcherConfig.CurrentPMode, launcherConfig.ShowFileAfter, clickedAt); err != nil {
 		l.danserRunning = false
 		l.showProgressBar = false
 		l.recordStatus = ""
 		showMessage(mError, "danser failed to start: %s", err)
 	}
-}
-
-func (l *launcher) scheduleDanserStart() {
-	if l.danserRunning || l.danserStartPending {
-		return
-	}
-
-	if launcherConfig.CurrentPMode != Watch {
-		l.startDanser()
-		return
-	}
-
-	l.danserStartPending = true
-	l.startTimer = time.AfterFunc(500*time.Millisecond, func() {
-		l.postEvent(launcherEvent{
-			kind: launcherStartupTaskEvent,
-			task: func() {
-				if l.danserStartPending {
-					l.startDanser()
-				}
-			},
-		})
-	})
 }
 
 func (l *launcher) applyProcessEvent(event launcherEvent) {
@@ -434,9 +532,13 @@ func (l *launcher) applyProcessEvent(event launcherEvent) {
 			return
 		}
 
-		if event.process.outputMode == Watch {
-			gcontext.Minimize()
+		if event.process.run != nil && !event.process.run.launchRequestedAt.IsZero() {
+			log.Printf("Launcher: gameplay child spawned after %s", event.process.startedAt.Sub(event.process.run.launchRequestedAt))
 		}
+	case launcherProcessSplashReadyEvent:
+		l.handoffToGameplay(event.process, false)
+	case launcherProcessHandoffTimeoutEvent:
+		l.handoffToGameplay(event.process, true)
 	case launcherProcessEncodingStartedEvent:
 		l.encodeInProgress = true
 		l.encodeStart = time.Now()
@@ -469,12 +571,47 @@ func (l *launcher) applyProcessEvent(event launcherEvent) {
 	}
 }
 
+func (s *processSupervisor) activeRun(run *managedProcess) bool {
+	if s == nil || run == nil {
+		return false
+	}
+	s.mu.Lock()
+	active := s.active == run
+	s.mu.Unlock()
+	if !active || run.ctx == nil || run.ctx.Err() != nil {
+		return false
+	}
+	select {
+	case <-run.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func (l *launcher) handoffToGameplay(result processResult, timedOut bool) {
+	if l.gameplayHandedOff || result.outputMode != Watch || !l.danserRunning ||
+		l.processSupervisor == nil || !l.processSupervisor.activeRun(result.run) {
+		return
+	}
+	l.gameplayHandedOff = true
+	if timedOut {
+		log.Printf("Launcher: gameplay loading-screen signal not received within %s after window creation, proceeding with handoff", gameplayHandoffTimeout)
+	} else if !result.run.launchRequestedAt.IsZero() {
+		log.Printf("Launcher: gameplay loading screen presented after %s (child startup %s)",
+			result.observedAt.Sub(result.run.launchRequestedAt), result.observedAt.Sub(result.startedAt))
+	}
+	gcontext.Minimize()
+}
+
 func (l *launcher) finishDanser(result processResult) {
+	l.dismissProcessCancelDialog(result.run)
 	if l.processSupervisor != nil {
 		l.processSupervisor.finish(result.run)
 	}
 
 	l.danserRunning = false
+	l.gameplayHandedOff = false
 	l.encodeInProgress = false
 	l.recordStatusSpeed = ""
 	l.recordStatusETA = ""
